@@ -1,0 +1,36 @@
+---
+weight: 20
+sourceSHA: 508a17e48c8a204f0dd687d8a3619719bf5e75b2514145e72e1b0d5f72faf021
+---
+
+# Architecture
+
+Tekton Hub consists of multiple components, each with its specific functionality. Below are the main components of Tekton Hub and their functionalities:
+
+## Deployment Architecture
+
+The deployment architecture of Tekton Hub is shown in the diagram below:
+
+<img src="/hub/architecture.svg" width="400" />
+
+## Component Introduction
+
+### Tekton Hub API
+
+The Tekton Hub API is a stateless service responsible for handling user requests and providing data through the API. Its main functionalities include:
+
+- Pulling data from external Git repositories
+- Processing user requests and returning the corresponding data
+- Providing detailed information on tasks and pipelines, tags, ratings, and more
+
+Since the Tekton Hub API is stateless, all of its state information is stored in the Tekton Hub database.
+
+### Tekton Hub Database
+
+The Tekton Hub database is a relational database, which can be PostgreSQL or another type of relational database. Its main functionalities include:
+
+- Storing all state information for the Tekton Hub API
+- Storing data pulled from external Git repositories
+- Providing persistent storage for data
+
+The Tekton Hub database is the core of the entire system, ensuring data persistence and consistency.

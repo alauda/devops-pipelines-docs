@@ -1,0 +1,335 @@
+---
+weight: 40
+---
+
+# Pipelines
+
+A Pipeline is a collection of Tasks that execute in a defined order to implement a CI/CD workflow. Pipelines define the execution flow of Tasks, including their dependencies, parameters, and workspaces, allowing you to create complex automation workflows.
+
+## Why Pipelines are Needed
+
+### Traditional CI/CD Challenges
+
+Traditional CI/CD systems often face challenges in creating complex workflows:
+
+- **Complexity Management**: Difficulty in managing dependencies between different stages
+- **Reusability**: Limited ability to reuse workflow components across projects
+- **Flexibility**: Constraints in adapting workflows to different requirements
+- **Visibility**: Limited insight into workflow execution and progress
+
+### Tekton's Solution
+
+Tekton Pipelines address these challenges by:
+
+- **Declarative Definition**: Pipelines are defined as Kubernetes Custom Resources
+- **Task Orchestration**: Pipelines manage the execution order and dependencies between Tasks
+- **Data Sharing**: Pipelines facilitate data sharing between Tasks through Workspaces and Results
+- **Reusability**: Pipeline components can be shared and reused across projects
+- **Flexibility**: Pipelines support conditional execution and dynamic parameters
+
+## Advantages
+
+- **Modularity**: Break down complex workflows into reusable Tasks
+- **Dependency Management**: Define clear dependencies between Tasks
+- **Parallelism**: Execute independent Tasks concurrently
+- **Conditional Execution**: Run Tasks based on conditions
+- **Result Sharing**: Pass data between Tasks through Results
+- **Workspace Sharing**: Share files and data between Tasks through Workspaces
+- **Reusability**: Create reusable workflow templates
+
+## Scenarios
+
+Pipelines are useful in various scenarios, including:
+
+- **CI/CD Workflows**: Building, testing, and deploying applications
+- **Multi-environment Deployments**: Deploying to development, staging, and production
+- **Complex Build Processes**: Managing dependencies between build steps
+- **Release Management**: Coordinating release activities across multiple components
+- **Infrastructure Automation**: Orchestrating infrastructure provisioning and configuration
+
+## Pipeline Execution Model
+
+When a Pipeline is executed through a PipelineRun:
+
+1. Tekton analyzes the Pipeline to determine the execution order of Tasks
+2. Tasks with no dependencies start executing immediately
+3. Tasks with dependencies wait until their dependencies complete
+4. Tasks that can run in parallel execute concurrently
+5. The Pipeline completes when all Tasks have completed or when a critical Task fails
+
+## Key Concepts
+
+### Task Dependencies
+
+Tasks in a Pipeline can depend on each other in two ways:
+
+1. **Ordering Dependencies**: Using the `runAfter` field to specify that a Task should run after another Task
+2. **Data Dependencies**: When one Task uses the Results of another Task
+
+Example:
+```yaml
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: order-tasks
+spec:
+  tasks:
+    - name: task1
+      taskRef:
+        name: task1
+    - name: task2
+      taskRef:
+        name: task2
+      runAfter:
+        - task1
+      params:
+        - name: param1
+          value: "$(tasks.task1.results.result)"
+    - name: task3
+      taskRef:
+        name: task3
+      params:
+        - name: param1
+          value: "$(tasks.task2.results.result)"
+```
+
+### Parameters
+
+Parameters allow you to pass values to a Pipeline during execution. They can be used to customize the behavior of Tasks within the Pipeline.
+
+#### Use Cases
+
+- Configuring build options
+- Specifying deployment targets
+- Setting version numbers
+- Controlling feature flags
+
+#### Principles
+
+Parameters are:
+- Declared in the Pipeline specification
+- Passed when creating a PipelineRun
+- Made available to Tasks within the Pipeline
+- Can have default values
+
+#### Configuration Example
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: build-and-deploy
+spec:
+  params:
+    - name: image-name
+      type: string
+      description: The name of the image to build
+    - name: environment
+      type: string
+      description: The environment to deploy to
+      default: "development"
+  tasks:
+    - name: build
+      taskRef:
+        name: build-image
+      params:
+        - name: image
+          value: "$(params.image-name)"
+```
+
+### Workspaces
+
+Workspaces allow Tasks in a Pipeline to share data. They are declared at the Pipeline level and then mapped to individual Tasks.
+
+#### Use Cases
+
+- Sharing source code between Tasks
+- Passing build artifacts between Tasks
+- Sharing configuration files
+- Maintaining state across Pipeline executions
+
+#### Principles
+
+Workspaces in Pipelines are:
+- Declared in the Pipeline specification
+- Mapped to Task workspaces
+- Bound to actual storage when creating a PipelineRun
+- Can be shared between multiple Tasks
+
+#### Configuration Example
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: build-test-deploy
+spec:
+  workspaces:
+    - name: source-code
+      description: The workspace containing the source code
+  tasks:
+    - name: fetch-source
+      taskRef:
+        name: git-clone
+      workspaces:
+        - name: output
+          workspace: source-code
+    - name: build
+      taskRef:
+        name: build-app
+      workspaces:
+        - name: source
+          workspace: source-code
+      runAfter:
+        - fetch-source
+```
+
+### Results
+
+Results allow Tasks to produce output values that can be consumed by other Tasks in the Pipeline.
+
+#### Use Cases
+
+- Passing build version information
+- Sharing generated artifact paths
+- Communicating test results
+- Passing deployment URLs
+
+#### Principles
+
+Results in Pipelines are:
+- Produced by Tasks
+- Referenced using the $(tasks.taskName.results.resultName) syntax
+- Used as inputs to subsequent Tasks
+- Can be included in Pipeline results
+
+#### Configuration Example
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: build-and-deploy
+spec:
+  tasks:
+    - name: generate-version
+      taskRef:
+        name: semver
+      results:
+        - name: version
+    - name: build
+      taskRef:
+        name: build-image
+      params:
+        - name: version
+          value: "$(tasks.generate-version.results.version)"
+      runAfter:
+        - generate-version
+  results:
+    - name: build-version
+      value: "$(tasks.generate-version.results.version)"
+```
+
+### Finally Tasks
+
+Finally Tasks are executed after all other Tasks in the Pipeline have completed, regardless of success or failure. They are useful for cleanup operations or notifications.
+
+#### Use Cases
+
+- Cleaning up resources
+- Sending notifications
+- Archiving logs
+- Generating reports
+
+#### Principles
+
+Finally Tasks:
+- Run after all other Tasks have completed
+- Run regardless of whether the Pipeline succeeded or failed
+- Cannot depend on other Tasks
+- Cannot be depended on by other Tasks
+
+#### Configuration Example
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: build-test-deploy
+spec:
+  tasks:
+    - name: build
+      taskRef:
+        name: build-app
+    - name: test
+      taskRef:
+        name: run-tests
+      runAfter:
+        - build
+  finally:
+    - name: cleanup
+      taskRef:
+        name: cleanup-resources
+    - name: notify
+      taskRef:
+        name: send-notification
+```
+
+### Conditional Execution
+
+Tasks can be conditionally executed using the `when` field, which allows you to specify conditions based on Parameters or Results.
+
+#### Use Cases
+
+- Deploying only on specific branches
+- Running tests based on code changes
+- Executing tasks based on user input
+- Skipping tasks based on previous results
+
+#### Principles
+
+Conditional execution:
+- Is defined using the `when` field
+- Can reference Parameters and Results
+- Supports various operators (in, notin)
+- Can combine multiple conditions
+
+#### Configuration Example
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: build-test-deploy
+spec:
+  params:
+    - name: environment
+      type: string
+  tasks:
+    - name: build
+      taskRef:
+        name: build-app
+    - name: deploy-to-production
+      taskRef:
+        name: deploy
+      runAfter:
+        - build
+      when:
+        - input: "$(params.environment)"
+          operator: in
+          values: ["production"]
+```
+
+## Constraints and Limitations
+
+- Pipelines cannot have circular dependencies between Tasks
+- A Pipeline cannot modify its own definition during execution
+- Task Results must be produced before they can be consumed by other Tasks
+- The size of Task Results is limited (typically to a few kilobytes)
+- Pipelines have limited ability to handle dynamic Task creation
+
+## References
+
+- [Tekton Pipelines Official Documentation](https://tekton.dev/docs/pipelines/pipelines/)
+- [Tekton Pipelines GitHub Repository](https://github.com/tektoncd/pipeline)
+- [Kubernetes Custom Resources](https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/)

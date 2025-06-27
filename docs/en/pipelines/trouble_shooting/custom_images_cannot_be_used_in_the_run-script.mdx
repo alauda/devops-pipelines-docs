@@ -1,0 +1,162 @@
+---
+weight: 10
+i18n:
+  title:
+    en: Permission Issues When Using Custom Images in run-script Task
+    zh: 在 run-script Task 中使用自定义镜像时遇到权限不够的问题
+title: Permission Issues When Using Custom Images in run-script Task
+---
+
+# Permission Issues When Using Custom Images in run-script Task
+
+## Problem Description
+
+When using custom images in the Tekton run-script Task, you may encounter issues with insufficient file permissions. This situation usually occurs when the Task is configured to run with a non-root user, while the applications in the custom image require root permissions to function properly, or when there is no non-root user with UID 65532 in the image.
+
+### Error Manifestation
+
+TaskRun execution fails, and the Pod logs display insufficient permissions:
+
+```text
+** Permission denied
+```
+
+## Root Cause Analysis
+
+This issue is typically caused by the following reasons:
+
+1. The `run-script` Task is configured with `runAsUser: 65532`, forcing the Pod to run as a non-root user.
+2. The applications in the custom image require root permissions to execute certain operations, or there is no non-root user with UID 65532 in the image.
+3. The application attempts to access or modify directories or files without permission.
+
+Example Task Configuration:
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: run-script
+spec:
+  steps:
+    - name: run-script
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+```
+
+## Problem Troubleshooting
+
+If this issue occurs only when using the custom image, it is recommended to troubleshoot as follows:
+
+1. Verify whether there are insufficient permissions with the image when run as the root user:
+   ```bash
+   $ docker run -it --rm --user root ${registry} ${cmd}
+   ```
+
+2. Check if the application allows user 65532 to access specific directories or files:
+   ```bash
+   $ docker run -it --rm --user 65532:65532 ${registry} ${cmd} ls -la /path/to/directory
+   ```
+
+3. Check the securityContext configuration of the Task:
+   ```bash
+   $ kubectl get task run-script -o yaml | grep -E 'runAsUser|runAsNonRoot'
+   ```
+
+## Solution
+
+### Option 1: Adjust the Custom Image Build Configuration
+
+#### Prerequisites
+
+- Access and permissions to rebuild the image.
+
+#### Steps
+
+1. Refer to the document on [Adjusting Dockerfile for Task-Compatible Custom Images](../how_to/adjust_dockerfile_for_task_compatible_image.mdx) to modify the Dockerfile configuration.
+2. Ensure that the applications in the image can run normally as user 65532.
+3. Set appropriate permissions for directories and files.
+
+### Option 2: Adjust the Application Configuration
+
+#### Prerequisites
+
+- The application supports configuration adjustments via environment variables or parameters.
+
+#### Steps
+
+1. Set the `HOME` environment variable to point to a directory where permissions are adequate:
+   ```bash
+   # Set HOME environment variable to a temporary directory
+   $ export HOME=$(mktemp -d)
+   # Set git's safe.directory configuration
+   $ git config --global --add safe.directory /workspace/source
+   ```
+
+2. Use application parameters to specify the location of the configuration file:
+   ```bash
+   # Use skopeo's --authfile parameter to specify the location of the authentication file
+   $ skopeo --authfile /workspace/auth.json copy docker://${registry}/${image}:${tag} docker://${registry}/${image}:${tag}
+   ```
+
+### Option 3: Modify the Task Configuration
+
+#### Prerequisites
+
+- Permissions to modify the Task.
+- Evaluate security risks.
+
+#### Steps
+
+1. Remove the runAsNonRoot and runAsUser configurations:
+   ```yaml
+   apiVersion: tekton.dev/v1
+   kind: Task
+   metadata:
+     name: run-script
+   spec:
+     steps:
+       - name: run-script
+         securityContext:
+           # runAsNonRoot: true
+           # runAsUser: 65532
+   ```
+
+2. Alternatively, modify runAsUser to a user with sufficient permissions:
+   ```yaml
+   apiVersion: tekton.dev/v1
+   kind: Task
+   metadata:
+     name: run-script
+   spec:
+     steps:
+       - name: run-script
+         securityContext:
+           # runAsNonRoot: true
+           runAsUser: 0
+   ```
+
+## Preventive Measures
+
+1. Image Build
+   - Prefer building images with non-root users.
+   - Use UID 65532 consistently as a non-root user.
+   - Ensure that applications can run normally as non-root users.
+   - Set appropriate permissions for directories and files.
+
+2. Permission Management
+   - Follow the principle of least privilege.
+   - Plan directory permissions in advance.
+   - Regularly review permission configurations.
+   - Avoid running containers as root users.
+
+3. Application Configuration
+   - Use environment variables or parameters to adjust configurations.
+   - Avoid hard-coding file paths.
+   - Support customization of configuration file locations.
+
+## Related Content
+
+- [Adjusting Dockerfile for Task-Compatible Custom Images](../how_to/adjust_dockerfile_for_task_compatible_image.mdx)
+- [Official Dockerfile Documentation](https://docs.docker.com/get-started/docker-concepts/building-images/writing-a-dockerfile/)
+- [Dockerfile Best Practices](https://docs.docker.com/build/building/best-practices/)

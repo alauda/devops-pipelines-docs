@@ -1,0 +1,203 @@
+---
+weight: 20
+---
+
+# TaskRuns
+
+A TaskRun is a Kubernetes Custom Resource that instantiates a Task for execution. TaskRuns are responsible for executing the steps defined in a Task and managing their lifecycle, providing a way to run Tasks either standalone or as part of a Pipeline.
+
+## Why TaskRuns are Needed
+
+### CI/CD Execution Challenges
+
+In CI/CD systems, there are several challenges related to task execution:
+
+- **Execution Tracking**: Need to track the progress and status of each task execution
+- **Resource Allocation**: Need to allocate appropriate resources for each task
+- **Input/Output Management**: Need to manage inputs to and outputs from task executions
+- **Error Handling**: Need to handle failures and provide debugging information
+- **Auditability**: Need to maintain a record of all task executions for auditing purposes
+
+### Tekton's Solution
+
+Tekton TaskRuns address these challenges by:
+
+- **Execution Instance**: Each TaskRun represents a single execution of a Task with specific inputs
+- **Status Tracking**: TaskRuns track the status of each Step's execution
+- **Resource Binding**: TaskRuns bind actual resources (volumes, credentials) to Task requirements
+- **Result Collection**: TaskRuns collect and store the results produced by Tasks
+- **Kubernetes Integration**: TaskRuns leverage Kubernetes for resource management and scheduling
+
+## Advantages
+
+- **Isolation**: Each TaskRun executes independently, allowing parallel execution of the same Task
+- **Traceability**: TaskRuns provide detailed execution history and logs
+- **Flexibility**: TaskRuns can override Task parameters and workspace bindings
+- **Reusability**: The same Task can be executed with different inputs via different TaskRuns
+- **Integration**: TaskRuns can be triggered by various systems through Kubernetes API
+- **Observability**: TaskRun status and logs can be monitored through Kubernetes tools
+
+## Scenarios
+
+TaskRuns are useful in various scenarios, including:
+
+- **Manual Task Execution**: Running a Task on-demand for testing or debugging
+- **Scheduled Operations**: Running Tasks on a schedule for maintenance operations
+- **Event-Driven Execution**: Triggering Tasks in response to external events
+- **Pipeline Components**: Executing Tasks as part of a larger Pipeline
+- **CI/CD Operations**: Building, testing, and deploying applications
+
+## Constraints and Limitations
+
+- TaskRuns execute on a single Kubernetes node and cannot span multiple nodes
+- Once started, TaskRun parameters cannot be modified
+- TaskRuns have limited retry capabilities for failed Steps
+- TaskRun execution time is limited by the Kubernetes pod timeout
+- TaskRuns cannot be paused once they start executing
+
+## Principles
+
+### TaskRun Execution Model
+
+When a TaskRun is created:
+
+1. Tekton validates the TaskRun specification
+2. Kubernetes creates a Pod for the TaskRun
+3. Each Step in the Task becomes a container in the Pod
+4. Tekton injects an entrypoint binary into each Step container
+5. Steps run sequentially in the order defined in the Task
+6. The TaskRun status is updated as each Step completes
+7. Results are collected and stored in the TaskRun status
+8. The Pod is terminated when all Steps complete or on failure
+
+### TaskRun Status
+
+The TaskRun status provides detailed information about the execution:
+
+1. Overall status (Running, Succeeded, Failed, etc.)
+2. Start and completion times
+3. Individual Step statuses
+4. Task results
+5. Reason for failure (if applicable)
+6. Pod name for accessing logs
+
+## Configuration Examples
+
+### Basic TaskRun Example
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: build-app-run
+spec:
+  taskRef:
+    name: build-app
+  params:
+    - name: image
+      value: my-registry/my-app:latest
+  workspaces:
+    - name: source
+      persistentVolumeClaim:
+        claimName: app-source-pvc
+```
+
+### TaskRun with Embedded Task Definition
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: print-message-run
+spec:
+  taskSpec:
+    params:
+      - name: message
+        type: string
+    steps:
+      - name: print
+        image: ubuntu
+        script: |
+          echo "$(params.message)"
+  params:
+    - name: message
+      value: "Hello, Tekton!"
+```
+
+## Important Parameters
+
+### Timeout
+
+Timeout allows setting a maximum duration for TaskRun execution.
+
+#### Use Cases
+
+- Preventing long-running Tasks from consuming resources indefinitely
+- Ensuring CI/CD pipelines complete within a reasonable timeframe
+- Handling hung or deadlocked Tasks
+
+#### Principles
+
+Timeouts are:
+- Specified in the TaskRun specification
+- Applied to the entire TaskRun execution
+- Measured from the start of the first Step to the completion of the last Step
+- Result in TaskRun failure if exceeded
+
+#### Configuration Example
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: build-with-timeout
+spec:
+  taskRef:
+    name: build-app
+  timeout: "10m"
+  params:
+    - name: image
+      value: my-registry/my-app:latest
+```
+
+### Pod Template
+
+Pod templates allow customizing the Kubernetes Pod configuration for a TaskRun.
+
+#### Use Cases
+
+- Setting resource limits and requests
+- Configuring node selectors and tolerations
+- Adding security contexts
+- Configuring service accounts
+
+#### Principles
+
+Pod templates:
+- Are applied to the Pod created for the TaskRun
+- Can override default Pod configurations
+- Allow fine-grained control over Pod execution environment
+- Can be used to meet specific security or resource requirements
+
+#### Configuration Example
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: build-with-pod-template
+spec:
+  taskRef:
+    name: build-app
+  podTemplate:
+    securityContext:
+      runAsNonRoot: true
+    nodeSelector:
+      disktype: ssd
+```
+
+## References
+
+- [Tekton TaskRuns Official Documentation](https://tekton.dev/docs/pipelines/taskruns/)
+- [Tekton Pipelines GitHub Repository](https://github.com/tektoncd/pipeline)
+- [Kubernetes Custom Resources](https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/)

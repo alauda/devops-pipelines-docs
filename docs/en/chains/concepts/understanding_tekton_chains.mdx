@@ -1,0 +1,436 @@
+---
+weight: 20
+---
+
+# Understanding Tekton Chains
+
+Tekton Chains is a powerful security component within the Tekton ecosystem that helps secure your software supply chain by generating, signing, and storing provenance for artifacts built with Tekton Pipelines. This document provides an in-depth explanation of how Tekton Chains works and its key components.
+
+## Terminology
+
+| Term | Description |
+|------|-------------|
+| SLSA | Supply-chain Levels for Software Artifacts - a security framework for software supply chain integrity |
+| Signature | Cryptographic proof that verifies the authenticity and integrity of provenance data |
+| Attestation | Authenticated metadata about software artifacts, following the in-toto attestation format |
+| Verification | The process of checking the authenticity and integrity of attestation data |
+| Type Hinting | Specially named results/params that help Tekton Chains understand inputs and outputs |
+| Storage Backend | System where Tekton Chains stores provenance and signatures |
+
+Attestation has multiple types of predicates.
+
+| Predicate Type | Description |
+|----------------|-------------|
+| SLSA Provenance | Metadata that describes how an artifact was produced, including the build process, inputs, and environment |
+| SBOM | A document that lists all the components of a software product and their relationships |
+| Vulnerability Scan Results | A report that lists all the vulnerabilities found in a software product |
+| Custom Metadata | Custom metadata about a software product |
+
+## Why Tekton Chains is Needed
+
+### The Software Supply Chain Security Challenge
+
+In traditional software development and delivery pipelines, ensuring the integrity and security of artifacts throughout the supply chain presents significant challenges:
+
+- **Lack of Traceability**: Without proper provenance information, it's difficult to verify where artifacts came from and how they were built
+- **Tampering Risks**: Artifacts can be modified at various stages without detection
+- **Verification Difficulties**: Consumers of artifacts have no reliable way to verify their authenticity
+- **Compliance Challenges**: Organizations struggle to meet increasing regulatory requirements for software supply chain security
+
+These challenges have led to high-profile supply chain attacks like SolarWinds, where malicious code was inserted into the build process, affecting thousands of organizations.
+
+### Tekton Chains' Solution
+
+Tekton Chains addresses these challenges by:
+
+1. **Automatic Provenance Generation**: Capturing detailed metadata about the build process
+2. **Cryptographic Signing**: Ensuring the integrity and authenticity of provenance data
+3. **Standardized Formats**: Supporting industry-standard formats like SLSA provenance
+4. **Flexible Storage**: Providing multiple options for storing and retrieving provenance
+5. **Integration with Existing Tools**: Working with tools like Cosign, Syft, Trivy, Kyverno, Rekor, and cloud KMS services
+    - [Cosign](https://github.com/sigstore/cosign): A tool for signing, verifying, and managing signatures for container images
+    - [Syft](https://github.com/anchore/syft): A tool for generating SBOMs for container images
+    - [Trivy](https://github.com/aquasecurity/trivy): A tool for generating SBOMs and vulnerability scan results for container images, and scanning vulnerabilities
+    - [Kyverno](https://kyverno.io/): Is a policy engine for Kubernetes that can be used to enforce security policies on container images
+    - [Rekor](https://github.com/sigstore/rekor): Is a public transparency log for signed artifacts
+
+By implementing Tekton Chains, organizations can achieve higher levels of supply chain security and meet SLSA compliance requirements.
+
+## Advantages
+
+- **Automation**: Automatically generates and signs provenance without manual intervention
+- **Standardization**: Supports industry-standard formats like SLSA and in-toto
+- **Flexibility**: Works with various signing mechanisms and storage backends
+- **Integration**: Seamlessly integrates with the Tekton Pipelines ecosystem
+- **Transparency**: Provides clear visibility into how artifacts were produced
+- **Compliance**: Helps meet regulatory and industry requirements for supply chain security
+
+## Scenarios
+
+### Scenario 1: Image Signature Verification
+
+A development team wants to ensure the integrity of their container images by implementing cryptographic signatures. By using Tekton Chains, they can automatically sign their built images and verify these signatures throughout their deployment process. This helps prevent unauthorized modifications and ensures that only trusted images are deployed.
+
+### Scenario 2: Build System Provenance Verification
+
+An organization needs to verify the authenticity of their build process and ensure it follows their security requirements. By implementing Tekton Chains, they can generate SLSA Provenance for their container images, providing detailed information about how each image was built. This helps them maintain a secure and auditable build process.
+
+### Scenario 3: Source Code Repository Verification
+
+A team wants to ensure that their container images are built from trusted source code repositories. By using Tekton Chains, they can automatically generate provenance that includes source code repository information and commit details. This helps them verify that images are built from the correct source code and specific commits.
+
+### Scenario 4: Vulnerability Scanning and Verification
+
+A security team needs to ensure that their container images are free from known vulnerabilities before deployment. By implementing Tekton Chains with vulnerability scanning tools, they can automatically scan images for security issues and verify the scan results. This helps them maintain a secure container image registry and prevent vulnerable images from being deployed.
+
+### Scenario 5: Base Image and SBOM Verification
+
+An organization wants to maintain a complete inventory of their container image components and ensure they're using trusted base images. By using Tekton Chains with SBOM generation tools, they can automatically generate and verify software bill of materials for their images. This helps them track dependencies and ensure compliance with their security policies.
+
+### Scenario 6: License Compliance Verification
+
+A legal team needs to ensure that all software components in their container images comply with their license requirements. By implementing Tekton Chains with SBOM verification, they can automatically check the licenses of all components in their images. This helps them maintain compliance with software licensing requirements and avoid potential legal issues.
+
+### Scenario 7: Keyless Signing Verification
+
+A development team wants to implement a zero-trust signing approach without managing signing keys. By using Tekton Chains with keyless signing capabilities, they can automatically sign their artifacts using ephemeral keys and transparency logs. This helps eliminate key management overhead while maintaining strong security guarantees.
+
+## Constraints and Limitations
+
+- **Kubernetes Dependency**: Requires a Kubernetes cluster with Tekton Pipelines installed
+- **Configuration Complexity**: Proper type hinting configuration is required for accurate provenance
+- **Key Management**: Secure management of signing keys is essential
+- **Storage Requirements**: Additional storage is needed for provenance and signatures
+- **Performance Impact**: Signing and storing provenance adds some overhead to the build process
+
+## Principles
+
+### How Tekton Chains Works
+
+Tekton Chains operates through a controller that observes TaskRun and PipelineRun resources in a Kubernetes cluster. The workflow follows these steps:
+
+1. **Observation**: The controller watches for completed TaskRuns and PipelineRuns
+2. **Snapshot**: When a run completes, Chains takes a snapshot of its state
+3. **Formatting**: Chains generates provenance in the configured format (e.g., SLSA)
+4. **Signing**: The provenance is cryptographically signed using the configured method
+5. **Storage**: Both the provenance and signature are stored in the configured backends
+
+![Tekton Chains Workflow](/chains/how-chains-works.png)
+
+### Provenance Generation
+
+Tekton Chains uses type hinting to understand the inputs and outputs of a build process. This information is then used to generate provenance in the specified format:
+
+1. **Input Collection**: Chains identifies input artifacts through type hints
+2. **Build Process Capture**: Details about the build environment and steps are recorded
+3. **Output Identification**: Output artifacts are identified through type hints
+4. **Provenance Assembly**: All information is assembled into a standardized format
+
+### Signing Process
+
+Tekton Chains supports multiple signing methods to accommodate different security requirements:
+
+1. **Key Retrieval**: The signing key is retrieved from the configured source
+2. **Payload Preparation**: The provenance data is prepared for signing
+3. **Signature Generation**: A cryptographic signature is generated
+4. **Verification Data**: Additional data needed for verification is included
+
+## Configuration Examples
+
+### Basic SLSA v1.0 Configuration
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chains-config
+  namespace: tekton-chains
+data:
+  artifacts.taskrun.format: "slsa/v1"
+  artifacts.taskrun.storage: "oci"
+  artifacts.taskrun.signer: "x509"
+  artifacts.pipelinerun.format: "slsa/v1"
+  artifacts.pipelinerun.storage: "oci"
+  artifacts.pipelinerun.signer: "x509"
+  artifacts.oci.format: "simplesigning"
+  artifacts.oci.storage: "oci"
+  artifacts.oci.signer: "x509"
+```
+
+### Type Hinting
+
+:::tip
+More details about type hinting can be found in the [Tekton Chains Type Hinting](https://tekton.dev/docs/chains/slsa-provenance/#type-hinting) documentation.
+:::
+
+Type Hinting is a special mechanism in Tekton Chains that helps Chains understand input artifacts and output artifacts in PipelineRun/TaskRun through specific naming conventions.
+
+**Purpose**
+- Helps Chains correctly identify and record input and output artifacts in the build process
+- Generates accurate SLSA Provenance attestations
+- Ensures traceability and integrity of the build process
+
+There are several ways to specify input and output artifacts:
+
+#### 1. **CHAINS-GIT_URL and CHAINS-GIT_COMMIT combination**
+
+- Special type hints for Git repository information
+- Used to track source code repository details
+- Helps in provenance generation for source code
+
+```yaml
+results:
+  - name: CHAINS-GIT_URL
+    type: string
+  - name: CHAINS-GIT_COMMIT
+    type: string
+```
+
+:::details{title="Example TaskRun"}
+```yaml
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: git-clone
+spec:
+  taskSpec:
+    params:
+      - name: url
+        description: Repository URL to clone from.
+        type: string
+        default: "https://github.com/tektoncd/pipeline"
+      - name: revision
+        description: Revision to checkout. (branch, tag, sha, ref, etc...)
+        type: string
+        default: "main"
+    results:
+      - name: CHAINS-GIT_URL
+        type: string
+        description: The precise URL that was fetched by this Task.
+      - name: CHAINS-GIT_COMMIT
+        type: string
+        description: The precise commit SHA that was fetched by this Task.
+    steps:
+      - name: dummy-clone
+        image: bash:latest
+        script: |
+          #!/usr/bin/env bash
+          echo -n "https://github.com/tektoncd/pipeline" | tee $(results.CHAINS-GIT_URL.path)
+          echo -n "7f2f46e1b97df36b2b82d1b1d87c81b8b3d21601" | tee $(results.CHAINS-GIT_COMMIT.path)
+```
+:::
+
+#### 2. **\*ARTIFACT_INPUTS**
+
+> **Note:**
+> - `*` indicates any expression
+
+- Used to specify input artifacts that influenced the build process
+- Helps track dependencies and source materials
+
+```yaml
+results:
+  - name: first-ARTIFACT_INPUTS
+    type: object
+    properties:
+      uri: {}
+      digest: {}
+```
+
+:::details{title="Example TaskRun"}
+```yaml
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: git-clone
+spec:
+  taskSpec:
+    params:
+      - name: url
+        description: Repository URL to clone from.
+        type: string
+        default: "https://github.com/tektoncd/pipeline"
+      - name: revision
+        description: Revision to checkout. (branch, tag, sha, ref, etc...)
+        type: string
+        default: "main"
+    results:
+      - name: source_repo_ARTIFACT_INPUTS
+        description: The source code repo artifact
+        type: object
+        properties:
+          uri: {}
+          digest: {}
+    steps:
+      - name: dummy-clone
+        image: bash:latest
+        script: |
+          #!/usr/bin/env bash
+          echo -n "{\"uri\":\"https://github.com/tektoncd/pipeline\", \"digest\":\"sha1:7f2f46e1b97df36b2b82d1b1d87c81b8b3d21601\"}" > $(results.source_repo_ARTIFACT_INPUTS.path)
+```
+:::
+
+#### 3. **\*IMAGE_URL and \*IMAGE_DIGEST combination**
+
+```yaml
+results:
+  - name: first-image-IMAGE_URL
+    type: string
+  - name: first-image-IMAGE_DIGEST
+    type: string
+```
+
+:::details{title="Example TaskRun"}
+```yaml
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: image-build
+spec:
+  taskSpec:
+    results:
+      - name: first-image-IMAGE_URL
+        type: string
+        description: The precise URL of the OCI image built.
+      - name: first-image-IMAGE_DIGEST
+        type: string
+        description: The algorithm and digest of the OCI image built.
+    steps:
+      - name: dummy-build
+        image: bash:latest
+        script: |
+          #!/usr/bin/env bash
+          echo -n "gcr.io/foo/bar" | tee $(results.first-image-IMAGE_URL.path)
+          echo -n "sha256:586789aa031fafc7d78a5393cdc772e0b55107ea54bb8bcf3f2cdac6c6da51ee" | tee $(results.first-image-IMAGE_DIGEST.path)
+```
+:::
+
+#### 4. **IMAGES**
+
+- Can specify multiple images, separated by commas or newlines
+- Each image must include the complete digest
+
+```yaml
+results:
+  - name: IMAGES
+    type: string
+```
+
+:::details{title="Example TaskRun"}
+```yaml
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: image-build
+spec:
+  taskSpec:
+    results:
+      - name: IMAGES
+        description: The multiple image artifacts
+        type: string
+    steps:
+      - name: dummy-build
+        image: bash:latest
+        script: |
+          #!/usr/bin/env bash
+          echo -n "img1@sha256:digest1, img2@sha256:digest2" | tee $(results.IMAGES.path)
+```
+:::
+
+#### 5. **\*ARTIFACT_URI / \*ARTIFACT_DIGEST combination**
+
+- Similar to IMAGE_URL/IMAGE_DIGEST but with different naming convention
+- Used for specifying artifact location and its digest
+
+```yaml
+results:
+  - name: first-ARTIFACT_URI
+    type: string
+  - name: first-ARTIFACT_DIGEST
+    type: string
+```
+
+#### 6. **\*ARTIFACT_OUTPUTS**
+
+- Uses object type results
+- Must include uri and digest fields
+
+```yaml
+results:
+  - name: first-ARTIFACT_OUTPUTS
+    type: object
+    properties:
+      uri: {}
+      digest: {}
+```
+
+:::details{title="Example TaskRun"}
+```yaml
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: image-build
+spec:
+  taskSpec:
+    results:
+      - name: first-ARTIFACT_OUTPUTS
+        description: The first artifact built
+        type: object
+        properties:
+          uri: {}
+          digest: {}
+    steps:
+      - name: dummy-build
+        image: bash:latest
+        script: |
+          #!/usr/bin/env bash
+          echo -n "{\"uri\":\"gcr.io/foo/bar\", \"digest\":\"sha256:586789aa031fafc7d78a5393cdc772e0b55107ea54bb8bcf3f2cdac6c6da51ee\"}" > $(results.first-ARTIFACT_OUTPUTS.path)
+```
+:::
+
+## Important Parameters
+
+### Storage Configuration
+
+Storage backends determine where provenance and signatures are stored. This is crucial for ensuring that provenance is accessible when needed for verification.
+
+#### Use Cases
+
+- **Tekton Storage**: Useful for debugging and internal verification
+- **OCI Storage**: Ideal for storing provenance alongside container images
+- **GCS/DocDB Storage**: Suitable for centralized storage and management
+
+#### Configuration Example
+
+```yaml
+artifacts.taskrun.storage: "tekton,oci"
+artifacts.pipelinerun.storage: "tekton"
+artifacts.oci.storage: "oci"
+```
+
+### Signing Configuration
+
+The signing configuration determines how provenance is cryptographically signed, which is essential for verifying its authenticity.
+
+#### Use Cases
+
+- **x509**: Standard certificate-based signing
+- **KMS**: Cloud-based key management for enhanced security
+- **Keyless**: Zero-trust signing with ephemeral keys
+
+#### Configuration Example
+
+```yaml
+artifacts.taskrun.signer: "x509"
+artifacts.pipelinerun.signer: "x509"
+artifacts.oci.signer: "x509"
+```
+
+## References
+
+- [Tekton Chains Documentation](https://tekton.dev/docs/chains/)
+- [SLSA Framework](https://slsa.dev/)
+- [In-toto Attestation](https://github.com/in-toto/attestation)
+- [Sigstore Project](https://www.sigstore.dev/)
+- [SBOM](https://www.ntia.gov/page/software-bill-materials)
+- [Cosign Vulnerability Scan results](https://github.com/sigstore/cosign/blob/main/specs/COSIGN_VULN_ATTESTATION_SPEC.md)

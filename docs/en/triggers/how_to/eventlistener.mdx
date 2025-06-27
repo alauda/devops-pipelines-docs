@@ -1,0 +1,374 @@
+---
+title: Setup EventListener
+weight: 60
+---
+
+# Setup EventListener
+
+:::tip
+For an in-depth understanding of EventListener concepts, architecture, and principles, please refer to the [In-Depth Understanding of EventListener](../concepts/eventlistener_concept.mdx) document.
+:::
+
+## Overview
+
+EventListener is a core resource in Tekton Triggers, responsible for receiving and processing external events (such as Webhooks). When an external system triggers an event, the EventListener creates Kubernetes resources (such as PipelineRun) based on the configured triggers.
+
+## Key Features
+
+EventListener has the following key features:
+
+- **Event Listening**: Provides an HTTP endpoint to receive Webhook events from external systems
+- **Event Filtering**: Validates and filters received events using interceptors
+- **Resource Creation**: Automatically creates Kubernetes resources based on trigger definitions
+- **Extensibility**: Supports custom interceptors and various event sources
+- **Security**: Built-in multiple security mechanisms such as Webhook validation
+
+## Configuration Instructions
+
+### Basic Structure
+
+```yaml
+apiVersion: triggers.tekton.dev/v1beta1
+kind: EventListener
+metadata:
+  name: eventlistener
+spec:
+  serviceAccountName: tekton-triggers-sa  # Optional, used to specify ServiceAccount
+  resources:
+    kubernetesResource:
+      serviceType: NodePort  # Service type
+      servicePort: 80       # Service port
+      spec:
+        template:
+          spec:
+            containers:
+              - resources:    # Resource limits
+                  requests:
+                    memory: "64Mi"
+                    cpu: "250m"
+                  limits:
+                    memory: "128Mi"
+                    cpu: "500m"
+  triggers:                  # Trigger configuration
+    - name: trigger-1       # Trigger name
+      interceptors:         # Interceptor configuration
+        - ref:
+            name: "cel"
+          params:
+            - name: "filter"
+              value: "header.match('X-GitHub-Event', 'pull_request')"
+      bindings:            # Trigger bindings
+        - ref: pipeline-binding
+      template:            # Trigger template
+        ref: pipeline-template
+```
+
+### Main Field Descriptions
+
+#### spec.resources.kubernetesResource
+
+Used to configure the Kubernetes resources for the EventListener:
+
+- `serviceType`: Service type (NodePort/ClusterIP/LoadBalancer)
+- `servicePort`: Service port
+- `spec`: Pod template configuration
+
+#### spec.triggers
+
+Defines a set of trigger configurations:
+
+- `name`: Trigger name
+- `interceptors`: List of interceptor configurations
+- `bindings`: Trigger binding configurations
+- `template`: Trigger template configurations
+
+### Security Configurations
+
+EventListener supports multiple security configurations:
+
+1. **ServiceAccount**: Specify running permissions through `spec.serviceAccountName`. Ensure that the specified ServiceAccount is configured with the corresponding permissions.
+2. **Interceptor Validation**: Use CEL interceptors for event validation.
+3. **TLS**: Supports configuring HTTPS certificates.
+
+### Permission Guidelines
+
+To trigger pipeline and tasks properly, the ServiceAccount used by EventListener needs the following permissions:
+
+| Permission                              | Resource                   | Description          |
+| --------------------------------------- | ------------------------- | ------------------- |
+| get, list, watch                        | configmaps                | Read ConfigMaps     |
+| get, list, watch                        | secrets                   | Read Secrets        |
+| get, list, watch                        | serviceaccounts           | Read ServiceAccounts |
+| create, get, list, watch, patch, update | deployments               | Manage Deployments   |
+| create, get, list, watch, patch, update | services                  | Manage Services      |
+| create, get, list, watch, patch, update | pods                      | Manage Pods         |
+| create, get, list, watch, patch, update | events                    | Manage Events        |
+| create                                  | pipelineruns              | Create PipelineRuns  |
+| create                                  | taskruns                  | Create TaskRuns      |
+| get, list, watch                        | clustertriggerbindings    | Read ClusterTriggerBindings |
+| get, list, watch                        | triggerbindings           | Read TriggerBindings   |
+| get, list, watch                        | clusterinterceptors       | Read ClusterInterceptors |
+| get, list, watch                        | interceptors              | Read Interceptors    |
+| get, list, watch                        | triggers                  | Read Triggers        |
+| get, list, watch                        | triggertemplates          | Read TriggerTemplates |
+| get, list, watch                        | eventlisteners            | Read EventListeners  |
+
+Referable ClusterRole:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: eventlistener-role
+rules:
+- apiGroups: [""]
+  resources: ["configmaps", "secrets", "serviceaccounts"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["create", "get", "list", "watch", "patch", "update"]
+- apiGroups: [""]
+  resources: ["services", "pods", "events"]
+  verbs: ["create", "get", "list", "watch", "patch", "update"]
+- apiGroups: ["tekton.dev"]
+  resources: ["pipelineruns", "taskruns"]
+  verbs: ["create"]
+- apiGroups: ["triggers.tekton.dev"]
+  resources:
+    - "clustertriggerbindings"
+    - "triggerbindings"
+    - "clusterinterceptors"
+    - "interceptors"
+    - "triggers"
+    - "triggertemplates"
+    - "eventlisteners"
+  verbs: ["get", "list", "watch"]
+```
+
+## User Guide
+
+Deploying the EventListener needs to be planned according to the scale and the actual network situation of the environment, as described below on how to configure differently based on planning:
+
+### Scale
+
+In different planning scenarios, different configurations can be used to meet varying requirements.
+
+| Scale  | Trigger Count                                         | Resource Settings                         |
+| --- | ------------------------------------------------- | ------------------------------------- |
+| Small Scale | 2 (triggers) * 100 (namespaces) * 10 (pipelines) = 2,000 triggers/cluster | Moderate, more than two replicas        |
+| Medium Scale | 2 (triggers) * 1,000 (namespaces) * 10 (pipelines) = 20,000 triggers/cluster | Moderate, more than two replicas, deploy different EventListeners by namespace |
+
+### Network Configuration
+
+Depending on the priority of the environment and the available network resources, different network configurations can be chosen.
+
+| Network Configuration | Protocol | Description                                          |
+| ------------------ | ------- | -------------------------------------------------- |
+| Official Domain and Certificate | https   | Set up TLS certificates via ClusterIP + Ingress   |
+| Custom Domain and Certificate  | https   | Use self-signed certificates for TLS. Note: There is a risk in the tool-side configuration, not all tools/platforms support skipping or ignoring TLS validation. |
+| NodePort          | http    | Set accessible addresses via NodePort + Cluster / Node IP   |
+
+### Small Scale + HTTPS + ALB Ingress Configuration Example
+
+#### Prerequisites
+
+1. The domain name is configured correctly, and corresponding certificates are in place.
+2. ALB is deployed and configured properly.
+
+#### Configuration Example
+
+<Steps>
+  ### Create Namespace (Optional)
+
+  Ensure there is a Namespace for easy management of EventListener and other permissions; here we use `tekton-webhooks` as an example.
+
+  ```bash
+  kubectl create namespace tekton-webhooks
+  ```
+
+  ### Create EventListener
+
+  Save the following YAML as `eventlistener.yaml`.
+
+  ```yaml
+  apiVersion: triggers.tekton.dev/v1beta1
+  kind: EventListener
+  metadata:
+    name: eventlistener
+    namespace: tekton-webhooks
+    labels:
+      el.tekton.dev/namespaces: all
+      el.tekton.dev/size: small
+  spec:
+    serviceAccountName: "eventlistener" # Custom SA
+    # Listen to triggers from all NS
+    namespaceSelector:
+      matchNames:
+      - '*'
+    # Declare Kubernetes resource, default is Deployment
+    resources:
+      kubernetesResource:
+        serviceType: ClusterIP # ClusterIP service type
+        servicePort: 80  # Service port (container port)
+        replicas: 2 # Replicas
+        spec: # Deployment spec
+          template:
+            metadata:
+              labels:
+                el.tekton.dev/namespaces: all
+                el.tekton.dev/size: small
+            spec: {}
+  ```
+
+  ```bash
+  kubectl apply -f eventlistener.yaml
+  ```
+
+  ### Create ClusterRole
+
+  The following YAML is for `eventlistener-role.yaml`.
+
+  ```yaml
+  apiVersion: rbac.authorization.k8s.io/v1
+  kind: ClusterRole
+  metadata:
+    name: eventlistener-role
+  rules:
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets", "serviceaccounts"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["create", "get", "list", "watch", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["services", "pods", "events"]
+    verbs: ["create", "get", "list", "watch", "patch", "update"]
+  - apiGroups: ["tekton.dev"]
+    resources: ["pipelineruns", "taskruns"]
+    verbs: ["create"]
+  - apiGroups: ["triggers.tekton.dev"]
+    resources:
+      - "clustertriggerbindings"
+      - "triggerbindings"
+      - "clusterinterceptors"
+      - "interceptors"
+      - "triggers"
+      - "triggertemplates"
+      - "eventlisteners"
+    verbs: ["get", "list", "watch"]
+  ```
+
+  ```bash
+  kubectl apply -f eventlistener-role.yaml
+  ```
+
+  ### Create ServiceAccount and Set Permissions
+
+  Create a binding using the ClusterRole and ServiceAccount above.
+
+  ```bash
+  kubectl -n tekton-webhooks create serviceaccount eventlistener
+  kubectl create clusterrolebinding tekton-webhooks:eventlistener:eventlistener-role --clusterrole=eventlistener-role --serviceaccount=tekton-webhooks:eventlistener
+  ```
+
+  ### Create Ingress and TLS Secrets
+
+  ::: info
+
+  You need to set the \<host> with the corresponding domain name and certificate information.
+  :::
+
+  ```yaml
+  apiVersion: networking.k8s.io/v1
+  kind: Ingress
+  metadata:
+    name: eventlistener-ingress
+    annotations:
+      ### Note ALB does not require setting ingressClassName
+      ## kubernetes.io/ingress.class: "nginx" ## Follow changes to the ingress class, and remember to add corresponding ingress annotations.
+      ### The following configuration should be customized based on requirements:
+      alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}, {"HTTP":80}]'
+      alb.ingress.kubernetes.io/scheme: internet-facing
+      alb.ingress.kubernetes.io/target-type: ip
+  spec:
+    ### Note ALB does not require setting ingressClassName
+    ## ingressClassName: alb ## Change according to the required ingress class
+    tls:
+    - hosts:
+      - <host> # Domain name setting
+      secretName: <tls secret> # Name of the secret containing TLS certificate
+    rules:
+    - host: <host> # Domain name setting
+      http:
+        paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: el-eventlistener 
+              port:
+                number: 80
+
+  ```
+
+  ### Validate Webhook Configuration
+
+  You can test whether the configuration is normal using the following `curl`.
+
+  ```bash
+  curl -k -X POST -H 'Content-Type: application/json' -d '{"hello": "world"}' <host>
+
+  ## The following is the expected return format:
+  $> {
+    "eventListener": "eventlistener",
+    "namespace": "tekton-webhooks",
+    "eventListenerUID": "8a7edab2-b426-453a-9f92-xxxxxx",
+    "eventID": "aefd3b5b-2b19-4a14-b411-xxxxxxx"
+  }
+  ```
+</Steps>
+
+## Best Practices
+
+1. **Resource Limits**:
+   - Set appropriate resource requests and limits for EventListener Pods.
+   - Adjust the number of replicas based on actual load.
+
+2. **Security**:
+   - Use HTTPS and Webhook Secrets.
+   - Configure the least privilege ServiceAccount.
+   - Validate all incoming events using interceptors.
+
+3. **Availability**:
+   - Expose services using LoadBalancer or Ingress.
+   - Configure appropriate health checks.
+   - Implement high-availability deployments.
+
+4. **Monitoring**:
+   - Monitor EventListener logs.
+   - Set appropriate alert mechanisms.
+   - Track event processing performance.
+
+## Frequently Asked Questions
+
+1. **Events Not Triggering Pipeline**
+   - Check interceptor configurations.
+   - Validate Webhook configuration.
+   - Review EventListener logs.
+
+2. **Permission Issues**
+   - Confirm ServiceAccount permissions.
+   - Check Role and RoleBinding.
+   - Verify namespace access permissions.
+
+3. **Performance Issues**
+   - Adjust resource limits.
+   - Optimize interceptor configurations.
+   - Consider horizontal scaling.
+
+## Reference Links
+
+- [Tekton Triggers Official Documentation](https://tekton.dev/docs/triggers/)
+- [EventListener API Reference](https://tekton.dev/docs/triggers/eventlisteners/)
+- [Tekton Trigger Examples](https://github.com/tektoncd/triggers/tree/main/examples)
+- [In-Depth Understanding of EventListener](../concepts/eventlistener_concept.mdx)

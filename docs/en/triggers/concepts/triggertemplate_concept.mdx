@@ -1,0 +1,315 @@
+---
+weight: 50
+---
+
+# TriggerTemplate
+
+A TriggerTemplate is a powerful component in Tekton Triggers that defines the blueprint for resources that should be created when an event is detected. It acts as the action part of the event-driven pipeline, specifying exactly what Kubernetes resources (typically TaskRuns or PipelineRuns) should be instantiated in response to events.
+
+## Terminology Explanation
+
+| Term | Description |
+|------|-------------|
+| TriggerTemplate | A Tekton resource that defines what resources to create when an event is detected. |
+| ResourceTemplate | The specification of Kubernetes resources to be created, defined within a TriggerTemplate. |
+| Parameter | A variable in a TriggerTemplate that can be populated with data from event payloads via TriggerBindings. |
+| $(tt.params.x) | The syntax used to reference parameters within resource templates. |
+| generateName | A Kubernetes metadata field that creates resources with unique names by adding a random suffix. |
+
+## Why We Need TriggerTemplate
+
+### The Challenge of Event-Driven Resource Creation
+
+In CI/CD systems that respond to external events, several challenges arise when creating resources:
+
+1. **Dynamic Resource Creation**: Resources like pipelines need to be created with information specific to each event.
+2. **Parameterization**: Different events require different parameters to be passed to pipelines.
+3. **Reusability**: The same resource creation pattern often needs to be reused across multiple events.
+4. **Templating**: Manual resource creation for each event type is error-prone and not scalable.
+
+Without TriggerTemplates, addressing these challenges would require:
+- Custom scripts to generate Kubernetes resources for each event
+- Complex logic to handle parameter substitution
+- Duplicated resource definitions across different event handlers
+- Manual synchronization between event data and resource creation
+
+### How TriggerTemplate Addresses These Problems
+
+TriggerTemplate provides a declarative, Kubernetes-native way to:
+
+1. **Define Resource Blueprints**: Specify exactly what resources should be created when events occur.
+2. **Parameterize Resources**: Use parameters extracted from events to customize resources.
+3. **Ensure Consistency**: Create resources consistently with the same structure for similar events.
+4. **Separate Concerns**: Decouple event detection (EventListener) and data extraction (TriggerBinding) from resource creation.
+5. **Enable Reusability**: Define templates once and reuse them across multiple triggers.
+
+This approach creates a clean, declarative way to define what should happen when events are detected, making your CI/CD system more maintainable and scalable.
+
+## Advantages
+
+- **Declarative Definition**: Define resources to be created using Kubernetes-native YAML
+- **Parameterization**: Dynamically customize resources with event data
+- **Reusability**: Create templates once and reuse them across multiple triggers
+- **Separation of Concerns**: Clear separation between event detection, data extraction, and resource creation
+- **Default Values**: Provide fallback values for parameters that might not be present in events
+- **Dynamic Naming**: Generate uniquely named resources to avoid conflicts
+- **Multiple Resources**: Create multiple resources from a single event
+- **Resource Validation**: Resources are validated at runtime before creation
+
+## Applicable Scenarios
+
+TriggerTemplates are essential in the following scenarios:
+
+1. **Automated CI/CD Pipelines**: Create pipeline runs automatically when code is pushed or pull requests are opened.
+
+2. **Multi-Environment Deployments**: Use the same template with different parameters to deploy to various environments.
+
+3. **Event-Driven Workflows**: Create resources in response to external system events, like issue updates or monitoring alerts.
+
+4. **Dynamic Resource Creation**: Generate resources with parameters specific to each event, like commit IDs or branch names.
+
+5. **Parameterized Testing**: Create test pipelines with different parameters based on the type of event.
+
+## Constraints and Limitations
+
+- Parameters in TriggerTemplates can only be string values
+- JSON objects must be handled carefully when used as parameters
+- Resource validation happens at runtime, not at creation time
+- Default service account permissions may need to be extended for non-Tekton resources
+- Embedded resources must be included within the PipelineRun or TaskRun that uses them
+- Parameter names with numerical prefixes require special handling
+
+## Principles
+
+### TriggerTemplate Structure
+
+A TriggerTemplate consists of two main sections:
+
+1. **Parameters Definition**: Declares the parameters that can be used in the resource templates
+2. **Resource Templates**: Defines the Kubernetes resources to be created
+
+```yaml
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: example-template
+spec:
+  params:
+    - name: param1
+      description: Description of parameter 1
+      default: default-value  # Optional default value
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1beta1
+      kind: PipelineRun
+      metadata:
+        generateName: example-pipeline-run-
+      spec:
+        pipelineRef:
+          name: example-pipeline
+        params:
+          - name: pipeline-param
+            value: $(tt.params.param1)
+```
+
+### Parameter Handling
+
+Parameters in TriggerTemplates follow these principles:
+
+1. **Declaration**: Parameters must be declared in the `params` section with a name and optionally a description and default value.
+
+2. **Reference**: Parameters are referenced in resource templates using the syntax `$(tt.params.parameter-name)`.
+
+3. **Default Values**: If a parameter is not provided by a TriggerBinding, the default value is used if specified.
+
+4. **String Values**: All parameter values are treated as strings, even if they represent numbers or JSON objects.
+
+5. **Special Characters**: Parameters with numerical prefixes or special characters may need to be quoted in resource templates.
+
+### Resource Template Creation
+
+When an event is detected and processed:
+
+1. The EventListener receives the event
+2. Interceptors process and filter the event (if configured)
+3. TriggerBindings extract data from the event
+4. The TriggerTemplate receives the extracted parameters
+5. Parameter substitution occurs in the resource templates
+6. Kubernetes resources are created with the substituted values
+
+Each created resource receives labels to track its origin:
+- `tekton.dev/eventlistener: <EventListenerName>`
+- `tekton.dev/triggers-eventid: <EventID>`
+
+## Configuration Examples
+
+### Basic CI Pipeline Template
+
+```yaml
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: ci-pipeline-template
+spec:
+  params:
+    - name: git-revision
+      description: The git commit SHA
+    - name: git-repo-url
+      description: The git repository URL
+    - name: git-repo-name
+      description: The name of the git repository
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1beta1
+      kind: PipelineRun
+      metadata:
+        generateName: $(tt.params.git-repo-name)-ci-
+      spec:
+        pipelineRef:
+          name: ci-pipeline
+        params:
+          - name: revision
+            value: $(tt.params.git-revision)
+          - name: repo-url
+            value: $(tt.params.git-repo-url)
+        workspaces:
+          - name: source
+            emptyDir: {}
+```
+
+### Multi-Environment Deployment Template
+
+```yaml
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: deploy-template
+spec:
+  params:
+    - name: environment
+      description: Deployment environment
+      default: development
+    - name: image-tag
+      description: Image tag to deploy
+    - name: app-name
+      description: Application name
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1beta1
+      kind: PipelineRun
+      metadata:
+        generateName: deploy-$(tt.params.app-name)-$(tt.params.environment)-
+      spec:
+        pipelineRef:
+          name: deployment-pipeline
+        params:
+          - name: target-environment
+            value: $(tt.params.environment)
+          - name: image-tag
+            value: $(tt.params.image-tag)
+          - name: application
+            value: $(tt.params.app-name)
+```
+
+### Template with Multiple Resources
+
+```yaml
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: multi-resource-template
+spec:
+  params:
+    - name: git-revision
+      description: The git commit SHA
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1beta1
+      kind: PipelineRun
+      metadata:
+        generateName: build-pipeline-
+      spec:
+        pipelineRef:
+          name: build-pipeline
+        params:
+          - name: revision
+            value: $(tt.params.git-revision)
+    - apiVersion: tekton.dev/v1beta1
+      kind: PipelineRun
+      metadata:
+        generateName: test-pipeline-
+      spec:
+        pipelineRef:
+          name: test-pipeline
+        params:
+          - name: revision
+            value: $(tt.params.git-revision)
+```
+
+## Important Parameter Explanations Related to TriggerTemplate
+
+### Parameter Substitution
+
+Parameter substitution is the core mechanism that makes TriggerTemplates dynamic and reusable.
+
+#### Applicable Scenarios
+
+- Inserting commit SHAs into PipelineRuns
+- Using repository URLs and branch names in pipeline parameters
+- Passing event metadata to pipelines
+- Customizing resource names with event-specific information
+
+#### Constraints and Limitations
+
+- Only string values are supported
+- JSON objects need special handling
+- Parameters with numerical prefixes may need quoting
+
+#### Principles/Parameter Explanation
+
+The syntax for parameter substitution is `$(tt.params.parameter-name)`, where `parameter-name` is the name of a parameter defined in the `params` section of the TriggerTemplate.
+
+For example:
+```yaml
+params:
+  - name: git-revision
+    description: The git commit SHA
+resourcetemplates:
+  - apiVersion: tekton.dev/v1beta1
+    kind: PipelineRun
+    spec:
+      params:
+        - name: revision
+          value: $(tt.params.git-revision)
+```
+
+### JSON Handling
+
+When working with JSON data in TriggerTemplates, special considerations are needed.
+
+#### Applicable Scenarios
+
+- Passing complex data structures to pipelines
+- Working with webhook payloads that contain nested JSON
+- Creating resources that require JSON configuration
+
+#### Constraints and Limitations
+
+- JSON objects must be handled as strings
+- Escaping quotes can be challenging
+- Legacy templates may require special annotations
+
+#### Principles/Parameter Explanation
+
+For handling JSON objects:
+
+1. Do not enclose JSON parameters in quotes when using them in resource templates
+2. For legacy templates that require escaped quotes, add the annotation:
+   ```yaml
+   metadata:
+     annotations:
+       triggers.tekton.dev/old-escape-quotes: "true"
+   ```
+
+## Reference Materials
+
+- [Tekton Triggers Documentation](https://tekton.dev/docs/triggers/)
+- [TriggerTemplate Official Documentation](https://tekton.dev/docs/triggers/triggertemplates/)
+- [Tekton Pipelines Documentation](https://tekton.dev/docs/pipelines/)
+- [Kubernetes Resource Management](https://kubernetes.io/docs/concepts/overview/working-with-objects/kubernetes-objects/)

@@ -1,0 +1,31 @@
+title: Alauda DevOps Pipelines Docs
+logoText: Alauda DevOps Pipelines Docs
+lang: en
+api:
+  crds:
+    - docs/shared/crds/**/*.yaml
+  openapis:
+    - docs/shared/openapis/**/*.json
+    - docs/shared/openapis/**/*.yaml
+
+permission:
+  functionresources:
+    - docs/shared/functionresources/**/*.yaml
+  roletemplates:
+    - docs/shared/roletemplates/**/*.yaml
+
+internalRoutes: # 可选，支持 glob 匹配，相对于 docs 目录，匹配到的文件在 cli 启用 `-i, --ignore` 选项时会被忽略
+  - '*/teps/**/*'
+  - '**/teps/**/*'
+  - '*/keps/**/*'
+  - '**/keps/**/*'
+  - '*/development/**/*'
+  - '**/development/**/*'
+
+releaseNotes:
+  queryTemplates:
+  ## TODO: change the versionMatch for the next releases
+    unfixed: |
+      project = <%= project %> AND affectedVersion in ("tektoncd-operator-<%= version %>") AND type = Bug AND status in (Cancelled) AND ReleaseNotesStatus = Publish
+    fixed: |
+      project = <%= project %> AND fixVersion in ("tektoncd-operator-<%= version %>") AND type = Bug AND status in (Done, Resolved) AND ReleaseNotesStatus = Publish

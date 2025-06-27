@@ -1,0 +1,201 @@
+---
+weight: 20
+---
+
+# Tekton Results
+
+Tekton Results is a sophisticated system that extends Tekton's capabilities by providing persistent storage, querying, and management of CI/CD execution data. This document provides a deeper exploration of how Tekton Results works, its architecture, and how to leverage its features effectively.
+
+## Glossary
+
+| Term | Definition |
+|------|------------|
+| Result | A top-level resource that groups related Records together, representing a logical unit of work |
+| Record | An individual instance of data (TaskRun, PipelineRun, Log) that belongs to a Result |
+| Watcher | A Kubernetes controller that monitors TaskRuns and PipelineRuns and stores them in the Results database |
+| API Server | A gRPC/REST server that provides access to stored Results and Records |
+| Retention Policy | Rules that determine how long data is kept in the Results database |
+
+## Why We Need Tekton Results
+
+### The Challenge of CI/CD Data Management
+
+In traditional Kubernetes-based CI/CD systems like Tekton Pipelines, all execution data is stored in the Kubernetes API server's etcd database. This approach has several limitations:
+
+- **Limited Storage Capacity**: etcd is designed for storing small amounts of configuration data, not large volumes of execution history and logs
+- **Resource Constraints**: As CI/CD workloads accumulate, they can consume significant etcd resources, potentially affecting cluster performance
+- **Data Fragmentation**: Related CI/CD activities (TaskRuns, PipelineRuns) are stored as separate resources without explicit relationships
+- **Log Management**: Logs are typically stored in the container runtime or external logging systems, making it difficult to associate them with specific pipeline executions
+- **Data Lifecycle**: There's no built-in mechanism for managing the lifecycle of completed CI/CD data
+
+These limitations become increasingly problematic as CI/CD usage scales, leading to potential performance issues and administrative overhead.
+
+### How Tekton Results Addresses These Challenges
+
+Tekton Results provides a comprehensive solution by:
+
+1. **Offloading Data Storage**: Moving completed CI/CD execution data from etcd to a dedicated database optimized for this purpose
+2. **Establishing Relationships**: Creating explicit relationships between related CI/CD activities through the Result/Record data model
+3. **Centralizing Log Storage**: Storing logs alongside their associated TaskRuns/PipelineRuns
+4. **Providing Data Lifecycle Management**: Implementing retention policies to automatically manage data over time
+5. **Enabling Advanced Querying**: Offering powerful filtering and querying capabilities beyond what's possible with the Kubernetes API
+
+## Advantages
+
+- **Improved Cluster Performance**: Reduces load on the Kubernetes API server and etcd by offloading completed CI/CD data
+- **Enhanced Data Organization**: Groups related CI/CD activities together for better visibility and management
+- **Longer Data Retention**: Enables long-term storage of execution history without impacting cluster resources
+- **Powerful Querying**: Provides advanced filtering and search capabilities for CI/CD data
+- **Integrated Log Management**: Stores logs alongside execution data for comprehensive pipeline history
+- **Automated Cleanup**: Manages data lifecycle through configurable retention policies
+
+## Applicable Scenarios
+
+Tekton Results is particularly valuable in the following scenarios:
+
+1. **High-Volume CI/CD Environments**: Organizations running numerous pipelines that generate substantial execution data
+2. **Compliance Requirements**: Environments that need to maintain execution history for audit or compliance purposes
+3. **Resource-Constrained Clusters**: Clusters where etcd resources are limited and need to be optimized
+4. **Advanced Analytics**: Teams that want to perform analysis and reporting on CI/CD execution patterns
+5. **Multi-Team Environments**: Organizations where multiple teams share Tekton infrastructure and need isolated views of their CI/CD data
+
+## Architecture and Principles
+
+Tekton Results follows a microservices architecture with three main components that work together to provide a complete solution:
+
+### API Server Architecture
+
+The API Server is the central component that:
+
+1. **Provides Data Access**: Exposes gRPC and REST endpoints for storing and retrieving Results and Records
+2. **Manages Authentication**: Uses Kubernetes-style authentication (service accounts, tokens)
+3. **Enforces Authorization**: Implements RBAC-based access control for Results resources
+4. **Handles Data Persistence**: Interfaces with the underlying database (PostgreSQL)
+5. **Supports Filtering**: Implements CEL (Common Expression Language) for powerful query filtering
+
+The API Server uses a parent-child hierarchy where:
+- Namespaces/workspaces are parents of Results
+- Results are parents of Records
+- Records contain the actual execution data
+
+### Watcher Architecture
+
+The Watcher operates as a Kubernetes controller that:
+
+1. **Monitors Resources**: Listens for TaskRun and PipelineRun events in the cluster
+2. **Determines Grouping**: Uses annotations, labels, and owner references to group related resources
+3. **Creates/Updates Records**: Stores execution data in the Results database via the API Server
+4. **Annotates Resources**: Adds Result identifiers to the original Kubernetes resources
+5. **Manages Deletion**: Optionally deletes completed resources after they're stored in the database
+
+The Watcher uses several strategies to group related resources:
+- `results.tekton.dev/result` annotation
+- `triggers.tekton.dev/triggers-eventid` label
+- Owner references to PipelineRuns
+- Automatic generation of new Result names when no grouping information is found
+
+### Retention Policy Agent Architecture
+
+The Retention Policy Agent is responsible for:
+
+1. **Scheduling Cleanup**: Running pruning jobs according to a configured schedule
+2. **Enforcing Retention**: Removing data that exceeds the configured retention period
+3. **Managing Database Size**: Preventing unbounded growth of the Results database
+
+## Data Model In-Depth
+
+### Result Structure
+
+A Result contains:
+
+```
+Result
+├── metadata
+│   ├── name
+│   ├── uid
+│   ├── createTime
+│   ├── updateTime
+│   └── annotations (key-value pairs)
+└── summary
+    ├── type (e.g., PIPELINE_RUN, TASK_RUN)
+    ├── status (SUCCESS, FAILURE, TIMEOUT, CANCELLED, UNKNOWN)
+    ├── startTime
+    ├── endTime
+    └── annotations (key-value pairs)
+```
+
+### Record Structure
+
+A Record contains:
+
+```
+Record
+├── name
+├── data
+│   ├── type (e.g., tekton.dev/v1.TaskRun, tekton.dev/v1.PipelineRun, results.tekton.dev/v1alpha3.Log)
+│   └── value (serialized data)
+└── createTime
+```
+
+## Authentication and Authorization
+
+Tekton Results uses Kubernetes-style authentication and RBAC for access control:
+
+1. **Authentication**: Uses service account tokens, user impersonation, and other Kubernetes authentication methods
+2. **Authorization**: Implements RBAC with resources (`results`, `records`) and verbs (`get`, `list`, `create`, `update`, `delete`)
+3. **Namespace Isolation**: Scopes permissions per namespace for multi-tenant environments
+
+Example RBAC roles:
+- `tekton-results-readonly`: Read-only access to Results and Records
+- `tekton-results-readwrite`: Read and write access to Results and Records
+- `tekton-results-admin`: Full access including deletion of Results and Records
+
+## Advanced Filtering
+
+Tekton Results uses CEL (Common Expression Language) for powerful filtering capabilities:
+
+```
+# Filter by Result status
+results.tekton.dev/v1alpha2/parents/default/results?filter=summary.status==SUCCESS
+
+# Filter by creation time
+results.tekton.dev/v1alpha2/parents/default/results?filter=create_time>timestamp('2023-01-01T00:00:00Z')
+
+# Filter Records by data type
+results.tekton.dev/v1alpha2/parents/default/results/123/records?filter=data_type=='tekton.dev/v1.TaskRun'
+
+# Complex filtering with logical operators
+results.tekton.dev/v1alpha2/parents/default/results?filter=summary.status==SUCCESS&&create_time>timestamp('2023-01-01T00:00:00Z')
+```
+
+## Important Parameters
+
+### Watcher Parameters
+
+| Parameter | Description | Default | Usage |
+|-----------|-------------|---------|-------|
+| `completed_run_grace_period` | How long to wait after completion before deleting resources | `0` (no deletion) | Set to a duration (e.g., `24h`) to enable automatic deletion |
+| `check_owner` | Whether to check for owner references before deletion | `false` | Set to `true` to prevent deletion of resources with owner references |
+| `store_deadline` | Maximum time to wait for storing a resource | `10m` | Increase for large resources or slow database connections |
+
+### API Server Parameters
+
+| Parameter | Description | Default | Usage |
+|-----------|-------------|---------|-------|
+| `AUTH_IMPERSONATE` | Enable user impersonation | `false` | Set to `true` to allow service accounts to impersonate users |
+| `page_size` | Maximum number of results per page | `100` | Adjust based on query performance and client needs |
+
+### Retention Policy Parameters
+
+| Parameter | Description | Default | Usage |
+|-----------|-------------|---------|-------|
+| `runAt` | When to run the retention policy job | `0 0 * * *` (daily) | Cron expression for scheduling cleanup |
+| `maxRetention` | Maximum time to keep data | `720h` (30 days) | Duration to retain data before deletion |
+
+## References
+
+- [Tekton Results GitHub Repository](https://github.com/tektoncd/results)
+- [Tekton Results API Documentation](https://tekton.dev/docs/results/api/)
+- [Tekton Results Watcher Documentation](https://tekton.dev/docs/results/watcher/)
+- [TEP-0021: Results API](https://github.com/tektoncd/community/blob/main/teps/0021-results-api.md)
+- [Common Expression Language Specification](https://github.com/google/cel-spec)

@@ -1,0 +1,284 @@
+---
+title: Configuring Resource Quotas for Pipeline Components
+weight: 20
+sourceSHA: 244ed8262157e281525632c51199cb09fbcb12cbc4beda33d3a21740c497329c
+---
+
+# Configuring Resource Quotas for Pipeline Components
+
+## Overview
+
+Configure resource quotas related to the [`Pipeline`](../apis/kubernetes_apis/operator/tektonpipelines.mdx) component.
+
+## Use Cases
+
+- Adjust the resource quotas for the Pipeline component
+- Set default resource quotas for init-containers and containers created by TaskRun
+
+## Prerequisites
+
+- The Tekton Operator component must be installed
+- TektonConfig resources must have been automatically created in the environment
+- The document on [Adjusting Optional Configuration Items for Subcomponents](./customize_options.mdx) should be read
+
+## Steps
+
+<Steps>
+### Step 1
+
+Edit the `TektonConfig` resource
+
+```bash
+$ kubectl edit tektonconfigs.operator.tekton.dev config
+```
+
+### Step 2
+
+:::warning
+Modifying the configuration may trigger a rolling update of the component `Pods`, which could lead to temporary service unavailability. Please execute this at an appropriate time.
+:::
+
+Example of modifying the `spec.pipeline.options.deployments` configuration:
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  pipeline:
+    options:
+      disabled: false
+
+      configMaps:
+        config-defaults:
+          data:
+            # Add default container resource quotas
+            default-container-resource-requirements: |
+              place-scripts: # updates resource requirements of a 'place-scripts' container
+                requests:
+                  memory: "64Mi"
+                  cpu: "50m"
+                limits:
+                  memory: "128Mi"
+                  cpu: "100m"
+
+              prepare: # updates resource requirements of a 'prepare' container
+                requests:
+                  memory: "64Mi"
+                  cpu: "50m"
+                limits:
+                  memory: "256Mi"
+                  cpu: "100m"
+
+              working-dir-initializer: # updates resource requirements of a 'working-dir-initializer' container
+                requests:
+                  memory: "64Mi"
+                  cpu: "50m"
+                limits:
+                  memory: "512Mi"
+                  cpu: "100m"
+
+              prefix-scripts: # updates resource requirements of containers which starts with 'scripts-'
+                requests:
+                  memory: "64Mi"
+                  cpu: "50m"
+                limits:
+                  memory: "128Mi"
+                  cpu: "100m"
+
+              prefix-sidecar-scripts: # updates resource requirements of containers which starts with 'sidecar-scripts-'
+                requests:
+                  memory: "64Mi"
+                  cpu: "50m"
+                limits:
+                  memory: "128Mi"
+                  cpu: "100m"
+
+              sidecar-tekton-log-results: # updates resource requirements of a 'place-scripts' container
+                requests:
+                  memory: "64Mi"
+                  cpu: "50m"
+                limits:
+                  memory: "128Mi"
+                  cpu: "100m"
+
+      deployments:
+
+        tekton-pipelines-controller:
+          spec:
+            replicas: 1
+            template:
+              spec:
+                containers:
+                  - name: tekton-pipelines-controller
+                    resources:
+                      requests:
+                        cpu: 500m
+                        memory: 512Mi
+                      limits:
+                        cpu: "1"
+                        memory: 1Gi
+
+        tekton-pipelines-remote-resolvers:
+          spec:
+            replicas: 1
+            template:
+              spec:
+                containers:
+                  - name: controller
+                    resources:
+                      requests:
+                        cpu: 200m
+                        memory: 256Mi
+                      limits:
+                        cpu: 500m
+                        memory: 512Mi
+
+        tekton-pipelines-webhook:
+          spec:
+            replicas: 1
+            template:
+              spec:
+                containers:
+                  - name: webhook
+                    resources:
+                      requests:
+                        cpu: "500m"
+                        memory: 256Mi
+                      limits:
+                        cpu: "1"
+                        memory: 500Mi
+
+        tekton-events-controller:
+          spec:
+            replicas: 1
+            template:
+              spec:
+                containers:
+                  - name: tekton-events-controller
+                    resources:
+                      requests:
+                        cpu: 100m
+                        memory: 100Mi
+                      limits:
+                        cpu: 200m
+                        memory: 256Mi
+```
+
+### Step 3
+
+Submit the configuration and wait for the Pods to update.
+
+```bash
+$ kubectl get pods -n tekton-pipelines -w
+
+NAME                                                    READY   STATUS    RESTARTS   AGE
+tekton-pipelines-controller-648d87488b-fq9bc            1/1     Running   0          2m21s
+tekton-pipelines-remote-resolvers-79554f5959-cbm6x      1/1     Running   0          2m21s
+tekton-pipelines-webhook-5cd9847998-864zf               1/1     Running   0          2m20s
+tekton-events-controller-5c97b7554c-m59m6               1/1     Running   0          2m21s
+```
+</Steps>
+
+## Operation Result
+
+You can see that the resource quota configurations for the `Pipeline` related components are effective.
+
+```bash
+$ kubectl get deployments.apps -n tekton-pipelines tekton-pipelines-controller tekton-pipelines-remote-resolvers tekton-pipelines-webhook tekton-events-controller -o yaml | grep 'resources:' -A 6
+
+          resources:
+            limits:
+              cpu: "1"
+              memory: 1Gi
+            requests:
+              cpu: 500m
+              memory: 512Mi
+--
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 200m
+              memory: 256Mi
+--
+          resources:
+            limits:
+              cpu: "2"
+              memory: 500Mi
+            requests:
+              cpu: "1"
+              memory: 256Mi
+--
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              memory: 100Mi
+```
+
+### Verifying `Pod` Resource Quota Configuration
+
+#### Create a `TaskRun`
+
+```sh
+$ cat <<'EOF' | kubectl create -f -
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: hello
+  namespace: default
+spec:
+  taskSpec:
+    steps:
+      - name: hello
+        image: alpine
+        command: ["echo", "hello"]
+EOF
+```
+
+#### Wait for the `TaskRun` to Complete
+
+```sh
+$ kubectl get taskruns.tekton.dev -n default hello
+
+NAME    SUCCEEDED   REASON      STARTTIME   COMPLETIONTIME
+hello   True        Succeeded   2m41s       2m28s
+```
+
+#### View the `Pod` Resource Quota Configuration
+
+```sh
+$ kubectl get pods -n default hello-hello-pod -o yaml
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: hello-pod
+  namespace: default
+spec:
+  containers:
+    - image: alpine
+      name: step-hello
+      resources: {}
+  initContainers:
+    - name: prepare
+      resources:
+        limits:
+          cpu: 100m
+          memory: 256Mi
+        requests:
+          cpu: 50m
+          memory: 64Mi
+```
+
+You can see that the resource quota for the `initContainers` container `prepare` in the `Pod` matches the resource quotas configured in the `config-defaults` `ConfigMap`.
+
+## References
+
+- [Official Documentation: Configuring Default Resource Requirements](https://tekton.dev/docs/pipelines/additional-configs/#configuring-default-resources-requirements)
+- [Related Code](https://github.com/tektoncd/pipeline/blob/release-v0.65.x/config/config-defaults.yaml#L95-L146)

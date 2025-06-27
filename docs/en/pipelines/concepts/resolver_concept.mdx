@@ -1,0 +1,199 @@
+---
+weight: 100
+---
+
+# Resolvers
+
+A Resolver is a component in Tekton that enables remote resolution of resources such as Tasks and Pipelines. Resolvers allow you to reference and fetch resources from external locations rather than defining them directly in your Kubernetes cluster.
+
+## Why Resolvers are Needed
+
+### Traditional Resource Management Challenges
+
+In CI/CD systems, managing and sharing resources across teams and projects presents several challenges:
+
+- **Version Control**: Difficulty in tracking and managing versions of CI/CD resources
+- **Sharing**: Limited ability to share resources across teams and organizations
+- **Maintenance**: Challenges in updating and maintaining resources used by multiple pipelines
+- **Discoverability**: Difficulty in discovering and using resources created by others
+- **Consistency**: Ensuring consistent resource definitions across environments
+
+### Tekton's Solution
+
+Tekton Resolvers address these challenges by:
+
+- **Remote Resolution**: Fetching resources from external locations at runtime
+- **Version Management**: Allowing specific versions of resources to be referenced
+- **Centralized Storage**: Enabling resources to be stored in central repositories
+- **Dynamic Fetching**: Retrieving the latest version of resources when needed
+- **Flexible Sources**: Supporting multiple sources for resources (Git, Bundles, HTTP, etc.)
+
+## Advantages
+
+- **Reusability**: Resources can be easily shared and reused across teams and projects
+- **Version Control**: Resources can be versioned and tracked in source control
+- **Reduced Duplication**: Eliminates the need to duplicate resource definitions
+- **Simplified Updates**: Resources can be updated in one place and automatically used by all consumers
+- **Improved Discoverability**: Resources can be organized and discovered in central repositories
+- **Consistency**: Ensures consistent resource definitions across environments
+
+## Scenarios
+
+Resolvers are useful in various scenarios, including:
+
+- **Shared Task Libraries**: Maintaining a central repository of common Tasks
+- **CI/CD Templates**: Providing standardized Pipeline templates for teams
+- **Cross-Environment Consistency**: Ensuring consistent resource definitions across development, staging, and production
+- **Organization Standards**: Enforcing organizational standards for CI/CD processes
+- **Third-Party Integration**: Leveraging Tasks and Pipelines developed by the community
+- **Replacing ClusterTasks**: Providing shared Tasks without requiring cluster-scoped resources
+
+## Constraints and Limitations
+
+- Resolvers require network access to the external resource locations
+- Resolution happens at TaskRun/PipelineRun creation time, not during execution
+- Some resolvers may require additional configuration for authentication
+- Network issues can impact the availability of remotely resolved resources
+- Security considerations must be addressed when using external resources
+
+## Principles
+
+### Resolution Process
+
+When a resource reference is resolved:
+
+1. Tekton identifies the resolver type from the resource reference
+2. The appropriate resolver is invoked to fetch the resource
+3. The resolver retrieves the resource from the external location
+4. The resource is validated and converted to the appropriate Tekton resource
+5. The resolved resource is used in the TaskRun or PipelineRun
+
+### Resource References
+
+Resource references specify:
+
+1. The resolver type to use (git, bundle, hub, etc.)
+2. The location of the resource
+3. Optional parameters such as version, branch, or path
+4. Authentication information if required
+
+## Configuration Examples
+
+### Git Resolver Example
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: git-resolver-example
+spec:
+  taskRef:
+    resolver: git
+    params:
+      - name: url
+        value: https://github.com/tektoncd/catalog.git
+      - name: revision
+        value: main
+      - name: pathInRepo
+        value: task/git-clone/0.9/git-clone.yaml
+```
+
+### Hub Resolver Example
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: remote-task-reference
+spec:
+  taskRef:
+    resolver: hub
+    params:
+    - name: catalog # optional
+      value: tekton-catalog-tasks
+    - name: type # optional
+      value: artifact
+    - name: kind
+      value: task
+    - name: name
+      value: git-clone
+    - name: version
+      value: "0.6"
+```
+
+### HTTP Resolver Example
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: http-resolver-example
+spec:
+  taskRef:
+    resolver: http
+    params:
+      - name: url
+        value: https://raw.githubusercontent.com/tektoncd/catalog/main/task/git-clone/0.9/git-clone.yaml
+```
+
+## Built-in Resolvers
+
+### Git Resolver
+
+The Git Resolver fetches resources from Git repositories.
+
+#### Use Cases
+
+- Storing Tasks and Pipelines in the same repository as application code
+- Versioning CI/CD resources alongside application code
+- Sharing resources across teams through Git repositories
+
+#### Principles
+
+The Git Resolver:
+- Clones the specified Git repository
+- Checks out the specified revision (branch, tag, or commit)
+- Retrieves the resource from the specified path
+- Supports authentication through Kubernetes secrets
+
+### Hub Resolver
+
+The Hub Resolver fetches resources from the Tekton Hub.
+
+#### Use Cases
+
+- Discovering and using community-contributed Tasks and Pipelines
+- Accessing a curated catalog of CI/CD resources
+- Standardizing on well-tested and maintained resources
+
+#### Principles
+
+The Hub Resolver:
+- Connects to the Tekton Hub API
+- Retrieves the specified resource by name and version
+- Supports different catalogs and versions
+- Provides access to community-contributed resources
+
+### HTTP Resolver
+
+The HTTP Resolver fetches resources from a remote HTTP server.
+
+#### Use Cases
+
+- Fetching resources from a remote server
+- Accessing custom or private resources
+- Leveraging existing web services for resource resolution
+
+#### Principles
+
+The HTTP Resolver:
+- Fetches the specified resource from the remote server
+- Provides access to custom or private resources
+
+## References
+
+- [Tekton Remote Resolution Documentation](https://tekton.dev/docs/pipelines/resolution/)
+- [How to Write a Resolver](https://tekton.dev/docs/pipelines/how-to-write-a-resolver/)
+- [Tekton Git Resolver](https://tekton.dev/docs/pipelines/git-resolver/)
+- [Tekton Hub Resolver](https://tekton.dev/docs/pipelines/hub-resolver/)
+- [Tekton HTTP Resolver](https://tekton.dev/docs/pipelines/http-resolver/)

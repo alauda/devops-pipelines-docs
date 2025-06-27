@@ -1,0 +1,96 @@
+---
+weight: 10
+sourceSHA: 0a2d43dba1d3bda12069a5a85bdc2d0d713f9cb6596d59acd67ffdd5c9c4f370
+i18n:
+  additionalPrompts: Do not translate project names and keep them as is like Tekton Pipelines, Tekton Triggers, Tekton Chains, Tekton Hub, Pipeline-as-Code, Tekton Results
+---
+
+# Introduction
+
+## Overview
+
+Tekton is a powerful and flexible open-source framework for creating CI/CD systems, allowing developers to build, test, and deploy across cloud providers and on-premise systems. As part of the CD Foundation, a Linux Foundation project, Tekton provides a set of Kubernetes custom resources that serve as building blocks for creating cloud-native CI/CD pipelines.
+
+The Alauda DevOps Pipelines Operator provides a simplified way to install, upgrade, and manage the lifecycle of Tekton components on Kubernetes clusters. It extends Kubernetes functionality by installing and managing Tekton Pipelines and its associated components, making it easier to set up and maintain a robust CI/CD environment.
+
+## Key Components
+
+### Alauda DevOps Pipelines Operator
+
+The Alauda DevOps Pipelines Operator is a Kubernetes operator that manages the lifecycle of Tekton components. It provides:
+
+- Simplified installation and management of Tekton components
+- Automatic upgrades and configuration management
+- Centralized control of Tekton resources across the cluster
+- Custom resource definitions (CRDs) for managing Tekton components
+
+### Tekton Pipelines
+
+Tekton Pipelines is the core component that provides the fundamental building blocks for creating CI/CD workflows. It includes:
+
+- **Tasks**: The smallest, atomic units of work that perform specific operations
+- **Pipelines**: A collection of tasks arranged in a specific order of execution
+- **TaskRuns**: The execution and status of a task
+- **PipelineRuns**: The execution and status of a pipeline
+- **Workspaces**: A mechanism for sharing data between tasks
+
+Tekton Pipelines enables you to define complex workflows as code, making them version-controlled, reusable, and portable across different environments.
+
+### Tekton Triggers
+
+Tekton Triggers extends Tekton Pipelines with event-based capabilities, allowing you to:
+
+- Listen for external events (webhooks from Git repositories, container registries, etc.)
+- Extract information from these events
+- Create PipelineRuns or TaskRuns based on the event data
+- Pass event data to the created PipelineRuns or TaskRuns
+
+This enables fully automated CI/CD workflows that respond to events such as code commits, pull requests, or image pushes.
+
+### Tekton Chains
+
+Tekton Chains focuses on supply chain security by:
+
+- Automatically capturing and signing provenance information for all TaskRuns
+- Supporting multiple signature formats and storage backends
+- Providing attestations in industry-standard formats like in-toto
+- Securing the software supply chain from source to deployment
+
+Chains observes TaskRun executions, takes snapshots when they complete, converts them to standard payload formats, signs them, and stores them securely.
+
+### Tekton Results
+
+Tekton Results addresses the challenge of long-term storage and querying of CI/CD execution data by:
+
+- Separating result storage from the Pipeline controller
+- Providing a queryable API for accessing historical pipeline data
+- Enabling custom metadata for CI/CD workflows
+- Grouping related workloads together
+- Storing logs from TaskRuns and PipelineRuns
+- Freeing up cluster resources by allowing cleanup of completed runs
+
+## Advantages
+
+- **Kubernetes-Native**: Built specifically for Kubernetes, leveraging its scaling and management capabilities
+- **Declarative**: Define your pipelines as code using YAML, enabling version control and automation
+- **Modular**: Compose complex workflows from reusable components
+- **Extensible**: Create custom tasks or use community-contributed tasks from the Tekton Hub
+- **Vendor-Neutral**: Works across different cloud providers and environments
+- **Secure**: Built-in security features with Tekton Chains for supply chain security
+
+## Use Cases
+
+- **Continuous Integration**: Automatically build and test code changes
+- **Continuous Delivery**: Automate the delivery of applications to various environments
+- **GitOps Workflows**: Implement GitOps practices for application and infrastructure deployments
+- **Secure Software Supply Chain**: Ensure the integrity and security of your software from source to deployment
+- **Multi-Cloud Deployments**: Create consistent CI/CD pipelines across different cloud providers
+
+## Limitations
+
+- **Learning Curve**: Requires understanding of Kubernetes concepts and resources
+- **Resource Requirements**: Needs adequate cluster resources for running pipelines
+- **Complexity for Simple Workflows**: May be overly complex for very simple CI/CD needs
+- **Initial Setup**: Requires proper configuration and setup of multiple components
+
+The Alauda DevOps Pipelines Operator simplifies many of these challenges by providing an integrated and managed experience for Tekton on Kubernetes clusters.

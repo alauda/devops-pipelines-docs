@@ -1,0 +1,6 @@
+- name: acp
+  base: /container_platform
+  version: "4.0"
+- name: postgresql
+  base: /postgresql
+  version: "4.0"

@@ -1,0 +1,304 @@
+---
+weight: 40
+---
+
+# TektonPipeline
+
+TektonPipeline is a custom resource provided by the Tekton Operator that allows you to install, update, and manage Tekton Pipelines in your Kubernetes cluster. It provides a declarative way to configure and maintain your Tekton Pipeline components without manually applying manifests.
+
+## Terminology Explanation
+
+| Term | Description |
+|------|-------------|
+| TektonPipeline | A custom resource that manages the lifecycle of Tekton Pipeline components in a Kubernetes cluster. |
+| Tekton Operator | A Kubernetes operator that manages Tekton components including Pipeline, Triggers, Dashboard, and more. |
+| targetNamespace | The namespace where Tekton Pipeline components will be installed. |
+| Pipeline Controller | The main controller that processes Pipeline and Task resources. |
+| Webhook | A component that validates Tekton Pipeline resources before they are persisted to the cluster. |
+
+## Why We Need TektonPipeline
+
+### The Challenge of Managing Tekton Components
+
+Manually installing and maintaining Tekton Pipeline components involves:
+
+- Applying multiple manifests for different components
+- Keeping track of component versions and their compatibility
+- Managing upgrades and rollbacks safely
+- Configuring components consistently across environments
+- Handling custom configurations for specific deployments
+
+This approach leads to:
+- Complex management procedures
+- Potential for misconfiguration
+- Difficulty in tracking the deployed state
+- Challenges in implementing consistent upgrades
+
+### How TektonPipeline Addresses These Problems
+
+The TektonPipeline resource provides a declarative, Kubernetes-native way to:
+
+1. **Simplify installation**: Install all Pipeline components with a single resource
+2. **Centralize configuration**: Manage all component settings in one place
+3. **Automate upgrades**: Easily upgrade to new versions by updating the resource
+4. **Ensure consistency**: Apply the same configuration across different environments
+5. **Support customization**: Customize Pipeline components based on specific requirements
+
+This approach enables better management of Tekton Pipeline components while maintaining the flexibility to customize as needed.
+
+## Advantages
+
+- **Simplified management**: Single resource to manage all Pipeline components
+- **Declarative configuration**: Define the desired state and let the operator handle implementation details
+- **Version control**: Easy tracking of configuration changes through GitOps practices
+- **Automated reconciliation**: Operator ensures the actual state matches the desired state
+- **Configuration validation**: Built-in validation of configuration parameters
+- **Streamlined upgrades**: Simplified process for upgrading to new versions
+- **Kubernetes-native**: Integrates seamlessly with the Kubernetes ecosystem
+
+## Applicable Scenarios
+
+TektonPipeline is essential in the following scenarios:
+
+1. **Initial Deployment**: Setting up Tekton Pipeline in a new Kubernetes cluster.
+
+2. **Configuration Management**: Managing Pipeline configuration changes over time.
+
+3. **Version Upgrades**: Upgrading Tekton Pipeline to newer versions.
+
+4. **Multi-Cluster Deployments**: Ensuring consistent Pipeline deployment across multiple clusters.
+
+5. **Custom Deployments**: Implementing specific Pipeline configurations for different environments.
+
+6. **GitOps Workflows**: Including Pipeline configuration in GitOps deployment processes.
+
+## Constraints and Limitations
+
+- Requires the Tekton Operator to be installed in the cluster
+- Some advanced configurations may require other Tekton Operator resources
+- Changes to certain fields may require component restarts
+- Must follow Kubernetes resource management principles
+
+## Principles
+
+### TektonPipeline Structure
+
+A TektonPipeline resource has the following structure:
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonPipeline
+metadata:
+  name: pipeline
+spec:
+  targetNamespace: tekton-pipelines
+  await-sidecar-readiness: true
+  coschedule: workspaces
+  disable-affinity-assistant: false
+  disable-creds-init: false
+  disable-home-env-overwrite: true
+  disable-working-directory-overwrite: true
+  disable-inline-spec: "taskrun,pipelinerun,pipeline"
+  enable-api-fields: beta
+  enable-bundles-resolver: true
+  enable-cel-in-whenexpression: false
+  enable-cluster-resolver: true
+  enable-custom-tasks: true
+  enable-git-resolver: true
+  enable-hub-resolver: true
+  enable-param-enum: false
+  enable-provenance-in-status: true
+  enable-step-actions: false
+  enforce-nonfalsifiability: none
+  keep-pod-on-cancel: false
+  max-result-size: 4096
+  metrics.count.enable-reason: false
+  metrics.pipelinerun.duration-type: histogram
+  metrics.pipelinerun.level: pipeline
+  metrics.taskrun.duration-type: histogram
+  metrics.taskrun.level: task
+  require-git-ssh-secret-known-hosts: false
+  results-from: termination-message
+  running-in-environment-with-injected-sidecars: true
+  send-cloudevents-for-runs: false
+  set-security-context: false
+  trusted-resources-verification-no-match-policy: ignore
+  performance:
+    disable-ha: false
+    buckets: 1
+    replicas: 1
+    threads-per-controller: 2
+    kube-api-qps: 5.0
+    kube-api-burst: 10
+    statefulset-ordinals: false
+  options:
+    disabled: false
+    configMaps: {}
+    deployments: {}
+```
+
+### Key Components and Their Relationships
+
+1. **targetNamespace**: Where Tekton Pipeline components will be installed
+   - Default is "tekton-pipelines"
+   - All Pipeline components will be created in this namespace
+   - Make sure you have permissions to create resources in this namespace
+
+2. **version**: The version of Tekton Pipeline to install
+   - Can specify a specific version like "v0.45.0"
+   - Omitting this field will install the latest version supported by the operator
+
+3. **Feature flags**: Many configuration options to control Pipeline behavior
+   - `disable-affinity-assistant`: Controls affinity assistant behavior
+   - `disable-creds-init`: Controls credential initialization
+   - `enable-api-fields`: Controls which API fields are enabled
+   - `enable-custom-tasks`: Enables the use of custom tasks
+   - And many more as shown in the full structure above
+
+4. **performance**: Settings for high-availability and performance tuning
+   - `replicas`: Number of controller replicas
+   - `buckets`: Number of buckets for the controller
+   - `threads-per-controller`: Number of worker threads per controller
+   - `statefulset-ordinals`: Enables StatefulSet Ordinals mode
+
+## Configuration Examples
+
+### Basic Installation
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonPipeline
+metadata:
+  name: pipeline
+spec:
+  targetNamespace: tekton-pipelines
+```
+
+### Customized Installation with Feature Flags
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonPipeline
+metadata:
+  name: pipeline
+spec:
+  targetNamespace: tekton-pipelines
+  disable-affinity-assistant: true
+  disable-creds-init: true
+  enable-api-fields: beta
+  enable-custom-tasks: true
+  results-from: sidecar-logs
+  max-result-size: 4096
+```
+
+### High Availability Configuration
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonPipeline
+metadata:
+  name: pipeline
+spec:
+  targetNamespace: tekton-pipelines
+  performance:
+    disable-ha: false
+    buckets: 10
+    replicas: 3
+    threads-per-controller: 4
+    kube-api-qps: 10.0
+    kube-api-burst: 20
+```
+
+## Important Parameter Explanations Related to TektonPipeline
+
+### Feature Flags
+
+Feature flags control specific behaviors of the Pipeline controller.
+
+#### Applicable Scenarios
+
+- Disabling the affinity assistant for performance reasons
+- Enabling or disabling specific Pipeline features
+- Configuring environment-specific settings
+
+#### Constraints and Limitations
+
+- Some feature flags might be deprecated in future versions
+- Changing certain flags may require pipeline reruns
+- Compatibility considerations between different flags
+
+#### Principles/Parameter Explanation
+
+Common feature flags include:
+
+- **disable-affinity-assistant** (Default: `false`): Setting this flag to "true" will prevent Tekton from creating an Affinity Assistant for every TaskRun sharing a PVC workspace.
+
+- **disable-creds-init** (Default: `false`): Setting this flag to "true" will prevent Tekton scanning attached service accounts and injecting any credentials it finds into your Steps.
+
+- **await-sidecar-readiness** (Default: `true`): Controls whether to wait for sidecar containers to be running before starting a TaskRun's first step.
+
+- **running-in-environment-with-injected-sidecars** (Default: `true`): Should be set to false when Pipelines is running in a cluster that does not use injected sidecars such as Istio.
+
+- **enable-custom-tasks** (Default: `false`): Enables the use of custom tasks from within pipelines.
+
+### Metrics Properties
+
+Metrics properties control how metrics are collected and reported.
+
+#### Applicable Scenarios
+
+- Setting up monitoring for Tekton pipelines
+- Customizing metric collection behavior
+- Integrating with observability systems
+
+#### Configuration Examples
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonPipeline
+metadata:
+  name: pipeline
+spec:
+  targetNamespace: tekton-pipelines
+  metrics.pipelinerun.duration-type: histogram
+  metrics.pipelinerun.level: pipeline
+  metrics.taskrun.duration-type: histogram
+  metrics.taskrun.level: task
+  metrics.count.enable-reason: true
+```
+
+### Performance Configuration
+
+The performance section allows for tuning the controller's performance characteristics.
+
+#### Applicable Scenarios
+
+- Scaling for high-volume pipeline execution
+- Optimizing resource usage
+- Implementing high-availability configurations
+
+#### Configuration Examples
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonPipeline
+metadata:
+  name: pipeline
+spec:
+  targetNamespace: tekton-pipelines
+  performance:
+    disable-ha: false
+    buckets: 5
+    replicas: 2
+    threads-per-controller: 4
+    kube-api-qps: 10.0
+    kube-api-burst: 20
+    statefulset-ordinals: true
+```
+
+## Reference Materials
+
+- [Tekton Operator Documentation](https://tekton.dev/docs/operator/)
+- [TektonPipeline Official Documentation](https://tekton.dev/docs/operator/tektonpipeline/)
+- [Tekton Pipeline Documentation](https://tekton.dev/docs/pipelines/)
+- [Kubernetes Operator Pattern](https://kubernetes.io/docs/concepts/extend-kubernetes/operator/)

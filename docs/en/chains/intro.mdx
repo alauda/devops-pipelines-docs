@@ -1,0 +1,73 @@
+---
+weight: 10
+---
+
+# Introduction
+
+## Tekton Chains Introduction
+
+Tekton Chains is a Kubernetes Custom Resource Definition (CRD) controller that enables supply chain security features for Tekton pipelines. It works by observing TaskRun and PipelineRun executions, capturing relevant information, and storing it in a cryptographically-signed format. This provides a secure and verifiable record of all pipeline activities, ensuring the integrity of your software supply chain.
+
+Built on the foundation of Tekton Pipelines, Tekton Chains extends the CI/CD capabilities with security features that allow organizations to implement Software Supply Chain Security practices according to industry standards like SLSA (Supply-chain Levels for Software Artifacts).
+
+## Tekton Chains Advantages
+
+The core advantages of Tekton Chains are as follows:
+
+- **Secure Software Supply Chain**
+
+  Tekton Chains provides cryptographic verification of all artifacts produced in your CI/CD pipeline, ensuring that your software hasn't been tampered with from build to deployment.
+
+- **SLSA Compliance**
+
+  Supports multiple SLSA provenance formats, helping organizations meet industry standards for supply chain security and achieve higher levels of SLSA compliance.
+
+- **Seamless Integration**
+
+  Works natively with Tekton Pipelines, requiring minimal configuration changes to existing CI/CD workflows while adding robust security features.
+
+- **Flexible Storage Options**
+
+  Supports multiple storage backends including Tekton, OCI registries, GCS, and more, allowing you to store signatures and attestations where they make the most sense for your organization.
+
+- **Multiple Signing Methods**
+
+  Supports various signing mechanisms including x509, Cosign, and KMS systems (GCP KMS, Hashicorp Vault, AWS KMS, Azure KMS), providing flexibility in how you secure your supply chain.
+
+## Scenarios
+
+The main application scenarios of Tekton Chains are as follows:
+
+- **Secure CI/CD Pipelines**
+
+  Organizations can use Tekton Chains to add cryptographic verification to their existing CI/CD pipelines, ensuring that all artifacts produced are signed and verifiable.
+
+- **Compliance Requirements**
+
+  For organizations that need to meet regulatory or industry compliance requirements around software supply chain security, Tekton Chains provides the necessary attestations and verifications.
+
+- **Container Image Signing**
+
+  Automatically sign container images built within Tekton pipelines, ensuring that only verified images can be deployed to production environments.
+
+- **Provenance Generation**
+
+  Generate and sign SLSA provenance for all artifacts built in your pipeline, providing a verifiable record of how each artifact was created.
+
+- **Transparency Logging**
+
+  Store signed attestations in transparency logs like Rekor, enabling third-party verification of your software supply chain.
+
+## Limitations
+
+- Tekton Chains requires proper key management for signing artifacts. The security of your supply chain depends on the security of your signing keys.
+
+- Some features may require additional configuration of external services like OCI registries or KMS systems.
+
+- Tekton Chains observes TaskRuns and PipelineRuns after they complete, so there may be a slight delay between when a pipeline finishes and when the attestations are available.
+
+- Tekton Chains only generates Attestation, but does not verify the Attestation.
+  - You need to use other tools to verify the Attestation. For example, you can use the following tools:
+    - [Cosign](https://github.com/sigstore/cosign)
+    - [Kyverno](https://kyverno.io/)
+    - [Rekor](https://github.com/sigstore/rekor)

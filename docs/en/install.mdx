@@ -1,0 +1,329 @@
+---
+weight: 240
+---
+
+# Install
+
+## Installing Alauda DevOps Pipelines
+
+This guide provides cluster administrators with the process to install the Alauda DevOps Pipelines Operator on a Kubernetes cluster.
+
+Prerequisites:
+
+- You have access to the Kubernetes cluster with an account that has `cluster-admin` privileges.
+- You have installed the `kubectl` CLI.
+- Your cluster has the Marketplace feature enabled or the Operator Hub is accessible.
+
+### Installing Alauda DevOps Pipelines Using the Web Console
+
+You can install the Alauda DevOps Pipelines Operator by using the Operators listed in the Marketplace or OperatorHub. When you install the Alauda DevOps Pipelines Operator, the required Custom Resources (CRs) are automatically installed alongside the Operator.
+
+The Operator provides the following Custom Resource Definitions (CRDs) to manage the Tekton components: `tektonconfigs.operator.tekton.dev`, `tektonpipelines.operator.tekton.dev`, `tektontriggers.operator.tekton.dev`, `tektonhubs.operator.tekton.dev`, and more.
+
+If Tekton Pipelines is already installed on your cluster, the existing installation will be seamlessly upgraded by the Operator.
+
+The Alauda DevOps Pipelines Operator provides the option to select which components to install by specifying a preset configuration in the `TektonConfig` Custom Resource (CR). The `TektonConfig` CR is automatically installed when the Operator is installed. Supported presets include:
+
+- **Lite**: Installs only Tekton Pipelines.
+- **Basic**: Installs Tekton Pipelines and Tekton Triggers.
+- **All**: This is the default preset used when installing the `TektonConfig` CR. This preset installs all Tekton components, including Tekton Pipelines, Tekton Triggers.
+
+**Steps**
+
+- In the Web console, navigate to **Marketplace** or **OperatorHub**.
+
+- Use the **Filter by keyword** box to search for `Alauda DevOps Pipelines Operator` in the directory. Click on the **Alauda DevOps Pipelines Operator** title.
+
+- Read the Operator overview on the **Alauda DevOps Pipelines Operator** page. Click **Install**.
+
+- On the **Install Operator** page:
+
+  - For **Installation Mode**, choose **All namespaces on the cluster (default)**. This mode installs the Operator in the default `tekton-operator` namespace, allowing the Operator to monitor and be available in all namespaces in the cluster.
+  - For **Approval Strategy**, select **Automatic**. This ensures that future upgrades of the Operator are handled automatically by the Operator Lifecycle Manager (OLM). If you choose the `Manual` approval strategy, OLM will create update requests. As the cluster administrator, you must manually approve the OLM update requests to upgrade the Operator to a new version.
+  - Choose an **Update Channel** if multiple channels are available.
+
+- Click **Install**. You will see the Operator on the Installed Operators page.
+
+- Verify that the **Status** is set to **Succeeded** to confirm the successful installation of the Alauda DevOps Pipelines Operator.
+
+- Verify that all components of the Alauda DevOps Pipelines Operator have been successfully installed. Log in to the cluster in a terminal and run the following command:
+
+  ```bash
+  $ kubectl get tektonconfig config
+  ```
+
+  **Example Output**
+
+  ```bash
+  NAME     VERSION   READY   REASON
+  config   v0.74.1     True
+  ```
+
+  If the `READY` condition is `True`, it indicates that the Operator and its components have been successfully installed.
+
+  Additionally, check the versions of the components by running the following command:
+
+  ```bash
+  $ kubectl get tektonpipeline,tektontrigger,tektonhub,tektonchain
+  ```
+
+  **Example Output**
+
+  ```bash
+  NAME                                          VERSION           READY   REASON
+  tektonpipeline.operator.tekton.dev/pipeline   v0.65.5-c96b8b8   True
+
+  NAME                                        VERSION           READY   REASON
+  tektontrigger.operator.tekton.dev/trigger   v0.30.1-f53d05d   True
+
+  NAME                                VERSION   READY   REASON   APIURL   UIURL
+  tektonhub.operator.tekton.dev/hub   1.19.2    True
+
+  NAME                                    VERSION           READY   REASON
+  tektonchain.operator.tekton.dev/chain   v0.23.0-927681d   True
+  ```
+
+### Installing Alauda DevOps Pipelines Using CLI
+
+You can install the Alauda DevOps Pipelines Operator from the OperatorHub using the Command Line Interface (CLI).
+
+**Steps**
+
+- Create a `Subscription` object YAML file to subscribe a namespace to the Alauda DevOps Pipelines Operator, for example, `sub.yaml`:
+
+**Example `Subscription` YAML**
+
+```yaml
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: tektoncd-operator
+  namespace: tekton-operator
+spec:
+  channel: latest # [!code callout]
+  name: tektoncd-operator # [!code callout]
+  source: platform # [!code callout]
+  sourceNamespace: cpaas-system # [!code callout]
+```
+
+<Callouts>
+  1. The channel name you want to subscribe to. The `latest` channel allows for the installation of the latest stable version of the Alauda DevOps Pipelines Operator.
+  2. The name of the Operator to subscribe to.
+  3. The name of the `CatalogSource` object providing the Operator.
+  4. The namespace of the `CatalogSource` object. This may vary depending on your cluster configuration.
+</Callouts>
+
+- Create the `Subscription` object by running the following command:
+
+  ```bash
+  $ kubectl apply -f sub.yaml
+  ```
+
+  The subscription will install the Alauda DevOps Pipelines Operator in the `tekton-operator` namespace. The Operator will automatically install Tekton components in the default target namespace `tekton-pipelines`.
+
+## Uninstalling Alauda DevOps Pipelines
+
+Cluster administrators can uninstall the Alauda DevOps Pipelines Operator by performing the following steps:
+
+- Delete any optional component CRs if they exist, and then delete the `TektonConfig` CR.
+- Uninstall the Alauda DevOps Pipelines Operator.
+- Delete the Custom Resource Definitions (CRDs) for the `operator.tekton.dev` group if needed.
+
+Simply uninstalling the Operator will not remove the Alauda DevOps Pipelines components created by default during the installation of the Operator.
+
+### Deleting Alauda DevOps Pipelines Resource Instances
+
+First, delete the `TektonConfig` CR and any other Tekton component CRs if they exist.
+
+**Steps**
+
+- In the Web console, navigate to **Administration** → **CustomResourceDefinitions** or equivalent section.
+- Search for the `TektonConfig` CRD.
+- Click on the `TektonConfig` CRD to display the detailed page.
+- Click the **Instances** tab.
+- If an instance is displayed, click the `Options` menu of the displayed instance.
+- Select **Delete TektonConfig**.
+- Click **Delete** to confirm the deletion of the CR.
+- Repeat these steps for any other Tekton component CRs that may exist.
+
+### Uninstalling the Alauda DevOps Pipelines Operator
+
+You can uninstall the Alauda DevOps Pipelines Operator using the Web console.
+
+**Steps**
+
+- From the **Marketplace** or **OperatorHub** page, navigate to **Installed Operators**.
+- Find the Alauda DevOps Pipelines Operator in the list.
+- Click the **Options** menu and select **Uninstall Operator**.
+- In the **Uninstall Operator?** window, select **Delete all operand instances for this operator**, then click **Uninstall**.
+
+### Deleting Alauda DevOps Pipelines Resource Definitions (Optional)
+
+If you want to completely remove all traces of the Tekton Operator, you can delete the Custom Resource Definitions (CRDs) for the `operator.tekton.dev` group.
+
+**Steps**
+
+- In the Web console, navigate to **Administration** → **CustomResourceDefinitions** or equivalent section.
+- Search for CRDs with the keyword `operator.tekton.dev`.
+- For each CRD you want to delete:
+  - Click the **Options** menu.
+  - Select **Delete CustomResourceDefinition**.
+  - Click **Delete** to confirm the deletion of the CRD.
+
+## Customizing Configuration in TektonConfig
+
+In Alauda DevOps Pipelines, you can customize the following configurations using the `TektonConfig` Custom Resource (CR):
+
+- Optimize Tekton Pipelines performance, including high availability mode for the Tekton Pipelines controller
+- Configure the Tekton Pipelines control plane
+- Change the default service account
+- Configure pipeline resolvers
+- Disable specific features or components
+
+### Prerequisites
+
+The Alauda DevOps Pipelines Operator must be installed.
+
+### Tuning Performance with TektonConfig CR
+
+You can modify the fields under the `.spec.pipeline.performance` parameter in the `TektonConfig` Custom Resource (CR) to change the high availability (HA) support and performance configuration of the Tekton Pipelines controller.
+
+**Example of `TektonConfig` Performance Fields**
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  pipeline:
+    performance:
+      disable-ha: false
+      buckets: 7
+      replicas: 5
+      threads-per-controller: 2
+      kube-api-qps: 5.0
+      kube-api-burst: 10
+      statefulset-ordinals: false
+```
+
+All fields are optional. When set, the Alauda DevOps Pipelines Operator includes most fields as parameters in the `tekton-pipelines-controller` deployment under the `tekton-pipelines-controller` container. The Operator also updates the `bucket` field in the `config-leader-election` ConfigMap under the `tekton-pipelines` namespace.
+
+If no values are specified, the Operator does not update these fields and applies the default values of the Tekton Pipelines controller.
+
+:::info
+If you modify or remove any performance fields, the Operator will update the tekton-pipelines-controller deployment and the config-leader-election ConfigMap (if the bucket field has changed) and recreate the tekton-pipelines-controller pod.
+:::
+
+High availability (HA) mode is applicable to the Tekton Pipelines controller; it creates and launches pods based on pipeline runs and task runs definitions. Without HA mode, a single pod performs these operations, which may lead to high loads and significant delays.
+
+In HA mode, Tekton Pipelines uses several pods (replicas) to perform these operations. Initially, Tekton Pipelines distributes each controller operation among the buckets. Each replica selects operations from one or more buckets. If two replicas can select the same operation simultaneously, the controller internally decides who will execute that operation.
+
+HA mode does not affect tasks that run after the pod is created.
+
+| **Name**                 | **Description**                                           |
+| ------------------------ | ------------------------------------------------------ |
+| `disable-ha`             | Enables or disables high availability (HA) mode. HA mode is enabled by default.                         |
+| `buckets`                | The number of buckets for processing controller operations in HA mode. The maximum value is 10.                       |
+| `replicas`               | The number of pods created to handle controller operations in HA mode. This value should be set to the same or lower number as the bucket value. |
+| `threads-per-controller` | The number of threads (workers) to be used when processing the work queue of the Tekton Pipelines controller.  |
+| `kube-api-qps`           | The maximum queries per second (QPS) from the REST client to the cluster master.                   |
+| `kube-api-burst`         | Maximum burst for throttling.                                               |
+| `statefulset-ordinals`   | Enables StatefulSet Ordinals mode for the Tekton Pipelines Controller. |
+
+### Configuring Tekton Pipelines Control Plane
+
+You can customize the Tekton Pipelines control plane by editing the configuration fields in the `TektonConfig` Custom Resource (CR). The Alauda DevOps Pipelines Operator automatically includes default values for the configuration fields so you can use the Tekton Pipelines control plane.
+
+**Process**
+
+1. In the Web console, navigate to the CustomResourceDefinitions section.
+2. Search for the `tektonconfigs.operator.tekton.dev` Custom Resource Definition (CRD).
+3. Click on **TektonConfig** to view the CRD detail page.
+4. Click on the **Instances** tab.
+5. Click on the **config** instance to view the details of the `TektonConfig` CR.
+6. Click on the **YAML** tab.
+7. Edit the `TektonConfig` YAML file according to your requirements.
+
+**Example of `TektonConfig` CR with Default Values**
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  pipeline:
+    running-in-environment-with-injected-sidecars: true
+    metrics.taskrun.duration-type: histogram
+    metrics.pipelinerun.duration-type: histogram
+    await-sidecar-readiness: true
+    default-service-account: pipeline
+    require-git-ssh-secret-known-hosts: false
+    enable-tekton-oci-bundles: false
+    metrics.taskrun.level: task
+    metrics.pipelinerun.level: pipeline
+    enable-api-fields: stable
+    enable-provenance-in-status: false
+    enable-custom-tasks: true
+    disable-creds-init: false
+    disable-affinity-assistant: true
+```
+
+#### Feature Flag Options
+
+The following feature flags can be configured in the `TektonConfig` CR to control different behaviors of Tekton Pipelines:
+
+- `disable-affinity-assistant` (Default: `false`)
+- `disable-creds-init` (Default: `false`)
+- `enable-api-fields` (Default: `stable`)
+- `enable-custom-tasks` (Default: `true`)
+- `await-sidecar-readiness` (Default: `true`)
+- `running-in-environment-with-injected-sidecars` (Default: `true`)
+- `require-git-ssh-secret-known-hosts` (Default: `false`)
+- `enable-provenance-in-status` (Default: `true`)
+
+For detailed descriptions of each option, please refer to the Tekton Operator documentation.
+
+### Changing the Default Service Account
+
+You can change the default service account for Tekton Pipelines by editing the `default-service-account` field in the `.spec.pipeline` specification. The default service account name is `pipeline`.
+
+**Example**
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  pipeline:
+    default-service-account: custom-pipeline-account
+```
+
+### Setting Labels and Annotations for the Installation Namespace
+
+You can set labels and annotations for the `tekton-pipelines` namespace where the Operator installs Tekton Pipelines components.
+
+Specify labels and annotations by adding them in the `.spec.targetNamespaceMetadata` specification of the `TektonConfig` Custom Resource (CR).
+
+**Example of Setting Labels and Annotations for the `tekton-pipelines` Namespace**
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  targetNamespaceMetadata:
+    labels: {"example-label":"example-value"}
+    annotations: {"example-annotation":"example-value"}
+```
+
+## Next Steps
+
+After successfully installing the Alauda DevOps Pipelines Operator:
+
+- [Adjusting Optional Configuration Items of Subcomponents](../configure/customize_options)
+- [Configuring Resource Quotas for Pipeline Components](../configure/customize_tekton_pipeline)
+- [Regular Cleanup of TaskRun and PipelineRun Resources](../configure/pruner_resources)

@@ -1,0 +1,546 @@
+---
+weight: 10
+i18n:
+  title:
+    en: Signed Provenance
+    zh: 签名证明
+title: Signed Provenance
+---
+
+# Signed Provenance
+
+This guide helps new users quickly set up Tekton Chains to secure their CI/CD pipelines by generating and verifying SLSA Provenance for Tekton PipelineRuns.
+
+## Introduction
+
+### Use Cases
+
+Tekton Chains helps you secure your software supply chain by automatically generating SLSA Provenance for your build artifacts. This guide demonstrates how to set up Tekton Chains, generate a signing key, run a sample pipeline, and verify its SLSA Provenance.
+
+### Estimated Reading Time
+
+15-20 minutes
+
+## Important Notes
+
+- Tekton Chains is installed by default in the `tekton-pipelines` namespace when using Alauda Devops Pipelines Operator
+- The signing keys should be securely managed; in production environments, consider using a key management system (KMS)
+- This guide uses a simplified workflow by generating the Dockerfile inline within the pipeline
+- In production environments, you should use proper source code management and version control
+
+## Prerequisites
+
+- A Kubernetes cluster with Tekton Pipelines and Tekton Chains installed
+- A registry with image pushing enabled
+- `kubectl` CLI installed and configured to access your cluster
+- `cosign` CLI tool installed
+- `jq` CLI tool installed
+
+## Process Overview
+
+| Step | Operation | Description |
+|------|-----------|-------------|
+| 1 | Generate signing keys | Create a key pair for signing artifacts using cosign |
+| 2 | Set up authentication | Configure registry credentials for image pushing |
+| 3 | Configure Tekton Chains | Set up Chains to use OCI storage and configure signing |
+| 4 | Create a sample pipeline | Create a pipeline definition with necessary tasks and workspaces |
+| 5 | Run a sample pipeline | Create and run a PipelineRun with proper configuration |
+| 6 | Wait for signing | Wait for the PipelineRun to be signed by Chains |
+| 7 | Get image information | Extract image URI and digest from the PipelineRun |
+| 8 | Verify signatures | Verify the image signature and SLSA provenance attestation |
+
+## Step-by-Step Instructions
+
+### Step 1: Generate Signing Keys
+
+:::tip
+For more details, please refer to [Signing Key Configuration](../configure/signing_key_configuration)
+:::
+
+Tekton Chains uses cryptographic keys to sign artifacts. By default, it looks for a secret named `signing-secrets` in the Chains namespace.
+
+1. Install [cosign](https://github.com/sigstore/cosign) if you haven't already
+2. Generate a key pair and store it as a Kubernetes secret:
+
+   ```bash
+   $ COSIGN_PASSWORD={password} cosign generate-key-pair k8s://tekton-pipelines/signing-secrets
+
+   Successfully created secret signing-secrets in namespace tekton-pipelines
+   Public key written to cosign.pub
+   ```
+
+   :::tip
+   This password will be stored in a Kubernetes secret named `signing-secrets` in the `tekton-pipelines` namespace.
+   :::
+
+3. Verify the secret was created:
+
+   ```bash
+   $ kubectl get secret signing-secrets -n tekton-pipelines
+
+   NAME              TYPE     DATA   AGE
+   signing-secrets   Opaque   3      3m
+   ```
+
+### Step 2: Set up Authentication
+
+:::tip
+For more details, please refer to [Authentication for Chains](../configure/authentication_for_chains)
+:::
+
+Configure registry credentials for image pushing:
+
+1. Create a secret with credentials:
+
+   ```bash
+   $ kubectl create secret docker-registry registry-credentials \
+     --docker-server=<gcr.io> \
+     --docker-username=<username> \
+     --docker-email=<email> \
+     --docker-password=<password> \
+     -n $NAMESPACE
+   ```
+
+2. Set the `config.json` key:
+
+   ```bash
+   $ DOCKER_CONFIG=$(kubectl get secret -n $NAMESPACE $REGISTRY_CREDENTIALS -o jsonpath='{.data.\.dockerconfigjson}')
+   $ kubectl patch secret -n $NAMESPACE $REGISTRY_CREDENTIALS -p "{\"data\":{\"config.json\":\"$DOCKER_CONFIG\"}}"
+   ```
+
+3. Patch the service account to use the secret:
+
+   ```bash
+   $ kubectl patch serviceaccount $SERVICE_ACCOUNT_NAME \
+     -p "{\"secrets\": [{\"name\": \"registry-credentials\"}]}" -n $NAMESPACE
+   ```
+
+### Step 3: Configure Tekton Chains
+
+:::tip
+For more details, please refer to [Chains Configuration](../configure/chains_configuration)
+:::
+
+Configure Tekton Chains to store artifacts in OCI format:
+
+```bash
+$ kubectl patch tektonconfigs.operator.tekton.dev config --type=merge -p='{
+  "spec": {
+    "chain": {
+      "artifacts.oci.format": "simplesigning",
+      "artifacts.oci.storage": "oci",
+      "artifacts.pipelinerun.format": "in-toto",
+      "artifacts.pipelinerun.storage": "oci",
+      "artifacts.taskrun.format": "in-toto",
+      "artifacts.taskrun.storage": "oci"
+    }
+  }
+}'
+```
+
+### Step 4: Create a Sample Pipeline
+
+This is a Pipeline resource, which is used to build the image and generate the SLSA Provenance attestation.
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: chains-demo-1
+spec:
+  params:
+    - default: |-
+        echo "Generate a Dockerfile for building an image."
+
+        cat << 'EOF' > Dockerfile
+        FROM ubuntu:latest
+        ENV TIME=1
+        EOF
+
+        echo -e "\nDockerfile contents:"
+        echo "-------------------"
+        cat Dockerfile
+        echo "-------------------"
+        echo -e "\nDockerfile generated successfully!"
+      description: A script to generate a Dockerfile for building an image.
+      name: generate-dockerfile
+      type: string
+    - default: <registry>/test/chains/demo-1:latest
+      description: The target image address built
+      name: image
+      type: string
+  tasks:
+    - name: generate-dockerfile
+      params:
+        - name: script
+          value: $(params.generate-dockerfile)
+      taskRef:
+        params:
+          - name: kind
+            value: task
+          - name: catalog
+            value: catalog
+          - name: name
+            value: run-script
+          - name: version
+            value: "0.1"
+        resolver: hub
+      timeout: 30m0s
+      workspaces:
+        - name: source
+          workspace: source
+    - name: build-image
+      params:
+        - name: IMAGES
+          value:
+            - $(params.image)
+        - name: TLS_VERIFY
+          value: "false"
+      runAfter:
+        - generate-dockerfile
+      taskRef:
+        params:
+          - name: kind
+            value: task
+          - name: catalog
+            value: catalog
+          - name: name
+            value: buildah
+          - name: version
+            value: "0.9"
+        resolver: hub
+      timeout: 30m0s
+      workspaces:
+        - name: source
+          workspace: source
+        - name: dockerconfig
+          workspace: dockerconfig
+  results:
+    - description: first image artifact output
+      name: first_image_ARTIFACT_OUTPUTS
+      type: object
+      value:
+        digest: $(tasks.build-image.results.IMAGE_DIGEST)
+        uri: $(tasks.build-image.results.IMAGE_URL)
+  workspaces:
+    - name: source
+      description: The workspace for source code.
+    - name: dockerconfig
+      description: The workspace for Docker configuration.
+```
+
+:::tip
+In production environments, you should:
+1. Use the `git-clone` task to fetch source code from your repository
+2. Build the image using the Dockerfile that exists in your source code
+3. This approach ensures proper version control and maintains the separation between code and pipeline configuration
+:::
+
+:::details{title="Explanation of YAML fields"}
+- `params`: The parameters for the pipeline.
+  - `generate-dockerfile`: The script to generate a Dockerfile for building an image.
+  - `image`: The target image address built.
+- `tasks`: The tasks for the pipeline.
+  - `generate-dockerfile`: The task to generate a Dockerfile for building an image.
+  - `build-image`: The task to build and push the image to the registry.
+    - `params.TLS_VERIFY`: Whether to verify the TLS certificate of the registry.
+- `results`: The results for the pipeline.
+  - `first_image_ARTIFACT_OUTPUTS`: The result of the first image artifact output.
+    - `digest`: The digest of the image.
+    - `uri`: The URI of the image.
+  - This format is compliant with Tekton Chains, see [Tekton Chains Type Hinting](../concepts/understanding_tekton_chains.mdx#type-hinting) in above section for more details.
+- `workspaces`: The workspaces for the pipeline.
+  - `source`: The workspace for source code.
+  - `dockerconfig`: The workspace for Docker configuration.
+:::
+
+**Need to adjust the configuration**
+- `params`:
+  - `generate-dockerfile`
+    - `default`: Adjust the from image address.
+  - `image`:
+    - `default`: The target image address built.
+
+Save into a yaml file named `chains.demo-1.pipeline.yaml` and apply it with:
+
+```bash
+$ export NAMESPACE=<default>
+$ kubectl apply -n $NAMESPACE -f chains.demo-1.pipeline.yaml
+```
+
+### Step 5: Run a Sample Pipeline
+
+This is a PipelineRun resource, which is used to run the pipeline.
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: chains-demo-1-
+spec:
+  pipelineRef:
+    name: chains-demo-1
+  taskRunTemplate:
+    serviceAccountName: <default>
+  workspaces:
+    - name: dockerconfig
+      secret:
+        secretName: <registry-credentials>
+    - name: source
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 1Gi
+          storageClassName: <nfs>
+```
+
+:::details{title="Explanation of YAML fields"}
+- `pipelineRef`: The pipeline to run.
+  - `name`: The name of the pipeline.
+- `taskRunTemplate`: The task run template.
+  - `serviceAccountName`: The service account to use for the pipeline.
+- `workspaces`: The workspaces for the pipeline.
+  - `dockerconfig`: The workspace for Docker configuration.
+  - `source`: The workspace for source code.
+:::
+
+**Need to adjust the configuration**
+
+- `taskRunTemplate`:
+  - `serviceAccountName`: The service account prepared in the previous step [ServiceAccount Configuration](../configure/authentication_for_chains.mdx#using-serviceaccount).
+- `workspaces`:
+  - `dockerconfig`:
+    - `secret.secretName`: The registry secret prepared in the previous step [Creating Registry Credentials](../configure/authentication_for_chains.mdx#oci-registry-authentication).
+  - `source`:
+    - `volumeClaimTemplate.spec.storageClassName`: The storage class name for the volume claim template.
+
+Save into a yaml file named `chains.demo-1.pipelinerun.yaml` and apply it with:
+
+```shell
+$ export NAMESPACE=<default>
+
+# create the pipeline run resource in the namespace
+$ kubectl create -n $NAMESPACE -f chains.demo-1.pipelinerun.yaml
+```
+
+Wait for the PipelineRun to complete.
+
+```shell
+$ kubectl get pipelinerun -n $NAMESPACE -w
+
+chains-demo-1-<xxxxx>   True        Succeeded   2m         2m
+```
+
+### Step 6: Wait for the PipelineRun to be signed
+
+Wait for the PipelineRun has `chains.tekton.dev/signed: "true"` annotation.
+
+```shell
+$ export NAMESPACE=<default>
+$ export PIPELINERUN_NAME=<chains-demo-1-xxxxx>
+
+$ kubectl get pipelinerun -n $NAMESPACE $PIPELINERUN_NAME -o yaml | grep "chains.tekton.dev/signed"
+
+    chains.tekton.dev/signed: "true"
+```
+
+Once the PipelineRun has `chains.tekton.dev/signed: "true"` annotation, means the image is signed.
+
+### Step 7: Get the image from the PipelineRun
+
+```shell
+# Get the image URI
+$ export IMAGE_URI=$(kubectl get pipelinerun -n $NAMESPACE $PIPELINERUN_NAME -o jsonpath='{.status.results[?(@.name=="first_image_ARTIFACT_OUTPUTS")].value.uri}')
+
+# Get the image digest
+$ export IMAGE_DIGEST=$(kubectl get pipelinerun -n $NAMESPACE $PIPELINERUN_NAME -o jsonpath='{.status.results[?(@.name=="first_image_ARTIFACT_OUTPUTS")].value.digest}')
+
+# Combine the image URI and digest to form the full image reference
+$ export IMAGE=$IMAGE_URI@$IMAGE_DIGEST
+
+# Print the image reference
+$ echo $IMAGE
+
+<registry>/test/chains/demo-1:latest@sha256:93635f39cb31de5c6988cdf1f10435c41b3fb85570c930d51d41bbadc1a90046
+```
+
+This image will be used to verify the signature.
+
+### Step 8: Verifying the Image and Attestation
+
+1. Get the Signing Public Key
+
+   > If you don't have permission, you can ask the administrator to get the public key.
+
+   ```shell
+   $ export NAMESPACE=<tekton-pipelines>
+   $ kubectl get secret -n $NAMESPACE signing-secrets -o jsonpath='{.data.cosign\.pub}' | base64 -d > cosign.pub
+   ```
+
+2. Verify signature
+
+   ```bash
+   $ cosign verify --key cosign.pub ${IMAGE}
+   ```
+
+   If successful, you'll see the following output:
+
+   ```json
+   [{"critical":{"identity":{"docker-reference":"<registry>/test/chains/demo-1"},"image":{"docker-manifest-digest":"sha256:93635f39cb31de5c6988cdf1f10435c41b3fb85570c930d51d41bbadc1a90046"},"type":"cosign container image signature"},"optional":null}]
+   ```
+
+3. Verify SLSA provenance attestation
+
+   ```bash
+   $ cosign verify-attestation --key cosign.pub --type slsaprovenance ${IMAGE}
+   ```
+
+   If successful, you'll see the following output:
+
+   ```text
+   Verification for <registry>/test/chains/demo-1:latest --
+   The following checks were performed on each of these signatures:
+     - The cosign claims were validated
+     - The signatures were verified against the specified public key
+
+   {"payloadType":"application/vnd.in-toto+json","payload":"...","signatures":[{"keyid":"SHA256:B8CzieJ9/kKhU9hiIPXY+dvvz9DLVOQ3XokyYLdladc","sig":"MEQCIEeS/gGpMV4Y22pYJw3hTyCg92KXACAYvnDwm3fzPxyLAiA3cDP6zjCfaVrf35wED1ylSUdsEJzwlXDCvj2i2A6BYg=="}]}
+   ```
+4. Extract the payload using jq:
+
+   ```bash
+   $ cosign verify-attestation --key cosign.pub --type slsaprovenance ${IMAGE} | jq '.payload | @base64d' | jq -r '.' | jq '.'
+   ```
+
+   :::details{title="Attestation Payload"}
+       ```json
+        {
+          "_type": "https://in-toto.io/Statement/v0.1",
+          "subject": [
+            {
+              "name": "<registry>/test/chains/demo-1",
+              "digest": {
+                "sha256": "213a270c14f88abdd283f4ceaf8a8a73f5f8b5c2303609295680a6e751ef6f0f"
+              }
+            }
+          ],
+          "predicateType": "https://slsa.dev/provenance/v0.2",
+          "predicate": {
+            "buildConfig": {
+              "steps": [
+                {
+                  "annotations": null,
+                  "arguments": [
+                    "--images",
+                    "<registry>/test/chains/demo-1:latest",
+                    "--build-args",
+                    ""
+                  ],
+                  "entryPoint": "",
+                  "environment": {
+                    "container": "build-and-push",
+                    "image": "oci://<registry>/devops/tektoncd/hub/buildah@sha256:8d5ea9ecd9b531e798fecd87ca3b64ee1c95e4f2621d09e893c58ed593bfd4c4"
+                  }
+                }
+              ]
+            },
+            "buildType": "tekton.dev/v1beta1/TaskRun",
+            "builder": {
+              "id": "https://alauda.io/builders/tekton/v1"
+            },
+            "invocation": {
+              "configSource": {
+                "digest": {
+                  "sha256": "3225653d04c223be85d173747372290058a738427768c5668ddc784bf24de976"
+                },
+                "uri": "http://tekton-hub-api.tekton-pipelines:8000/v1/resource/catalog/task/buildah/0.9/yaml"
+              },
+              "environment": {
+                "annotations": {
+                  "cpaas.io/creator": "admin@cpaas.io",
+                  "cpaas.io/operator": "admin@cpaas.io",
+                  "cpaas.io/updated-at": "2025-06-16T06:04:04Z",
+                  "pipeline.tekton.dev/affinity-assistant": "affinity-assistant-691f2fff6f",
+                  "pipeline.tekton.dev/release": "002f74eea37b0f5dbcfed39c13d7cd762c8fcdc4",
+                  "tekton.dev/categories": "Image Build",
+                  "tekton.dev/displayName": "Buildah",
+                  "tekton.dev/icon": "",
+                  "tekton.dev/pipelines.minVersion": "0.56.0",
+                  "tekton.dev/platforms": "linux/amd64,linux/arm64",
+                  "tekton.dev/tags": "image-build"
+                },
+                "labels": {
+                  "app.kubernetes.io/managed-by": "tekton-pipelines",
+                  "app.kubernetes.io/version": "0.9",
+                  "tekton.dev/memberOf": "tasks",
+                  "tekton.dev/pipeline": "chains-demo-1",
+                  "tekton.dev/pipelineRun": "chains-demo-1-zp9tk",
+                  "tekton.dev/pipelineRunUID": "ad8234b8-19a6-4c5c-b2fd-5673444aeda8",
+                  "tekton.dev/pipelineTask": "build-image",
+                  "tekton.dev/task": "buildah"
+                }
+              },
+              "parameters": {
+                "BUILDER_IMAGE": "<registry>/devops/tektoncd/hub/buildah:v1.33.12-v4.0.0-beta.240.g2b61d46",
+                "BUILD_ARGS": [
+                  ""
+                ],
+                "BUILD_EXTRA_ARGS": "",
+                "CONTEXT": ".",
+                "DOCKERFILE": "./Dockerfile",
+                "FORMAT": "oci",
+                "IMAGES": [
+                  "<registry>/test/chains/demo-1:latest"
+                ],
+                "PUSH_EXTRA_ARGS": "",
+                "SKIP_PUSH": "false",
+                "STORAGE_DRIVER": "vfs",
+                "TLS_VERIFY": "false",
+                "VERBOSE": "false"
+              }
+            },
+            "materials": [
+              {
+                "digest": {
+                  "sha256": "8d5ea9ecd9b531e798fecd87ca3b64ee1c95e4f2621d09e893c58ed593bfd4c4"
+                },
+                "uri": "oci://<registry>/devops/tektoncd/hub/buildah"
+              }
+            ],
+            "metadata": {
+              "buildFinishedOn": "2025-06-16T06:04:41Z",
+              "buildStartedOn": "2025-06-16T06:04:15Z",
+              "completeness": {
+                "environment": false,
+                "materials": false,
+                "parameters": false
+              },
+              "reproducible": false
+            }
+          }
+        }
+       ```
+   :::
+
+## Expected Results
+
+After completing this guide:
+
+- You have a working Tekton Chains setup with a signing key
+- Your PipelineRuns are automatically signed when they complete, and image has SLSA Provenance attestation
+- You can verify the signatures and attestations to ensure the integrity of your builds
+
+This guide provides a foundation for implementing supply chain security in your CI/CD pipelines. In a production environment, you should:
+
+1. Use proper source code management and version control
+2. Implement secure key management using a cloud KMS
+3. Set up automated verification in your deployment process
+4. Configure proper access controls and security policies
+5. Regularly rotate signing keys and update security configurations
+
+## References
+
+- [Chains Signed Provenance Tutorial](https://tekton.dev/docs/chains/signed-provenance-tutorial/)
+- [Chains Configuration](../configure/chains_configuration)

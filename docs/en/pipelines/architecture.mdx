@@ -1,0 +1,197 @@
+---
+weight: 20
+---
+
+# Architecture
+
+## Architecture Overview
+
+Tekton Pipelines is a Kubernetes-based CI/CD system that provides a set of standard Custom Resource Definitions (CRDs) to define and run CI/CD workflows as a series of steps. It's designed to be cloud-native, scalable, and extensible.
+
+![Tekton Pipelines Architecture Diagram](/pipelines/PipelineFlow.svg)
+
+## Core Components
+
+### 1. Task
+
+A Task is the basic building block of Tekton Pipelines:
+
+- Defines a series of steps to execute
+- Runs in a Kubernetes Pod
+- Can accept inputs and produce outputs
+- Executes steps in sequence
+
+Main characteristics:
+
+- Each step runs in its own container
+- Steps share workspace volumes
+- Supports parameterization
+- Can define resource requirements
+
+### 2. TaskRun
+
+TaskRun is a runtime instance of a Task:
+
+- Creates a Pod to execute the Task
+- Manages the lifecycle of the Task execution
+- Collects and stores execution results
+- Handles resource allocation
+
+Workflow:
+
+1. Creates a Pod with containers for each step
+2. Executes steps in sequence
+3. Manages shared volumes between steps
+4. Collects execution results and status
+
+### 3. Pipeline
+
+Pipeline defines a series of Tasks to be executed:
+
+- Orchestrates multiple Tasks
+- Defines execution order and dependencies
+- Manages data flow between Tasks
+- Supports conditional execution
+
+Key features:
+
+- Task dependency management
+- Parameter passing between Tasks
+- Workspace sharing across Tasks
+- Conditional execution using `when` expressions
+- Parallel execution with `runAfter`
+
+### 4. PipelineRun
+
+PipelineRun is a runtime instance of a Pipeline:
+
+- Creates TaskRuns for each Task in the Pipeline
+- Manages the execution flow
+- Handles resource allocation
+- Collects and stores execution results
+
+Main responsibilities:
+
+- Orchestrating TaskRun creation
+- Managing execution order
+- Handling parameter passing
+- Tracking overall execution status
+
+### 5. Workspaces
+
+Workspaces provide a mechanism for sharing data:
+
+- Shared storage between Tasks
+- Support for various volume types
+- Flexible mounting options
+- Persistent data across Task executions
+
+Types of storage supported:
+
+- PersistentVolumeClaims
+- ConfigMaps
+- Secrets
+- EmptyDir volumes
+- CSI (Container Storage Interface) volumes
+- Projected volumes
+
+## Workflow
+
+1. **Pipeline Definition**
+   - Define Tasks with steps
+   - Define Pipeline with Task dependencies
+   - Configure parameters and workspaces
+
+2. **Pipeline Execution**
+   - Create a PipelineRun resource
+   - Controller creates TaskRuns based on dependencies
+   - TaskRuns create Pods to execute steps
+   - Results are collected and status is updated
+
+3. **Data Flow**
+   - Parameters pass data between Pipeline components
+   - Workspaces share files between Tasks
+   - Results from Tasks can be used in subsequent Tasks
+
+4. **Completion**
+   - All TaskRuns complete
+   - PipelineRun status is updated
+   - Results are stored and available for retrieval
+
+## Deployment Architecture
+
+### Controller Components
+
+1. **Tekton Pipeline Controller**
+   - Watches for Tekton CRD instances
+   - Creates and manages Kubernetes resources
+   - Handles lifecycle management
+   - Updates status information
+
+2. **Tekton Webhook**
+   - Validates Tekton resources
+   - Applies defaults
+   - Ensures resource consistency
+
+3. **Tekton Remote Resolvers**
+   - Resolves Task and Pipeline definitions from remote sources
+   - Supports OCI bundles
+   - Supports Git-based resolution
+   - Supports HTTP-based resolution
+
+### Runtime Components
+
+1. **TaskRun Pods**
+   - Container for each step
+   - Init containers for setup
+   - Shared volumes for workspaces
+   - Sidecars for special functionality
+
+2. **Resource Management**
+   - Pod scheduling
+   - Resource requests and limits
+   - Node selection and affinity
+   - Priority classes
+
+## Security Architecture
+
+### Authentication Mechanisms
+
+1. **Service Account Integration**
+   - TaskRuns and PipelineRuns use ServiceAccounts
+   - Supports Kubernetes RBAC
+   - Secret management for credentials
+
+### Authorization Control
+
+1. **Resource Access Control**
+   - Role-based access control
+   - Namespace isolation
+   - Resource quotas
+
+2. **Execution Security**
+   - Pod security contexts
+   - Network policies
+   - Secure workspace handling
+
+## Extensibility Design
+
+### 1. Custom Tasks
+
+- Extend beyond container execution
+- Custom resource implementations
+- Integration with external systems
+
+### 2. Remote Resolution
+
+- Remote Task and Pipeline definitions
+- Support for OCI bundles
+- Git-based resolution
+- HTTP-based resolution
+
+### 3. Results and Metrics
+
+- Task and Pipeline results
+- Execution metrics
+- Integration with observability systems
+- Custom result processors

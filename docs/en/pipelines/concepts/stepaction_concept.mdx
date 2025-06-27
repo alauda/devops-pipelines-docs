@@ -1,0 +1,367 @@
+---
+weight: 70
+---
+
+# StepActions
+
+A StepAction is the reusable and scriptable unit of work that is performed by a Step in Tekton Pipelines. StepActions allow you to define containerized operations that can be referenced and reused across different Tasks.
+
+## Why StepActions are Needed
+
+### Traditional Task Challenges
+
+Before StepActions, Tasks faced several limitations:
+- **Reusability**: Steps defined within Tasks couldn't be easily extracted and reused
+- **Maintainability**: Common step logic had to be duplicated across different Tasks
+- **Versioning**: Difficult to version control individual steps separately from Tasks
+- **Consistency**: Hard to ensure consistent implementation of common operations
+
+### Tekton's Solution
+
+StepActions address these challenges by:
+- **Step-Level Reusability**: Encapsulate common operations as reusable components
+- **Declarative Definition**: Define StepActions as Kubernetes Custom Resources
+- **Parameterization**: Accept parameters to customize behavior
+- **Result Emission**: Produce results that can be consumed by other steps
+- **Resource Control**: Define resource requirements separately from the Tasks
+
+## Advantages
+
+- **Modularity**: Break down complex operations into reusable components
+- **Consistency**: Ensure identical implementation of common operations across Tasks
+- **Maintainability**: Update a StepAction once and all referencing Tasks benefit
+- **Clarity**: Separate the definition of what to do (StepAction) from when to do it (Step)
+- **Versioning**: Version control StepActions independently from Tasks
+
+## Scenarios
+
+StepActions are useful in various scenarios, including:
+- **Common Operations**: Git clone, image build, security scanning
+- **Standardized Tools**: Linters, formatters, test runners
+- **Organization-Specific Logic**: Custom deployment procedures, approval workflows
+- **Shared Utilities**: Version generation, configuration validation
+- **Integration Components**: Service interaction, API operations
+
+## Constraints and Limitations
+
+- StepActions can only be used within Steps
+- Cannot pass Step Results between Steps
+- Parameters cannot be directly used in scripts (must use environment variables)
+- StepActions cannot run stand-alone (unlike TaskRuns or PipelineRuns)
+- Requires the `enable-step-actions` feature flag to be set to "true"
+
+## Principles
+
+### StepAction Execution Model
+
+When a StepAction is referenced by a Step:
+1. The Step provides the necessary context and parameters
+2. The StepAction defines the container image and execution logic
+3. The Step can override certain aspects like resources and timeout
+4. The referenced StepAction executes its defined commands or script
+5. Results from the StepAction can be consumed by subsequent steps
+
+### Referencing Model
+
+StepActions are not components of Steps. Instead:
+- A Step is an actionable component that can reference a StepAction
+- The Step provides orchestration and context
+- The StepAction provides reusable logic
+- A Step can reference local or remote StepActions
+
+## Configuration Examples
+
+### Basic StepAction Example
+
+```yaml
+apiVersion: tekton.dev/v1beta1
+kind: StepAction
+metadata:
+  name: git-clone
+spec:
+  params:
+    - name: url
+      type: string
+    - name: revision
+      type: string
+      default: "main"
+    - name: depth
+      type: string
+      default: "1"
+  results:
+    - name: commit
+      description: The commit SHA that was checked out
+  image: alpine/git
+  script: |
+    git clone --depth $(params.depth) --branch $(params.revision) $(params.url) /workspace
+    cd /workspace
+    echo -n $(git rev-parse HEAD) > $(results.commit.path)
+```
+
+### Referencing a StepAction in a Task
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: build-with-git
+spec:
+  workspaces:
+    - name: source
+  params:
+    - name: repo-url
+      type: string
+  steps:
+    - name: clone
+      ref:
+        name: git-clone
+      params:
+        - name: url
+          value: $(params.repo-url)
+        - name: revision
+          value: main
+      workingDir: $(workspaces.source.path)
+    - name: build
+      image: golang
+      workingDir: $(workspaces.source.path)
+      script: |
+        go build -o app .
+```
+
+## Important Parameters
+
+### Parameters
+
+Parameters allow StepActions to be customized when referenced by Steps.
+
+#### Use Cases
+
+- Configuring connection details
+- Specifying targets or destinations
+- Setting operational flags
+- Defining version information
+- Controlling behavior
+
+#### Principles
+
+Parameters in StepActions are:
+- Declared in the StepAction specification
+- Can have default values
+- Passed from the referencing Step
+- Support string, array, and object types
+- Cannot be directly used in scripts (should be used through environment variables)
+
+#### Configuration Example
+
+```yaml
+apiVersion: tekton.dev/v1beta1
+kind: StepAction
+metadata:
+  name: image-builder
+spec:
+  params:
+    - name: image
+      type: object
+      properties:
+        name:
+          type: string
+        tag:
+          type: string
+    - name: context
+      type: string
+      default: "."
+  image: docker
+  env:
+    - name: IMAGE_NAME
+      value: $(params.image.name)
+    - name: IMAGE_TAG
+      value: $(params.image.tag)
+  script: |
+    docker build -t $IMAGE_NAME:$IMAGE_TAG $(params.context)
+```
+
+### Results
+
+Results allow StepActions to emit values that can be consumed by other Steps or Tasks.
+
+#### Use Cases
+
+- Sharing build information
+- Passing generated identifiers
+- Communicating status information
+- Providing artifact locations
+
+#### Principles
+
+Results are:
+- Declared in the StepAction specification
+- Written to a specific file path by the StepAction
+- Made available to subsequent Steps or Tasks
+
+#### Configuration Example
+
+```yaml
+apiVersion: tekton.dev/v1beta1
+kind: StepAction
+metadata:
+  name: version-generator
+spec:
+  results:
+    - name: version
+      description: The generated semantic version
+    - name: build-id
+      description: The unique build identifier
+  image: alpine
+  script: |
+    VERSION="1.0.$(date +%s)"
+    echo -n $VERSION > $(results.version.path)
+    echo -n "build-$RANDOM-$RANDOM" > $(results.build-id.path)
+```
+
+### WorkingDir
+
+WorkingDir allows specifying the working directory for a StepAction.
+
+#### Use Cases
+
+- Setting the correct context for operations
+- Ensuring commands run in the right location
+- Providing consistency across StepAction usage
+
+#### Configuration Example
+
+```yaml
+apiVersion: tekton.dev/v1beta1
+kind: StepAction
+metadata:
+  name: file-processor
+spec:
+  workingDir: /workspace
+  image: ubuntu
+  script: |
+    ls -la
+    find . -name "*.txt" -exec cat {} \;
+```
+
+### SecurityContext
+
+SecurityContext allows configuring the security settings for a StepAction.
+
+#### Use Cases
+
+- Setting container permissions
+- Configuring user and group IDs
+- Managing security constraints
+
+#### Configuration Example
+
+```yaml
+apiVersion: tekton.dev/v1beta1
+kind: StepAction
+metadata:
+  name: secure-operation
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    allowPrivilegeEscalation: false
+  image: ubuntu
+  script: |
+    echo "Running as $(id -u)"
+```
+
+### VolumeMounts
+
+VolumeMounts allow StepActions to access external storage.
+
+#### Use Cases
+
+- Accessing configuration files
+- Storing persistent data
+- Sharing information between steps
+
+#### Configuration Example
+
+```yaml
+apiVersion: tekton.dev/v1beta1
+kind: StepAction
+metadata:
+  name: config-reader
+spec:
+  volumeMounts:
+    - name: config-volume
+      mountPath: /etc/config
+  image: ubuntu
+  script: |
+    cat /etc/config/settings.json
+```
+
+## When Expressions
+
+When Expressions allow controlling whether a Step that references a StepAction should execute.
+
+#### Use Cases
+
+- Conditional execution based on parameters
+- Skipping steps based on workspace availability
+- Controlling workflow based on previous step results
+
+#### Configuration Example
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: conditional-task
+spec:
+  params:
+    - name: run-tests
+      type: string
+      default: "true"
+  steps:
+    - name: test-runner
+      ref:
+        name: run-tests
+      when:
+        - input: "$(params.run-tests)"
+          operator: in
+          values: ["true"]
+```
+
+## Remote StepActions
+
+StepActions can be referenced from remote locations such as git repositories.
+
+#### Use Cases
+
+- Centralized StepAction management
+- Version controlling StepActions
+- Sharing StepActions across organizations
+
+#### Configuration Example
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: remote-stepaction-run
+spec:
+  taskSpec:
+    steps:
+      - name: remote-action
+        ref:
+          resolver: git
+          params:
+            - name: url
+              value: https://github.com/organization/stepactions.git
+            - name: revision
+              value: main
+            - name: pathInRepo
+              value: actions/my-action.yaml
+```
+
+## References
+
+- [Tekton StepActions Official Documentation](https://tekton.dev/docs/pipelines/stepactions/)
+- [Tekton Pipelines GitHub Repository](https://github.com/tektoncd/pipeline)
+- [Kubernetes Custom Resources](https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/)

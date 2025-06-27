@@ -1,0 +1,303 @@
+---
+weight: 51
+i18n:
+  title:
+    en: Database Configuration
+    zh: 数据库配置
+title: Database Configuration
+---
+
+# Database Configuration
+
+This document describes how to configure the database required for Tekton Results.
+
+:::note
+Currently, **we only support connecting to external databases**. This is because:
+
+- The built-in database lacks essential production features such as backup, monitoring, high availability, and advanced management capabilities. It only provides basic storage and query functionality, making it unsuitable for production environments.
+- External databases offer comprehensive enterprise-grade features including automated backups, performance monitoring, scaling capabilities, and professional support, which are essential for production deployments.
+- Our Data Services product already provides comprehensive PostgreSQL management capabilities.
+:::
+
+## Prerequisites
+
+### Cluster Requirements
+- Tekton Operator must be installed in the cluster.
+
+### Database Requirements
+
+**Version:**
+- PostgreSQL 12 or higher
+- Recommended to use newer versions for longer maintenance support
+
+**Database Setup:**
+- Database must already exist
+- Database should be empty (Tekton Results will automatically create required table structures)
+- Ensure the database user has permissions to create tables
+
+**Create Database Command:**
+
+```sql
+CREATE DATABASE tekton_results;
+```
+
+## Configuration Overview
+
+Tekton Results supports using external PostgreSQL databases. The configuration is divided into two parts:
+
+1. **Database credentials** (username and password) are stored in Kubernetes Secrets
+2. **Database connection parameters** (host, port, database name, SSL settings) are configured in the TektonResult custom resource
+
+### Configuration Parameters Reference
+
+| Field | Description | Default Value | Required |
+|-------|-------------|---------------|----------|
+| `is_external_db` | Whether to use external database | `false` | Yes (set to `true` for external DB) |
+| `db_host` | Database host address | `localhost` | Yes |
+| `db_port` | Database port | `5432` | Yes |
+| `db_name` | Database name | `tekton-results` | Yes |
+| `db_sslmode` | SSL connection mode | `disable` | No |
+| `db_sslrootcert` | SSL root certificate path | Empty | No (required when using SSL) |
+| `db_secret_name` | Secret name for database credentials | Empty  | Yes |
+
+> The valid options for `db_sslmode` are explained here https://www.postgresql.org/docs/current/libpq-ssl.html#LIBPQ-SSL-PROTECTION.
+
+## Basic Configuration
+
+For a basic external database setup without SSL, follow these steps:
+
+### 1. Create Database Credentials
+
+**Required Fields in Secret:**
+
+| Field | Description | Example Value |
+|-------|-------------|---------------|
+| `POSTGRES_USER` | Database username | `result` |
+| `POSTGRES_PASSWORD` | Database password | `your_secure_password` |
+
+**Create Secret Command:**
+
+```bash
+kubectl create secret generic tekton-results-postgres \
+  --namespace="tekton-pipelines" \
+  --from-literal=POSTGRES_USER=result \
+  --from-literal=POSTGRES_PASSWORD=your_secure_password
+```
+
+**Secret YAML Example:**
+
+```yaml
+apiVersion: v1
+kind: Secret
+type: Opaque
+metadata:
+  name: tekton-results-postgres
+data:
+  POSTGRES_USER: <base64 encoded username>
+  POSTGRES_PASSWORD: <base64 encoded password>
+```
+
+### 2. Configure TektonResult Resource
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonResult
+metadata:
+  name: result
+spec:
+  is_external_db: true
+  db_host: your-postgres-host.example.com
+  db_port: 5432
+  db_name: tekton_results
+  db_secret_name: tekton-results-postgres
+```
+
+### 3. Verify Configuration
+
+```bash
+kubectl get tektonresults.operator.tekton.dev result
+kubectl get pods -n tekton-pipelines -l app.kubernetes.io/name=tekton-results-api
+```
+
+:::tip
+This Quick Start covers basic configuration only. For production environments with SSL, advanced security, or custom CA certificates, see the [Advanced Configuration](#advanced-configuration) section below.
+:::
+
+## Advanced Configuration
+
+### SSL Configuration
+
+When secure database connections are required, you can configure SSL-related parameters:
+
+**SSL Mode Selection Guide:**
+
+| Environment | Recommended Mode | Security Level | Description |
+|-------------|------------------|----------------|-------------|
+| Development | `disable` | None | No encryption |
+| Testing | `require` | Basic | Encrypted connection |
+| Production | `verify-full` | Maximum | Encrypted + certificate validation |
+
+**SSL Mode Descriptions**
+
+| sslmode | Eavesdropping protection | MITM protection | Statement |
+|---------|--------------------------|-----------------|-----------|
+| disable | No                       | No              | I don't care about security, and I don't want to pay the overhead of encryption. |
+| allow   | Maybe                    | No              | I don't care about security, but I will pay the overhead of encryption if the server insists on it. |
+| prefer  | Maybe                    | No              | I don't care about encryption, but I wish to pay the overhead of encryption if the server supports it. |
+| require | Yes                      | No              | I want my data to be encrypted, and I accept the overhead. I trust that the network will make sure I always connect to the server I want. |
+| verify-ca | Yes | Depends on CA policy | I want my data encrypted, and I accept the overhead. I want to be sure that I connect to a server that I trust. |
+| verify-full | Yes | Yes | I want my data encrypted, and I accept the overhead. I want to be sure that I connect to a server I trust, and that it's the one I specify. |
+
+The difference between verify-ca and verify-full depends on the policy of the root CA. If a public CA is used, verify-ca allows connections to a server that somebody else may have registered with the CA. In this case, verify-full should always be used. If a local CA is used, or even a self-signed certificate, using verify-ca often provides enough protection.
+
+:::warning
+**Important:** When using SSL modes `require`, `verify-ca`, or `verify-full`, you must provide the CA certificate that signed the database server certificate. Without proper CA certificate configuration, the Tekton Results components will fail to start. See the [Configuring Custom CA Certificates](#configuring-custom-ca-certificates) section below for detailed configuration steps.
+:::
+
+### Configuring Custom CA Certificates
+
+When using SSL modes that require certificate validation (`require`, `verify-ca`, `verify-full`), you need to provide the CA certificate that signed the database server certificate. The most common approach is to store the CA certificate in a ConfigMap and mount it to the Tekton Results pods.
+
+#### Step 1: Create ConfigMap with CA Certificate
+
+If you have a CA certificate file named `root.crt`, create a ConfigMap:
+
+```bash
+kubectl create configmap db-root-crt -n tekton-pipelines --from-file ca.crt=./root.crt
+```
+
+#### Step 2: Configure TektonResult with Volume Mounts
+
+To make the CA certificate available in the containers, you need to configure the TektonResult resource with additional `options` to mount the ConfigMap:
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonResult
+metadata:
+  name: result
+spec:
+  is_external_db: true
+  # Database connection configuration
+  db_host: your-postgres-host.example.com
+  db_port: 5432
+  db_name: tekton_results
+  db_sslmode: verify-full
+  db_sslrootcert: /etc/tls/db/ca.crt
+  # Secret configuration
+  db_secret_name: tekton-results-postgres
+  # Options for mounting CA certificate
+  options:
+    deployments:
+      tekton-results-api:
+        spec:
+          template:
+            spec:
+              containers:
+                - name: api
+                  volumeMounts:
+                    - mountPath: /etc/tls/db
+                      name: postgredb-tls-ca
+                      readOnly: true
+              volumes:
+                - configMap:
+                    name: db-root-crt
+                  name: postgredb-tls-ca
+      tekton-results-retention-policy-agent:
+        spec:
+          template:
+            spec:
+              containers:
+                - name: retention-policy-agent
+                  volumeMounts:
+                    - mountPath: /etc/tls/db
+                      name: postgredb-tls-ca
+                      readOnly: true
+              volumes:
+                - configMap:
+                    name: db-root-crt
+                  name: postgredb-tls-ca
+```
+
+With this configuration:
+- The CA certificate will be available in the containers at `/etc/tls/db/ca.crt`
+- Set `db_sslrootcert` to `/etc/tls/db/ca.crt` to match the mounted path
+- Both the API server and retention policy agent will have access to the CA certificate
+
+## Operations
+
+### Updating Database Configuration
+
+After modifying the database configuration, **you need to restart the Tekton Results components for the changes to take effect**.
+
+**Option 1: Restart specific deployments**
+```bash
+# Restart the API server
+kubectl delete pod -n tekton-pipelines -l app.kubernetes.io/name=tekton-results-api
+
+# Restart the retention policy agent
+kubectl delete pod -n tekton-pipelines -l app.kubernetes.io/name=tekton-results-retention-policy-agent
+```
+
+**Option 2: Recreate the TektonResult resource**
+```bash
+# Get the current TektonResult resource and recreate it
+kubectl get tektonresults.operator.tekton.dev result -o yaml | kubectl replace --force -f -
+```
+
+**Verify the changes:**
+```bash
+# Check if the pods are running with the new configuration
+kubectl get pods -n tekton-pipelines -l app.kubernetes.io/name=tekton-results-api
+kubectl get pods -n tekton-pipelines -l app.kubernetes.io/name=tekton-results-retention-policy-agent
+```
+
+### Troubleshooting
+
+#### Common Issues
+
+1. **Connection refused:**
+   - Verify database host and port
+   - Check network connectivity
+   - Ensure database is running
+
+2. **Authentication failed:**
+   - Verify username and password in Secret
+   - Check database user permissions
+
+3. **SSL certificate errors:**
+   - Verify CA certificate is correctly mounted
+   - Check SSL mode configuration
+   - Ensure certificate path matches mount path
+
+#### Verification Commands
+
+```bash
+# Check TektonResult status
+kubectl get tektonresults.operator.tekton.dev result -o yaml
+
+# Check pod logs
+kubectl logs -n tekton-pipelines -l app.kubernetes.io/name=tekton-results-api
+
+# Verify Secret exists
+kubectl get secret tekton-results-postgres -n tekton-pipelines
+```
+
+### Using PostgreSQL from Data Services
+
+`Data Services` supports deploying PostgreSQL instances that can be used for Tekton Results. When creating a PostgreSQL instance, please consider the following important requirements:
+
+1. Choose a PostgreSQL version that matches your Tekton Results version, for example, you can select PostgreSQL 12.x or higher.
+2. Storage quota should not be less than 5Gi
+
+When creating a PostgreSQL instance, a Secret containing connection information is automatically generated. This Secret resource can be filtered using the label `middleware.instance/type: PostgreSQL`.
+
+```bash
+kubectl get secret -n <ns-of-postgresql-instance> -l middleware.instance/type=PostgreSQL | grep -E '^postgres'
+```
+
+:::info
+
+This Secret contains `host`, `port`, `username`, `password` information. You need to supplement `database` and `sslmode` (set to `allow` or `prefer`) information based on this Secret, and create a new secret in the namespace where the Tekton Results instance is located.
+
+For more PostgreSQL deployment parameters and requirements, please refer to <ExternalSiteLink name="postgresql" href="/installation.html" children="PostgreSQL Deployment Documentation" />.
+:::

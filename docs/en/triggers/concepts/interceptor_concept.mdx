@@ -1,0 +1,336 @@
+---
+weight: 35
+---
+
+# Interceptor
+
+An Interceptor is a powerful component in Tekton Triggers that processes and filters event data before it reaches TriggerBindings and TriggerTemplates. It acts as a gatekeeper and transformer for incoming webhook events, allowing you to validate, filter, and modify event data to ensure only relevant events trigger your pipelines.
+
+## Terminology Explanation
+
+| Term | Description |
+|------|-------------|
+| Interceptor | A component that processes webhook events before they reach TriggerBindings and TriggerTemplates. |
+| ClusterInterceptor | A cluster-scoped Interceptor that can be used across all namespaces. |
+| CEL | Common Expression Language, used for filtering and transforming event data. |
+| Extensions | Additional data fields added by Interceptors that can be accessed by TriggerBindings. |
+| Webhook | An HTTP callback that delivers event data when specific events occur in external systems. |
+
+## Why We Need Interceptors
+
+### The Challenge of Event Processing
+
+In CI/CD systems that respond to external events, several challenges arise:
+
+1. **Event Validation**: External webhooks need verification to ensure they come from trusted sources.
+2. **Event Filtering**: Not all events should trigger pipelines; you need to filter based on event types or content.
+3. **Data Transformation**: Raw webhook payloads often contain more data than needed or require restructuring.
+4. **Security Concerns**: Without proper validation, webhook endpoints could be vulnerable to abuse.
+
+Without Interceptors, addressing these challenges would require:
+- Custom validation code for each webhook source
+- Complex logic embedded in pipeline definitions
+- Manual filtering and transformation in scripts
+- Separate security mechanisms for each integration
+
+### How Interceptors Address These Problems
+
+Interceptors provide a standardized, declarative way to:
+
+1. **Validate Events**: Verify webhook signatures and tokens to ensure authenticity.
+2. **Filter Events**: Process only relevant events based on type, content, or other criteria.
+3. **Transform Data**: Extract, modify, or add data to make it more suitable for pipeline consumption.
+4. **Enhance Security**: Implement consistent security practices across all webhook integrations.
+5. **Modularize Logic**: Separate event processing concerns from pipeline execution.
+
+This approach creates a clean separation between event reception, processing, and pipeline execution, making your CI/CD system more maintainable and secure.
+
+## Advantages
+
+- **Enhanced Security**: Validate webhook authenticity before processing
+- **Reduced Pipeline Complexity**: Move filtering and transformation logic out of pipelines
+- **Standardized Processing**: Consistent handling of events across different sources
+- **Flexibility**: Chain multiple interceptors for complex processing requirements
+- **Extensibility**: Create custom interceptors for specialized processing needs
+- **Reusability**: Define interceptors once and reuse them across multiple triggers
+- **Declarative Configuration**: Configure event processing using Kubernetes resources
+
+## Applicable Scenarios
+
+Interceptors are essential in the following scenarios:
+
+1. **Secure Webhook Processing**: When you need to validate that webhook events come from trusted sources.
+
+2. **Conditional Pipeline Execution**: When you want to trigger pipelines only for specific event types or content (e.g., only on push events to the main branch).
+
+3. **Data Enrichment**: When you need to add computed values or extract specific data from complex event payloads.
+
+4. **Multi-source Integration**: When integrating with multiple webhook providers (GitHub, GitLab, Bitbucket) with consistent processing.
+
+5. **Custom Event Processing**: When implementing specialized logic for event handling beyond what's available in standard interceptors.
+
+## Constraints and Limitations
+
+- Interceptors add processing overhead to event handling
+- Complex CEL expressions can be difficult to debug
+- Custom interceptors require additional deployment and management
+- HTTPS is recommended for security, and HTTP support will be removed in future versions
+- Interceptors must be properly secured to prevent unauthorized access
+
+## Principles
+
+### Interceptor Architecture
+
+Interceptors sit between the EventListener and the Trigger processing pipeline:
+
+1. **EventListener** receives the webhook event
+2. **Interceptors** process and filter the event
+3. **TriggerBindings** extract data from the processed event
+4. **TriggerTemplates** create resources using the extracted data
+
+Interceptors can be chained together, with each interceptor receiving the output from the previous one. This allows for complex processing pipelines where each interceptor performs a specific function.
+
+### Types of Interceptors
+
+Tekton Triggers supports two implementations of interceptors:
+
+1. **Standalone Interceptors**: Implemented as separate Kubernetes services
+   - **Interceptor**: Namespace-scoped custom resource
+   - **ClusterInterceptor**: Cluster-scoped custom resource
+   - More flexible and easier to extend
+   - Can be implemented in any language that can serve HTTP requests
+
+2. **Built-in Interceptors**: Included in the EventListener pod
+   - GitHub, GitLab, Bitbucket, CEL, etc.
+   - Retained for backward compatibility
+   - Simpler to use but less extensible
+
+### Interceptor Structure
+
+A basic Interceptor resource has the following structure:
+
+```yaml
+apiVersion: triggers.tekton.dev/v1alpha1
+kind: Interceptor
+metadata:
+  name: my-interceptor
+spec:
+  clientConfig:
+    service:
+      name: my-interceptor-svc
+      namespace: default
+      path: "/optional-path"  # Optional
+      port: 8081  # Defaults to 80
+```
+
+When referenced in a Trigger:
+
+```yaml
+triggers:
+  - name: trigger-with-interceptor
+    interceptors:
+      - ref:
+          name: "my-interceptor"
+          kind: Interceptor  # Or ClusterInterceptor
+          namespace: default  # Required only for Interceptor
+        params:  # Optional parameters
+          - name: "param1"
+            value: "value1"
+```
+
+## Configuration Examples
+
+### GitHub Interceptor Example
+
+```yaml
+triggers:
+  - name: github-push-trigger
+    interceptors:
+      - ref:
+          name: "github"
+        params:
+          - name: "secretRef"
+            value:
+              secretName: github-secret
+              secretKey: secretToken
+          - name: "eventTypes"
+            value: ["push"]
+          - name: "branches"
+            value: ["main", "release/*"]
+```
+
+### GitLab Interceptor with CEL Example
+
+```yaml
+triggers:
+  - name: gitlab-merge-request-trigger
+    interceptors:
+      - ref:
+          name: "gitlab"
+        params:
+          - name: "secretRef"
+            value:
+              secretName: gitlab-secret
+              secretKey: secretToken
+          - name: "eventTypes"
+            value: ["Merge Request Hook"]
+      - ref:
+          name: "cel"
+        params:
+          - name: "filter"
+            value: "body.object_attributes.state == 'opened' || body.object_attributes.state == 'reopened'"
+          - name: "overlays"
+            value:
+              - key: truncated_sha
+                expression: "body.object_attributes.last_commit.id.truncate(7)"
+```
+
+### Custom Interceptor Example
+
+1. Create a Deployment for your custom interceptor:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: custom-interceptor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: custom-interceptor
+  template:
+    metadata:
+      labels:
+        app: custom-interceptor
+    spec:
+      containers:
+        - name: custom-interceptor
+          image: custom-interceptor:latest
+          ports:
+            - containerPort: 8080
+```
+
+2. Create a Service for your custom interceptor:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: custom-interceptor-svc
+spec:
+  selector:
+    app: custom-interceptor
+  ports:
+    - port: 80
+      targetPort: 8080
+```
+
+3. Register your custom interceptor:
+
+```yaml
+apiVersion: triggers.tekton.dev/v1alpha1
+kind: ClusterInterceptor
+metadata:
+  name: custom-interceptor
+spec:
+  clientConfig:
+    service:
+      name: custom-interceptor-svc
+      namespace: default
+      port: 80
+```
+
+## Important Parameter Explanations Related to Interceptors
+
+### CEL Expressions
+
+CEL (Common Expression Language) is a powerful tool used in the CEL interceptor for filtering and transforming event data.
+
+#### Applicable Scenarios
+
+- Filtering events based on complex conditions
+- Extracting specific data from event payloads
+- Creating new fields based on existing data
+- Implementing conditional logic
+
+#### Constraints and Limitations
+
+- Complex expressions can be difficult to debug
+- Limited to the functionality provided by CEL
+- Performance impact with very complex expressions
+
+#### Principles/Parameter Explanation
+
+Common CEL patterns:
+
+- Accessing body fields: `body.repository.full_name`
+- Accessing header fields: `header.X-GitHub-Event`
+- String operations: `body.ref.split('/')[2]`
+- Conditionals: `body.action in ['opened', 'reopened', 'synchronize']`
+- Boolean logic: `body.pull_request.base.ref == 'main' && body.action == 'opened'`
+
+#### Configuration Examples
+
+```yaml
+- ref:
+    name: "cel"
+  params:
+    - name: "filter"
+      value: "header.match('X-GitHub-Event', 'pull_request') && body.action in ['opened', 'reopened', 'synchronize']"
+    - name: "overlays"
+      value:
+        - key: branch_name
+          expression: "body.pull_request.head.ref"
+        - key: is_main_target
+          expression: "body.pull_request.base.ref == 'main'"
+```
+
+### HTTPS Configuration
+
+Running interceptors over HTTPS is recommended for security and will be required in future versions.
+
+#### Applicable Scenarios
+
+- Production environments
+- Handling sensitive data
+- Compliance with security requirements
+
+#### Constraints and Limitations
+
+- Requires proper certificate management
+- Additional configuration compared to HTTP
+
+#### Principles/Parameter Explanation
+
+To configure an interceptor for HTTPS:
+
+1. Add the `server/type: https` label to your interceptor
+2. Provide a CA bundle for certificate validation
+3. Ensure your interceptor service is configured to serve HTTPS
+
+#### Configuration Examples
+
+```yaml
+apiVersion: triggers.tekton.dev/v1alpha1
+kind: Interceptor
+metadata:
+  name: secure-interceptor
+  labels:
+    server/type: https
+spec:
+  clientConfig:
+    caBundle: "BASE64_ENCODED_CA_BUNDLE"
+    service:
+      name: secure-interceptor-svc
+      namespace: default
+      port: 8443
+```
+
+## Reference Materials
+
+- [Tekton Triggers Interceptors Documentation](https://tekton.dev/docs/triggers/interceptors/)
+- [Namespaced Interceptors Documentation](https://tekton.dev/docs/triggers/namespacedinterceptors/)
+- [Cluster Interceptors Documentation](https://tekton.dev/docs/triggers/clusterinterceptors/)
+- [CEL Language Specification](https://github.com/google/cel-spec)
+- [Implementing Custom Interceptors](https://github.com/tektoncd/triggers/blob/main/docs/interceptors.md)

@@ -1,0 +1,48 @@
+---
+weight: 10
+sourceSHA: 4894d6ee9f6876a61b243b991087cc3b3083a7c424fdf0374d5300a347099774
+---
+
+
+# The Pipeline is not automatically triggered
+
+## Problem Description
+
+After creating the `Pipeline` and `Trigger` using `Pipelines` functionality through the UI console, the `Pipeline` is not automatically triggered event though the event is sent (i.e the code is pushed).
+
+## Root Cause Analysis
+
+There are several possible causes for this issue:
+
+1. The webhook configuration was not set up correctly.
+2. The `EventListener` was not deployed, or is not listening `Triggers` in the target namespace, or may be filtering out the event.
+3. The `ServiceAccount` used by the `EventListener` deployment does not have enough permissions.
+4. The `Trigger` is not configured correctly.
+
+## Problem Investigation 
+
+Given the possible issues mentioned above, follow the steps to find the root cause of the problem: 
+
+### Webhook configuration was not setup correctly 
+
+  1. Access your repository/settings using an account with appropriate permissions.
+  2. Check all webhook settings and confirm with the platform administrator details regarding the target address of the webhook.
+  3. Make sure the required events are enabled by the webhook. For Gitlab events please refer to [GitLab Event Triggers](../how_to/gitlab_events.mdx)
+  
+
+### EventLister not deployed or setup incorrectly
+
+  1. Verify with the Platform Administrator that the `EventListener` was deployed and can be reached from the event source (i.e Gitlab instance).
+  2. Access the `EventListener` resource and check if it is listening `Triggers` in the target namespace checking the `EventListener` resource `spec`, it should have the `namespaceSelector` field set to `*` or listing the target namespace.
+  3. Make sure that `interceptors` inside `EventListener` resource are not filtering out the event.
+  4. Check the `EventListener` logs for any errors or warnings. This is possible through the `kubectl` command: `kubectl logs <eventlistener-pod-name> -n <namespace>`
+  5. Make sure the `ServiceAccount` used by the `EventListener` has appropriate permissions, including `create` permissions for the `PipelineRun` resource.
+
+For a detailed documentation on EventListener configuration please see [EventListener](../how_to/eventlistener.mdx)
+
+
+### Trigger not configured correctly
+
+  1. Verify that the `Trigger` was configured correctly, making sure the parameters from `TriggerBinding` or `ClusterTriggerBinding` match those used in the `TriggerTemplate`.
+
+For a detailed documentation on how to setup `Trigger` using Gitlab events as example, please see [Gitlab Events](../how_to/gitlab_events.mdx)

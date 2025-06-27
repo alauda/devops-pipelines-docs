@@ -1,0 +1,53 @@
+---
+weight: 10
+---
+
+# Core Concepts
+
+Tekton Triggers is a powerful extension to Tekton Pipelines that enables event-driven workflows. It allows you to automatically trigger pipeline executions in response to events from various sources like Git repositories, container registries, or custom webhooks. This document provides an overview of the core concepts in Tekton Triggers and links to in-depth explanations of each concept.
+
+## Overview of Tekton Triggers Components
+
+Tekton Triggers consists of several key components that work together to enable event-driven automation:
+
+![Tekton Triggers Flow](/triggers/TriggerFlow.svg)
+
+## Trigger
+
+A Trigger specifies what happens when an EventListener detects an event. It connects TriggerBindings (for data extraction) with TriggerTemplates (for resource creation) and optionally includes Interceptors for event filtering and processing.
+
+[In-Depth Understanding of Trigger](./trigger_concept)
+
+## TriggerBinding
+
+A TriggerBinding extracts fields from event payloads (like webhooks) and binds them to named parameters that can be used in TriggerTemplates. This allows you to use specific data from events in your pipeline executions.
+
+[In-Depth Understanding of TriggerBinding](./triggerbinding_concept)
+
+## TriggerTemplate
+
+A TriggerTemplate defines the blueprint for resources (like PipelineRuns or TaskRuns) that should be created when an event is received. It uses parameters from TriggerBindings to dynamically create resources with event-specific data.
+
+[In-Depth Understanding of TriggerTemplate](./triggertemplate_concept)
+
+## EventListener
+
+An EventListener is a Kubernetes service that listens for events (webhooks) and processes them according to defined Triggers. It receives events, applies Interceptors, extracts data via TriggerBindings, and creates resources via TriggerTemplates.
+
+[In-Depth Understanding of EventListener](./eventlistener_concept)
+
+## Interceptor
+
+An Interceptor processes and filters events before they reach TriggerBindings and TriggerTemplates. Interceptors can validate webhook signatures, filter events based on content, and transform event data to make it more suitable for pipeline consumption.
+
+[In-Depth Understanding of Interceptor](./interceptor_concept)
+
+## How These Components Work Together
+
+1. An **EventListener** receives an event (webhook) from an external system
+2. **Interceptors** validate, filter, and process the event
+3. **TriggerBindings** extract relevant data from the event
+4. **TriggerTemplates** use the extracted data to create resources
+5. The created resources (typically **PipelineRuns**) execute the CI/CD workflow
+
+This event-driven approach enables fully automated CI/CD pipelines that respond to events from your development ecosystem without manual intervention.

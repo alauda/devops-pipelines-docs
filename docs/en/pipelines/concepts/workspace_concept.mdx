@@ -1,0 +1,373 @@
+---
+weight: 110
+---
+
+# Workspaces
+
+A Workspace is a declaration of a filesystem that a Task or Pipeline requires at runtime. Workspaces allow Tasks to declare parts of the filesystem that need to be provided at runtime, enabling data sharing between Tasks, persistent storage, and mounting of secrets, configurations, or common tools.
+
+## Why Workspaces are Needed
+
+### Traditional CI/CD Storage Challenges
+
+In traditional CI/CD systems, sharing data between steps or jobs presents several challenges:
+
+- **Data Sharing**: Difficulty in sharing data between different stages of a pipeline
+- **Storage Configuration**: Complex configuration required for persistent storage
+- **Credentials Management**: Insecure methods of providing credentials to jobs
+- **Flexibility**: Limited options for storage types and configurations
+- **Reusability**: Tasks often have hardcoded assumptions about storage locations
+
+### Tekton's Solution
+
+Tekton Workspaces address these challenges by:
+
+- **Declarative Approach**: Tasks declare their storage needs without specifying implementation
+- **Runtime Binding**: Storage details are provided at runtime, not hardcoded in Tasks
+- **Flexible Implementation**: Workspaces can be backed by various volume types
+- **Data Sharing**: Workspaces enable sharing data between Tasks in a Pipeline
+- **Separation of Concerns**: Task authors define storage needs, users provide the actual storage
+
+## Advantages
+
+- **Flexibility**: Tasks can run with different storage implementations without modification
+- **Reusability**: Tasks can be reused across different environments and storage configurations
+- **Security**: Sensitive data can be provided securely through appropriate volume types
+- **Persistence**: Data can be persisted between Task runs using PersistentVolumeClaims
+- **Isolation**: Each TaskRun can have its own isolated storage
+- **Sharing**: Multiple Tasks can share data through the same Workspace
+
+## Scenarios
+
+Workspaces are useful in various scenarios, including:
+
+- **Source Code Access**: Providing source code to build and test Tasks
+- **Artifact Storage**: Storing build artifacts between Tasks
+- **Credential Provision**: Securely providing credentials to Tasks
+- **Configuration Sharing**: Sharing configuration files between Tasks
+- **Cache Storage**: Maintaining a cache of dependencies or build artifacts
+- **Shared Tools**: Providing access to common tools and utilities
+
+## Constraints and Limitations
+
+- Workspaces backed by PersistentVolumeClaims with ReadWriteOnce access mode can only be mounted on one node at a time
+- Workspaces backed by ConfigMaps or Secrets are limited to 1MB in size
+- Workspaces backed by ConfigMaps or Secrets are always mounted as read-only
+- Workspaces do not support dynamic provisioning of volumes without a VolumeClaimTemplate
+- Workspace data persistence depends on the underlying volume type
+
+## Principles
+
+### Workspace Declaration
+
+When declaring a Workspace:
+
+1. Tasks specify the name and optional properties of the Workspace
+2. Tasks define how the Workspace will be used (read-only or read-write)
+3. Tasks can specify a default mount path for the Workspace
+4. Tasks can mark a Workspace as optional
+5. TaskRuns or PipelineRuns provide the actual storage implementation
+
+### Workspace Binding
+
+When binding a Workspace:
+
+1. TaskRuns or PipelineRuns specify the volume source for each Workspace
+2. Volume sources can be PersistentVolumeClaims, ConfigMaps, Secrets, or other types
+3. TaskRuns or PipelineRuns can specify a subPath within the volume
+4. PipelineRuns define how Workspaces are shared between Tasks
+
+## Configuration Examples
+
+### Basic Workspace in a Task
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: build
+spec:
+  workspaces:
+    - name: source
+      description: The workspace containing the source code
+      readOnly: false
+  steps:
+    - name: build
+      image: golang
+      workingDir: $(workspaces.source.path)
+      script: |
+        go build -o app .
+```
+
+### Optional Workspace in a Task
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: lint
+spec:
+  workspaces:
+    - name: cache
+      description: A workspace for caching linter data
+      optional: true
+  steps:
+    - name: lint
+      image: golangci/golangci-lint
+      script: |
+        if [ "$(workspaces.cache.bound)" == "true" ]; then
+          export GOLANGCI_LINT_CACHE=$(workspaces.cache.path)
+        fi
+        golangci-lint run ./...
+```
+
+## Important Parameters
+
+### ReadOnly Flag
+
+The readOnly flag indicates whether a Task will modify the contents of a Workspace.
+
+#### Use Cases
+
+- Preventing accidental modification of source code
+- Sharing configuration data that should not be modified
+- Allowing multiple Tasks to safely access the same Workspace concurrently
+- Providing credentials that should not be altered
+
+#### Principles
+
+ReadOnly Workspaces:
+- Are mounted as read-only volumes in the Task's containers
+- Prevent Tasks from writing to the Workspace
+- Allow for safer concurrent access by multiple Tasks
+- Can be backed by read-only volume sources like ConfigMaps and Secrets
+
+#### Configuration Example
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: test
+spec:
+  workspaces:
+    - name: source
+      description: The workspace containing the source code
+      readOnly: true
+  steps:
+    - name: test
+      image: golang
+      workingDir: $(workspaces.source.path)
+      script: |
+        go test ./...
+```
+
+### Optional Flag
+
+The optional flag indicates that a Workspace is not required for a Task to execute.
+
+#### Use Cases
+
+- Providing optional caching for improved performance
+- Supporting optional credential injection
+- Making Tasks more flexible in different environments
+- Allowing Tasks to adapt to the presence or absence of certain data
+
+#### Principles
+
+Optional Workspaces:
+- Do not need to be provided in the TaskRun
+- Tasks must handle the case when the Workspace is not provided
+- Tasks can check if a Workspace is bound using the $(workspaces.name.bound) variable
+- Enable more flexible and reusable Tasks
+
+#### Configuration Example
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: build-with-cache
+spec:
+  workspaces:
+    - name: source
+      description: The workspace containing the source code
+    - name: cache
+      description: A cache for build artifacts
+      optional: true
+  steps:
+    - name: build
+      image: gradle
+      workingDir: $(workspaces.source.path)
+      script: |
+        if [ "$(workspaces.cache.bound)" == "true" ]; then
+          gradle build --build-cache --gradle-user-home=$(workspaces.cache.path)
+        else
+          gradle build
+        fi
+```
+
+### Isolated Workspaces
+
+Isolated Workspaces allow restricting access to sensitive data to only specific Steps within a Task.
+
+#### Use Cases
+
+- Limiting access to credentials to only Steps that need them
+- Protecting sensitive configuration from unnecessary exposure
+- Implementing principle of least privilege within Tasks
+- Reducing the risk of credential leakage
+
+#### Principles
+
+Isolated Workspaces:
+- Are only mounted in the Steps that explicitly request them
+- Require the enable-api-fields feature flag to be set to "beta"
+- Allow for more secure handling of sensitive data
+- Can have different mount paths in different Steps
+
+#### Configuration Example
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: clone-and-build
+spec:
+  workspaces:
+    - name: source
+      description: The workspace for the source code
+    - name: ssh-credentials
+      description: SSH credentials for git operations
+  steps:
+    - name: clone
+      workspaces:
+        - name: ssh-credentials
+      image: alpine/git
+      script: |
+        mkdir -p ~/.ssh
+        cp $(workspaces.ssh-credentials.path)/* ~/.ssh/
+        chmod 600 ~/.ssh/id_rsa
+        git clone git@github.com:org/repo.git $(workspaces.source.path)
+    - name: build
+      image: golang
+      workingDir: $(workspaces.source.path)
+      script: |
+        go build -o app .
+```
+
+## Volume Sources
+
+### PersistentVolumeClaim
+
+PersistentVolumeClaims provide durable storage that can persist beyond the lifetime of a TaskRun or PipelineRun.
+
+#### Use Cases
+
+- Sharing data between Tasks in a Pipeline
+- Persisting build artifacts between Pipeline runs
+- Maintaining a cache of dependencies
+- Storing test results for later analysis
+
+#### Principles
+
+PersistentVolumeClaims:
+- Provide durable storage backed by Kubernetes PersistentVolumes
+- Can be pre-existing or created from a VolumeClaimTemplate
+- Support different access modes (ReadWriteOnce, ReadWriteMany, ReadOnlyMany)
+- Can be shared between multiple Tasks in a Pipeline
+
+#### Configuration Example
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: build-with-pvc
+spec:
+  taskRef:
+    name: build
+  workspaces:
+    - name: source
+      persistentVolumeClaim:
+        claimName: my-source-pvc
+```
+
+### EmptyDir
+
+EmptyDir provides temporary storage that exists only for the lifetime of a TaskRun.
+
+#### Use Cases
+
+- Temporary storage for a single TaskRun
+- Sharing data between Steps in a Task
+- Situations where persistence is not required
+- Testing and debugging Tasks
+
+#### Principles
+
+EmptyDir:
+- Creates a temporary directory that lasts only for the duration of the TaskRun
+- Is automatically cleaned up when the TaskRun completes
+- Cannot be shared between different TaskRuns
+- Is suitable for Tasks that don't need to persist data
+
+#### Configuration Example
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: build-with-emptydir
+spec:
+  taskRef:
+    name: build
+  workspaces:
+    - name: source
+      emptyDir: {}
+```
+
+### ConfigMap and Secret
+
+ConfigMaps and Secrets provide a way to inject configuration data and sensitive information into Tasks.
+
+#### Use Cases
+
+- Providing configuration files to Tasks
+- Injecting credentials for authentication
+- Supplying environment-specific settings
+- Sharing small amounts of read-only data
+
+#### Principles
+
+ConfigMaps and Secrets:
+- Are always mounted as read-only volumes
+- Are limited to 1MB in size
+- Must exist before the TaskRun is created
+- Are suitable for configuration data and credentials
+
+#### Configuration Example
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: deploy-with-config
+spec:
+  taskRef:
+    name: deploy
+  workspaces:
+    - name: config
+      configMap:
+        name: deployment-config
+    - name: credentials
+      secret:
+        secretName: deployment-credentials
+```
+
+## References
+
+- [Tekton Workspaces Official Documentation](https://tekton.dev/docs/pipelines/workspaces/)
+- [Tekton Pipelines GitHub Repository](https://github.com/tektoncd/pipeline)
+- [Kubernetes Volumes](https://kubernetes.io/docs/concepts/storage/volumes/)
+- [Kubernetes Persistent Volumes](https://kubernetes.io/docs/concepts/storage/persistent-volumes/)

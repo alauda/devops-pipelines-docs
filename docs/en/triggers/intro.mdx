@@ -1,0 +1,109 @@
+---
+weight: 10
+sourceSHA: d1959fed1405788b0ceb5104bcdd909132c1ab285dc6683862a424bc59d49a81
+---
+
+# Introduction
+
+## What is Tekton Triggers?
+
+Tekton Triggers is a crucial component of Tekton that allows users to detect and extract event information from various sources, enabling deterministic instantiation and execution of TaskRuns and PipelineRuns based on that information. It is installed as an extension of Tekton Pipelines on a Kubernetes cluster.
+
+### Core Features
+
+1. **Event Listening and Handling**
+   - Supports multiple event sources (such as GitHub, GitLab, generic Webhooks, etc.)
+   - Provides an extensible event handling mechanism
+   - Supports event filtering and validation
+
+2. **Resource Instantiation**
+   - Automatically creates TaskRuns and PipelineRuns
+   - Supports dynamic parameter passing
+   - Offers templated configuration
+
+3. **Security and Scalability**
+   - Built-in security mechanisms
+   - Supports custom interceptors
+   - Provides fine-grained permission control
+
+## How It Works
+
+Tekton Triggers works in conjunction with the following core components:
+
+1. **EventListener**
+   - Listens on a specified port in the Kubernetes cluster
+   - Receives and processes external events
+   - Manages trigger configurations
+
+2. **Trigger**
+   - Defines how to handle received events
+   - Specifies bindings and templates
+   - Configures interceptors for event validation
+
+3. **TriggerBinding**
+   - Extracts data from events
+   - Maps data to parameters
+   - Supports JSONPath expressions
+
+4. **TriggerTemplate**
+   - Defines the resource templates to be created
+   - Uses parameters to dynamically generate resources
+   - Supports the creation of multiple resources
+
+5. **Interceptors**
+   - Validates the authenticity of events
+   - Filters and transforms event data
+   - Provides extension points
+
+## Use Cases
+
+Tekton Triggers is suitable for the following scenarios:
+
+1. **Continuous Integration/Continuous Deployment (CI/CD)**
+   - Automatically triggers builds on code commits
+   - Triggers tests on merge requests
+   - Deploys on release events
+
+2. **Automated Operations**
+   - Triggers remediation processes for monitoring alerts
+   - Initiates maintenance processes for scheduled tasks
+   - Scales resources in response to system events
+
+3. **Cross-System Integration**
+   - Receives events from third-party systems
+   - Triggers data synchronization processes
+   - Coordinates workflows across multiple systems
+
+## Key Advantages
+
+1. **Flexibility**
+   - Supports various event sources
+   - Customizable handling logic
+   - Dynamic resource creation
+
+2. **Scalability**
+   - Supports custom interceptors
+   - Horizontally scalable
+   - Cluster-level deployment support
+
+3. **Security**
+   - Built-in authentication
+   - Fine-grained permission controls
+   - Event validation mechanisms
+
+4. **Maintainability**
+   - Declarative configuration
+   - Templated management
+   - Version control friendly
+
+## Next Steps
+
+- [Quick Start](./quick_start.mdx)
+- [Configuration Guide](./how_to/eventlistener.mdx)
+- Learn about [Tekton Triggers](./concepts/core_concept.mdx)
+
+## Reference Resources
+
+- [Official Documentation](https://tekton.dev/docs/triggers/)
+- [GitHub Repository](https://github.com/tektoncd/triggers)
+- [Example Collection](https://github.com/tektoncd/triggers/tree/main/examples)

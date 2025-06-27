@@ -1,0 +1,234 @@
+---
+weight: 40
+---
+
+# Quick Start
+
+This document helps new users quickly understand and use Tekton Pipelines to create a simple CI/CD workflow.
+
+## Introduction
+
+Tekton is an open-source cloud native CI/CD (Continuous Integration and Continuous Delivery/Deployment) solution. It provides Kubernetes-native building blocks for creating containerized, standardized, and portable CI/CD pipelines.
+
+### Use Cases
+
+- Create automated build, test, and deployment workflows
+- Run CI/CD pipelines in a Kubernetes-native way
+- Build container images without privileged access
+- Implement standardized deployment processes across multiple cloud providers
+- Create reusable components for your CI/CD systems
+
+### Estimated Reading Time
+
+15-20 minutes
+
+## Prerequisites
+
+* A Kubernetes cluster (you can use minikube for local testing)
+* Tekton Pipelines installed on your cluster
+* kubectl installed and configured to access your cluster
+* Tekton CLI (tkn) installed for easier interaction with Tekton resources
+
+## Process Overview
+
+| Step | Operation | Description |
+|------|-----------|-------------|
+| 1 | Create a "Hello World" Task | Create a basic Task that outputs a greeting message |
+| 2 | Create a "Goodbye" Task | Create a second Task that accepts parameters |
+| 3 | Create a Pipeline | Create a Pipeline that combines both Tasks in sequence |
+| 4 | Run the Pipeline | Execute the Pipeline and view the results |
+| 5 | Clean up | Remove the created resources |
+
+## Step-by-Step Instructions
+
+### Step 1: Create a "Hello World" Task
+
+A Task is the basic building block of a Tekton Pipeline. It consists of a series of steps that run sequentially in a container.
+
+1. Create a file named `hello-task.yaml` with the following content:
+
+  ```yaml
+  apiVersion: tekton.dev/v1
+  kind: Task
+  metadata:
+    name: hello
+  spec:
+    steps:
+      - name: echo
+        image: ubuntu
+        command:
+          - echo
+        args:
+          - "Hello World!"
+  ```
+
+2. Apply the Task to your cluster:
+
+   ```bash
+   kubectl apply -f hello-task.yaml
+   ```
+
+3. A `TaskRun` object instantiates and executes this Task. Create another file named `hello-world-run.yaml` with the following content:
+
+  ```yaml
+  apiVersion: tekton.dev/v1
+  kind: TaskRun
+  metadata:
+    name: hello-task-run
+  spec:
+    taskRef:
+      name: hello
+  ```
+
+4. Apply the `TaskRun` to your cluster:
+
+   ```bash
+   kubectl apply -f hello-world-run.yaml
+   ```
+
+5. Monitor the TaskRun execution:
+
+   ```bash
+   kubectl get taskrun hello-task-run
+   ```
+
+   You should see output similar to:
+   ```
+   NAME            SUCCEEDED   REASON      STARTTIME   COMPLETIONTIME
+   hello-task-run  True        Succeeded   1m         2m
+   ```
+
+6. Take a look at the logs:
+
+   ```bash
+   kubectl logs --selector=tekton.dev/taskRun=hello-task-run
+   ```
+
+   You should see output similar to:
+   ```
+   Hello World!
+   ```
+
+### Step 2: Create a "Goodbye" Task with Parameters
+
+Now let's create a second Task that accepts parameters to make it more flexible.
+
+1. Create a file named `goodbye-task.yaml` with the following content:
+
+  ```yaml
+  apiVersion: tekton.dev/v1
+  kind: Task
+  metadata:
+    name: goodbye
+  spec:
+    params:
+      - name: username
+        type: string
+        description: The username to say goodbye to
+        default: "World"
+    steps:
+      - name: goodbye
+        image: ubuntu
+        command:
+          - echo
+        args:
+          - "Goodbye $(params.username)!"
+  ```
+
+2. Apply the Task to your cluster:
+
+   ```bash
+   kubectl apply -f goodbye-task.yaml
+   ```
+
+### Step 3: Create a Pipeline
+
+A Pipeline defines an ordered series of Tasks arranged in a specific execution order as part of your CI/CD workflow.
+
+1. Create a file named `hello-goodbye-pipeline.yaml` with the following content:
+
+  ```yaml
+  apiVersion: tekton.dev/v1
+  kind: Pipeline
+  metadata:
+    name: hello-goodbye
+  spec:
+    params:
+      - name: username
+        type: string
+        description: The username to say goodbye to
+        default: "World"
+    tasks:
+      - name: hello
+        taskRef:
+          name: hello
+      - name: goodbye
+        runAfter:
+          - hello
+        taskRef:
+          name: goodbye
+        params:
+          - name: username
+            value: "$(params.username)"
+  ```
+
+   This Pipeline:
+   - Defines a parameter called `username`
+   - Includes two Tasks: `hello` and `goodbye`
+   - Specifies that `goodbye` should run after `hello` completes
+   - Passes the Pipeline parameter to the `goodbye` Task
+
+2. Apply the Pipeline to your cluster:
+
+   ```bash
+   kubectl apply -f hello-goodbye-pipeline.yaml
+   ```
+
+### Step 4: Run the Pipeline
+
+A PipelineRun is used to execute a Pipeline and provide any required parameters.
+
+1. Create a file named `hello-goodbye-pipeline-run.yaml` with the following content:
+
+  ```yaml
+  apiVersion: tekton.dev/v1
+  kind: PipelineRun
+  metadata:
+    name: hello-goodbye-run
+  spec:
+    pipelineRef:
+      name: hello-goodbye
+    params:
+      - name: username
+        value: "Tekton"
+  ```
+
+2. Apply the PipelineRun to your cluster to start the Pipeline:
+
+   ```bash
+   kubectl apply -f hello-goodbye-pipeline-run.yaml
+   ```
+
+3. Monitor the Pipeline execution:
+
+  ```bash
+  tkn pipelinerun logs hello-goodbye-run -f
+  ```
+
+  You should see output similar to:
+  ```
+  [hello : echo] Hello World!
+  [goodbye : goodbye] Goodbye Tekton!
+  ```
+
+### Step 5: Clean Up
+
+To remove the resources created in this tutorial:
+
+```bash
+kubectl delete -f hello-task.yaml
+kubectl delete -f hello-task-run.yaml
+kubectl delete -f goodbye-task.yaml
+kubectl delete -f hello-goodbye-pipeline.yaml
+kubectl delete -f hello-goodbye-pipeline-run.yaml
+```

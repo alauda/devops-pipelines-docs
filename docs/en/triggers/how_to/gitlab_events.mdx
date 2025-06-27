@@ -1,0 +1,304 @@
+---
+title: Use GitLab Event Triggers
+weight: 70
+---
+
+# Use GitLab Event Triggers
+
+## Overview
+
+GitLab Event Triggers allows you to automatically trigger Tekton pipelines through GitLab's Webhook events. It supports multiple event types, including code pushes, merge requests, comments, etc., enabling you to build a complete CI/CD automation workflow.
+
+## Core Features
+
+- **Multi-event Type Support**: Supports various GitLab events such as Push, Merge Request, comments, etc.
+- **Standardized Trigger Binding**: Provides standardized ClusterTriggerBindings to ensure consistency across platforms.
+- **Flexible Parameter Mapping**: Automatically extracts key information from GitLab events for pipeline parameters.
+- **Secure Webhook Integration**: Supports Webhook security verification.
+
+## Supported Event Types
+
+### Basic Event Information
+
+All output variables can be used for pipeline parameter mapping. You can access parameter values using `$(tt.params.<param name>)`.
+
+#### Basic Variables (Common to All Events)
+
+| Variable Name        | Description       | Example Value                                 |
+| ------------------- | ---------------- | --------------------------------------------- |
+| project-id          | GitLab Project ID | `1234`                                       |
+| project-name        | Project Name     | `my-project`                                 |
+| project-path        | Project Full Path | `group/my-project`                           |
+| project-web-url     | Project Web URL   | `https://gitlab.com/group/my-project`       |
+| git-repo-url        | Git HTTP URL     | `https://gitlab.com/group/my-project.git`   |
+| git-repo-ssh-url    | Git SSH URL      | `git@gitlab.com:group/my-project.git`       |
+| git-repo-name       | Repository Name    | `my-project`                                 |
+| user-name           | User Full Name    | `John Doe`                                   |
+| user-username       | Username         | `johndoe`                                    |
+| user-email          | User Email       | `john@example.com`                           |
+
+### 1. Push Event
+
+Triggered when a developer pushes code to a GitLab repository. Suitable for:
+
+- Continuous integration builds
+- Automated deployment
+- Code quality checks
+
+#### Push Event Variables
+
+| Variable Name          | Description       | Example Value                |
+| --------------------- | ---------------- | ---------------------------- |
+| git-revision          | Git revision     | `refs/heads/main`           |
+| git-commit-sha        | Committed SHA      | `8a1b3c4d5e6f...`           |
+| git-commit-message     | Commit Message   | `Update README.md`          |
+| git-commit-timestamp   | Commit Timestamp  | `2025-01-26T10:30:00Z`     |
+
+### 2. Merge Request Event
+
+Triggered when a merge request is created, updated, or closed. Suitable for:
+
+- Automated code reviews
+- Pre-release environment deployments
+- Automated testing
+
+#### Merge Request Event Variables
+
+| Variable Name           | Description         | Example Value                                                |
+| ---------------------- | ------------------ | ---------------------------------------------------------- |
+| mergereq-sha           | Last Commit SHA     | `8a1b3c4d5e6f...`                                        |
+| mergereq-action        | Merge Request Action | `open`, `reopen`, `update`, `close`, `merge`              |
+| mergereq-state         | Merge Request State  | `opened`, `closed`, `merged`                               |
+| mergereq-number        | Merge Request Number  | `42`                                                      |
+| mergereq-url           | Merge Request URL    | `https://gitlab.com/group/project/-/merge_requests/42`   |
+| mergereq-title         | Merge Request Title    | `Add new feature`                                         |
+| mergereq-description   | Merge Request Description | `This PR adds...`                                       |
+| mergereq-merge-status  | Merge Status        | `can_be_merged`                                          |
+| mergereq-source-branch | Source Branch       | `feature/new-feature`                                    |
+| mergereq-target-branch | Target Branch       | `main`                                                   |
+| mergereq-source-path   | Source Repository Path | `group/my-project`                                      |
+| mergereq-target-path   | Target Repository Path | `group/my-project`                                      |
+
+:::tip
+Refer to your GitLab instance's webhook documentation or [GitLab's official merge request event documentation](https://docs.gitlab.com/ee/user/project/integrations/webhook_events.html#merge-request-events)
+:::
+
+### 3. Comment Events
+
+Supports the following types of comments:
+
+- Merge Request comments
+- Commit comments
+
+Suitable for:
+
+- ChatOps comment automation
+
+#### Basic Comment Event Variables (Common to All Comment Events)
+
+| Variable Name         | Description      | Example Value                                                      |
+| --------------------- | ---------------- | ----------------------------------------------------------------- |
+| comment               | Comment Content   | `LGTM 👍`                                                        |
+| comment-url           | Comment URL       | `https://gitlab.com/group/project/-/merge_requests/42#note_123` |
+
+#### 3.1 Merge Request Comment Variables
+
+| Variable Name           | Description          | Example Value                                                |
+| ----------------------- | -------------------- | ----------------------------------------------------------- |
+| mergereq-sha           | Last Commit SHA      | `8a1b3c4d5e6f...`                                         |
+| mergereq-action        | Merge Request Action  | `open`, `reopen`, `update`, `close`, `merge`               |
+| mergereq-state         | Merge Request State    | `opened`, `closed`, `merged`                               |
+| mergereq-number        | Merge Request Number    | `42`                                                      |
+| mergereq-url           | Merge Request URL      | `https://gitlab.com/group/project/-/merge_requests/42`   |
+| mergereq-title         | Merge Request Title    | `Add new feature`                                         |
+| mergereq-description   | Merge Request Description | `This PR adds...`                                       |
+| mergereq-merge-status  | Merge Status         | `can_be_merged`                                          |
+| mergereq-source-branch | Source Branch        | `feature/new-feature`                                    |
+| mergereq-target-branch | Target Branch        | `main`                                                   |
+| mergereq-source-path   | Source Repository Path | `group/my-project`                                      |
+| mergereq-target-path   | Target Repository Path  | `group/my-project`                                      |
+
+#### 3.2 Commit Comment Variables
+
+| Variable Name          | Description        | Example Value                                               |
+| ---------------------- | ------------------ | --------------------------------------------------------- |
+| git-commit-sha        | Commit SHA          | `8a1b3c4d5e6f...`                                       |
+| git-commit-message      | Commit Message      | `Update README.md`                                      |
+| git-commit-timestamp   | Commit Timestamp     | `2025-01-26T10:30:00Z`                                  |
+| git-commit-url         | Commit URL          | `https://gitlab.com/group/project/-/commit/8a1b3c4d`   |
+
+## Configuration Guide
+
+### Prerequisites
+
+1. An `EventListener` has been created in the environment and is capable of processing `Trigger` in the target namespace. Please contact your platform administrator for more information.
+2. GitLab can access the `EventListener` mentioned above.
+3. The required `Pipeline`, as well as the necessary running configurations, have been created.
+4. You have permissions to modify the Webhook settings of the GitLab project.
+
+### Configure Webhook via GitLab UI
+
+1. Visit your GitLab project settings.
+2. Navigate to **Settings** > **Webhooks**.
+3. Add a Webhook URL based on the deployment mode of `EventListener`, for example, using the `https` mode:
+   ```
+   https://<your-eventlistener-url>
+   ```
+4. Choose the event types as needed:
+   - Push events
+   - Merge request events
+   - Comments
+5. (Optional) Configure the Secret Token.
+6. Click "Add webhook".
+
+### Pipeline Trigger Configuration Example
+
+If the goal is to implement continuous integration through the trigger with the following requirements:
+
+- Automatically trigger automated CI functionality upon code submission.
+- Automatically trigger the CI pipeline when a merge request is opened.
+
+To simplify this documentation, we assume the pipeline is ready with the following parameters provided:
+
+| Parameter Name       | Description                                 | Example Value                                     |
+| ------------------- | ------------------------------------------- | ------------------------------------------------- |
+| git-revision        | Git revision for executing the target pipeline | `refs/heads/main`                               |
+| git-repo-url        | Git Repository URL                          | `https://gitlab.com/group/project.git`         |
+
+:::tip
+Please replace with your actual pipeline information.
+:::
+
+| Information         | Description                                        |
+| ------------------- | ------------------------------------------------- |
+| `my-namespace`      | Namespace Name                                   |
+| `my-pipeline`       | Pipeline Name                                     |
+| `workspaces`        | Workspace configuration, modify based on actual pipeline workspace configuration and requirements |
+
+Next, we only need to configure the two triggers below:
+
+<Steps>
+  ### Create Push Trigger
+
+  Save the following YAML as `gitlab-push-trigger.yaml`:
+
+  ```yaml
+  apiVersion: triggers.tekton.dev/v1alpha1
+  kind: Trigger
+  metadata:
+      name: my-pipeline-push   # It is suggested to modify the prefix based on the pipeline name
+      namespace: my-namespace  # Change to actual namespace
+  spec:
+      bindings:
+      - ref:
+          kind: ClusterTriggerBinding
+          name: gitlab-push
+      template:
+        spec:
+          params:
+          - name: git-revision
+          - name: git-repo-url
+          resourcetemplates:
+          - apiVersion: tekton.dev/v1
+            kind: PipelineRun
+            metadata:
+                generateName: my-pipeline-push- # It is suggested to modify the prefix based on the pipeline name
+            spec:
+                pipelineRef:
+                  name: my-pipeline  # Change to actual pipeline name
+                params:
+                - name: git-revision
+                  value: $(tt.params.git-revision)
+                - name: git-repo-url
+                  value: $(tt.params.git-repo-url)
+                workspaces: # Workspaces need to be modified based on pipeline requirements and environment configuration
+                - name: source
+                  volumeClaimTemplate:
+                    spec:
+                      accessModes:
+                      - ReadWriteMany
+                      resources:
+                        requests:
+                          storage: 1Gi
+  ```
+
+  Create the resource in the environment:
+
+  ```bash
+  kubectl apply -f gitlab-push-trigger.yaml
+  ```
+
+  ### Create Merge Request Trigger
+
+  Save the following YAML as `gitlab-merge-request-trigger.yaml`:
+
+  ```yaml
+  apiVersion: triggers.tekton.dev/v1alpha1
+  kind: Trigger
+  metadata:
+    name: my-pipeline-merge-request # It is suggested to modify the prefix based on the pipeline name
+    namespace: my-namespace # Change to actual namespace
+  spec:
+    bindings:
+      - ref:
+          kind: ClusterTriggerBinding
+          name: gitlab-merge-request
+    interceptors: # Add Interceptor to filter opened MR events, ignore others for now
+    - ref:
+        kind: ClusterInterceptor
+        name: cel
+      params:
+      - name: filter
+        value: |
+          body.object_attributes.state == "opened" &&  body.object_attributes.action == "open"
+    template:
+      spec:
+        params:
+          - name: mergereq-sha
+          - name: git-repo-url
+        resourcetemplates:
+        - apiVersion: tekton.dev/v1
+          kind: PipelineRun
+          metadata:
+            generateName: my-pipeline-mr- # It is suggested to modify the prefix based on the pipeline name
+          spec:
+            pipelineRef:
+              name: my-pipeline # Modify based on the pipeline name
+            params:
+              - name: git-revision
+                value: $(tt.params.mergereq-sha)
+              - name: git-repo-url
+                value: $(tt.params.git-repo-url)
+            workspaces: # Workspaces need to be modified based on pipeline requirements and environment configuration
+              - name: source
+                volumeClaimTemplate:
+                  spec:
+                    accessModes:
+                      - ReadWriteMany
+                    resources:
+                      requests:
+                        storage: 1Gi
+  ```
+
+  :::tip
+  Please adjust the Interceptor configuration as needed.
+  :::
+
+  Create the resource in the environment:
+
+  ```bash
+  kubectl apply -f gitlab-merge-request-trigger.yaml
+  ```
+
+  ### Validate Triggers
+
+  Validate by submitting code and creating a Merge Request.
+
+  **CLI:**
+
+  You can obtain the pipeline execution status using `kubectl -n <namespace> get pipelinerun`.
+
+  **Console:**
+
+  Access `Pipelines` > `PipelineRuns` to view the triggered pipelines.
+</Steps>

@@ -1,0 +1,211 @@
+---
+weight: 100
+---
+
+# Create TriggerTemplate
+
+:::tip
+For a comprehensive understanding of TriggerTemplates, including their architecture, advantages, and underlying principles, see the [In-Depth Understanding of TriggerTemplate](../concepts/triggertemplate_concept) document.
+:::
+
+## Overview
+
+A TriggerTemplate is a resource used to define a blueprint for resources that can be instantiated and executed, such as TaskRun or PipelineRun, when the EventListener detects an event. It offers parameterization capabilities, allowing you to use these parameters anywhere within the resource template.
+
+## Supported Resource Types
+
+TriggerTemplate currently supports the following Tekton Pipelines resources:
+
+| v1beta1 Resource Type | Description         |
+| --------------------- | ------------------- |
+| Pipeline              | Pipeline definition  |
+| PipelineRun           | Pipeline run instance |
+| Task                  | Task definition      |
+| TaskRun               | Task run instance    |
+
+## Basic Structure
+
+Here is a typical example of a TriggerTemplate definition:
+
+```yaml
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: pipeline-template
+spec:
+  params:                           # Parameter definition
+    - name: gitrevision            # Parameter name
+      description: Git revision      # Parameter description
+      default: main               # Default value (optional)
+    - name: gitrepositoryurl
+      description: Git repository URL
+    - name: message
+      description: Print message
+      default: This is the default message
+  resourcetemplates:              # Resource template definition
+    - apiVersion: tekton.dev/v1beta1
+      kind: PipelineRun
+      metadata:
+        generateName: simple-pipeline-run-  # Name prefix for generation
+      spec:
+        pipelineRef:
+          name: simple-pipeline
+        params:
+          - name: message
+            value: $(tt.params.message)    # Using template parameters
+          - name: revision
+            value: $(tt.params.gitrevision)
+```
+
+## Parameter Configuration
+
+### 1. Parameter Definition
+
+Define parameters in `spec.params`:
+
+```yaml
+spec:
+  params:
+    - name: param1                # Parameter name
+      description: Parameter description # Parameter description
+      default: Default value       # Optional default value
+```
+
+### 2. Parameter Usage
+
+Use parameters within the resource template:
+
+- Basic syntax: `$(tt.params.parameter_name)`
+- Example: `$(tt.params.gitrevision)`
+
+### 3. Parameter Types
+
+Parameters in a TriggerTemplate only support string type values. Each parameter includes the following fields:
+
+- `name`: Parameter name (required)
+- `description`: Parameter description (optional)
+- `default`: Default value, must be a string (optional)
+
+::: note
+Note: Although parameter values can only be strings, you may include formatted content (such as JSON strings) within the string, and parse it during usage.
+:::
+
+## JSON Object Handling
+
+When passing JSON data, you need to handle it as a string:
+
+```yaml
+# Define parameters in TriggerTemplate
+metadata:
+  annotations: # Allow formatting JSON as a string by adding this configuration
+    triggers.tekton.dev/old-escape-quotes: "true" # 
+spec:
+  params:
+    - name: jsonData
+      description: JSON formatted data (as a string)
+      default: '{"key": "value"}'
+
+# Use in resource template
+spec:
+  params:
+    - name: data
+      value: $(tt.params.jsonData)  # Passed as a string
+```
+
+## Best Practices
+
+1. **Parameter Naming and Organization**
+   - Use clear, descriptive parameter names
+   - Provide descriptions for all parameters
+   - Use default values appropriately
+
+2. **Template Design**
+   - Keep templates reusable
+   - Use dynamic name generation
+   - Split complex templates appropriately
+
+3. **Error Handling**
+   - Provide default values for critical parameters
+   - Use CEL interceptor to validate parameters
+   - Implement appropriate error handling mechanisms
+
+## Frequently Asked Questions
+
+1. **Parameter Parsing Errors**
+   - Check parameter syntax
+   - Validate JSON object format
+   - Confirm parameter name matches
+
+2. **Resource Creation Failures**
+   - Check resource template format
+   - Validate parameter values
+   - Review system permissions
+
+3. **Naming Conflicts**
+   - Use generateName
+   - Implement uniqueness checks
+
+## Usage Examples
+
+### 1. Basic CI/CD Pipeline
+
+```yaml
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: ci-pipeline-template
+spec:
+  params:
+    - name: git-revision
+      description: Git commit SHA
+    - name: git-repo-url
+      description: Git repository URL
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1beta1
+      kind: PipelineRun
+      metadata:
+        generateName: ci-run-
+      spec:
+        pipelineRef:
+          name: ci-pipeline
+        params:
+          - name: revision
+            value: $(tt.params.git-revision)
+          - name: repo-url
+            value: $(tt.params.git-repo-url)
+```
+
+### 2. Multi-Environment Deployment
+
+```yaml
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: deploy-template
+spec:
+  params:
+    - name: environment
+      description: Deployment environment
+      default: development
+    - name: image-tag
+      description: Image tag
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1beta1
+      kind: PipelineRun
+      metadata:
+        generateName: deploy-$(tt.params.environment)-
+      spec:
+        pipelineRef:
+          name: deploy-pipeline
+        params:
+          - name: target-environment
+            value: $(tt.params.environment)
+          - name: image-tag
+            value: $(tt.params.image-tag)
+```
+
+## Reference Links
+
+- [Tekton Triggers Official Documentation](https://tekton.dev/docs/triggers/)
+- [TriggerTemplate API Reference](https://tekton.dev/docs/triggers/triggertemplates/)
+- [Tekton Pipeline Documentation](https://tekton.dev/docs/pipelines/)

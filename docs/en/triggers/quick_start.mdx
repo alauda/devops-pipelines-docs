@@ -1,0 +1,251 @@
+---
+weight: 40
+sourceSHA: bf8f76fc1e85dcb50e08e768990ac4a072a49790ba6fc95bc4e20e322b5b6e78
+---
+
+# Quick Start
+
+This guide will help you get started with Tekton Triggers by creating a simple "Hello World" trigger scenario to demonstrate its basic functionality.
+
+## Prerequisites
+
+1. **Environment Requirements**
+   - Kubernetes version 1.21 or higher
+   - Tekton Operator installed
+   - Ensure that Tekton Triggers is installed and ready through the Operator
+
+2. **Required Tools**
+   - kubectl command line tool
+   - curl (for testing triggers)
+
+3. **Permissions**
+
+   - Requires **namespace administrator privileges**
+
+## Create Example Project
+
+<Steps>
+  ### **Create Namespace** (Optional)
+
+  ::: tip
+  If you do not want to create a namespace, you can skip this step and modify the namespace name in the example below.
+  :::
+
+  ```bash
+  kubectl create namespace tekton-triggers-demo
+  ```
+
+  ### **Create Service Account and Permissions**
+
+  Create the file `rbac.yaml`:
+
+  ```yaml
+  apiVersion: v1
+  kind: ServiceAccount
+  metadata:
+    name: tekton-triggers-example-sa
+    namespace: tekton-triggers-demo
+  ---
+  apiVersion: rbac.authorization.k8s.io/v1
+  kind: RoleBinding
+  metadata:
+    name: tekton-triggers-example-binding
+    namespace: tekton-triggers-demo
+  subjects:
+    - kind: ServiceAccount
+      name: tekton-triggers-example-sa
+      namespace: tekton-triggers-demo
+  roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: ClusterRole
+    name: tekton-triggers-eventlistener-roles
+  ---
+  apiVersion: rbac.authorization.k8s.io/v1
+  kind: ClusterRoleBinding
+  metadata:
+    name: tekton-triggers-example-clusterbinding
+  subjects:
+    - kind: ServiceAccount
+      name: tekton-triggers-example-sa
+      namespace: tekton-triggers-demo
+  roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: ClusterRole
+    name: tekton-triggers-aggregate-view
+  ```
+
+  ### Apply Configuration
+
+  ```bash
+  kubectl apply -f rbac.yaml
+  ```
+</Steps>
+
+## Create Hello World TaskRun
+
+<Steps>
+  ### **Create Task**
+
+  Create the file `hello-task.yaml`:
+
+  ```yaml
+  apiVersion: tekton.dev/v1beta1
+  kind: Task
+  metadata:
+    name: hello-task
+    namespace: tekton-triggers-demo
+  spec:
+    params:
+      - name: message
+        description: Message to print
+        type: string
+        default: "Hello World!"
+    steps:
+      - name: echo
+        image: alpine
+        script: |
+          echo "$(params.message)"
+  ```
+
+  ### **Create Trigger Template**
+
+  Create the file `trigger-template.yaml`:
+
+  ```yaml
+  apiVersion: triggers.tekton.dev/v1beta1
+  kind: TriggerTemplate
+  metadata:
+    name: hello-template
+    namespace: tekton-triggers-demo
+  spec:
+    params:
+      - name: message
+        description: Message to print
+        default: "Hello World!"
+    resourcetemplates:
+      - apiVersion: tekton.dev/v1beta1
+        kind: TaskRun
+        metadata:
+          generateName: hello-run-
+          namespace: tekton-triggers-demo
+        spec:
+          taskRef:
+            name: hello-task
+          params:
+            - name: message
+              value: $(tt.params.message)
+  ```
+
+  ### **Create Trigger Binding**
+
+  Create the file `trigger-binding.yaml`:
+
+  ```yaml
+  apiVersion: triggers.tekton.dev/v1beta1
+  kind: TriggerBinding
+  metadata:
+    name: hello-binding
+    namespace: tekton-triggers-demo
+  spec:
+    params:
+      - name: message
+        value: $(body.message)
+  ```
+
+  ### **Create Event Listener**
+
+  Create the file `event-listener.yaml`:
+
+  ```yaml
+  apiVersion: triggers.tekton.dev/v1beta1
+  kind: EventListener
+  metadata:
+    name: hello-listener
+    namespace: tekton-triggers-demo
+  spec:
+    serviceAccountName: tekton-triggers-example-sa
+    triggers:
+      - name: hello-trigger
+        bindings:
+          - ref: hello-binding
+        template:
+          ref: hello-template
+  ```
+
+  ### Apply Configuration
+
+  Apply all created resources:
+
+  ```bash
+  kubectl apply -f hello-task.yaml
+  kubectl apply -f trigger-template.yaml
+  kubectl apply -f trigger-binding.yaml
+  kubectl apply -f event-listener.yaml
+  ```
+</Steps>
+
+## Test the Trigger
+
+<Steps>
+  ### **Get EventListener URL**
+
+  ```bash
+  # Wait for the Pod to be ready
+  kubectl get pods -n tekton-triggers-demo
+
+  # Get the service address
+  export EL_URL=$(kubectl get el hello-listener -n tekton-triggers-demo -o jsonpath='{.status.address.url}')
+  ```
+
+  ::: tip
+  Different cluster network configurations may prevent direct use of this address. If you encounter issues, please contact your platform administrator.
+  :::
+
+  ### **Send Test Request**
+
+  ```bash
+  curl -v -H 'Content-Type: application/json' -d '{"message":"Hello, Tekton!"}' $EL_URL
+  ```
+
+  ### **View Results**
+
+  ```bash
+  # View the created TaskRun
+  kubectl get taskrun -n tekton-triggers-demo
+
+  # View logs of the specific TaskRun
+  kubectl logs -l eventlistener=hello-listener -n tekton-triggers-demo
+  ```
+
+  ### Clean Up Resources
+
+  After testing, you can delete the created resources:
+
+  ```bash
+  kubectl delete namespace tekton-triggers-demo
+  ```
+</Steps>
+
+## Next Steps
+
+Now that you have successfully created and tested a basic Tekton Triggers example, you can:
+
+1. Explore concepts of [Tekton Triggers](./concepts/core_concept.mdx)
+2. Learn how to use [Setup EventListeners](./how_to/eventlistener.mdx) for common setup instructions
+3. Setup and use [Gitlab events](./how_to/gitlab_events.mdx) to trigger pipelines
+
+## Frequently Asked Questions
+
+1. **EventListener Pod fails to start**
+   - Check if the RBAC configuration is correct
+   - Confirm if the service account has sufficient privileges
+
+2. **Trigger does not respond**
+   - Verify if the EventListener service is accessible
+   - Check if the request format is correct
+   - View the EventListener Pod logs
+
+3. **TaskRun is not created**
+   - Confirm that the TriggerTemplate configuration is correct
+   - Check the parameter mapping in TriggerBinding
+   - View the error logs of the EventListener

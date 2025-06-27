@@ -1,0 +1,360 @@
+---
+weight: 50
+---
+
+# PipelineRuns
+
+A PipelineRun is a Kubernetes Custom Resource that instantiates a Pipeline for execution. PipelineRuns are responsible for executing the Tasks defined in a Pipeline and managing their lifecycle, providing a way to run end-to-end CI/CD workflows.
+
+## Why PipelineRuns are Needed
+
+### CI/CD Workflow Challenges
+
+In CI/CD systems, there are several challenges related to workflow execution:
+
+- **Workflow Orchestration**: Need to coordinate multiple tasks in a specific order
+- **Resource Coordination**: Need to manage resources across multiple tasks
+- **Data Sharing**: Need to share data between tasks in a workflow
+- **Execution Tracking**: Need to track the progress of the entire workflow
+- **Error Handling**: Need to handle failures at both task and workflow levels
+- **Auditability**: Need to maintain a record of all workflow executions
+
+### Tekton's Solution
+
+Tekton PipelineRuns address these challenges by:
+
+- **Workflow Instance**: Each PipelineRun represents a single execution of a Pipeline with specific inputs
+- **Orchestration**: PipelineRuns manage the execution order of Tasks based on dependencies
+- **Resource Binding**: PipelineRuns bind actual resources to Pipeline requirements
+- **Status Tracking**: PipelineRuns track the status of each Task's execution
+- **Result Propagation**: PipelineRuns enable sharing results between Tasks
+- **Kubernetes Integration**: PipelineRuns leverage Kubernetes for resource management and scheduling
+
+## Advantages
+
+- **Isolation**: Each PipelineRun executes independently, allowing parallel execution of the same Pipeline
+- **Traceability**: PipelineRuns provide detailed execution history and logs
+- **Flexibility**: PipelineRuns can override Pipeline parameters and workspace bindings
+- **Reusability**: The same Pipeline can be executed with different inputs via different PipelineRuns
+- **Integration**: PipelineRuns can be triggered by various systems through Kubernetes API
+- **Observability**: PipelineRun status and logs can be monitored through Kubernetes tools
+
+## Scenarios
+
+PipelineRuns are useful in various scenarios, including:
+
+- **Application CI/CD**: Building, testing, and deploying applications
+- **Infrastructure as Code**: Provisioning and managing infrastructure
+- **Release Management**: Coordinating complex release processes
+- **Scheduled Workflows**: Running workflows on a schedule
+- **Event-Driven Workflows**: Triggering workflows in response to external events
+
+## Constraints and Limitations
+
+- PipelineRuns execute within a single Kubernetes cluster
+- Once started, PipelineRun parameters cannot be modified
+- PipelineRuns have limited retry capabilities for failed Tasks
+- PipelineRun execution time is limited by the Kubernetes pod timeouts
+- PipelineRuns cannot be paused once they start executing (except with "finally" tasks)
+
+## Principles
+
+### PipelineRun Execution Model
+
+When a PipelineRun is created:
+
+1. Tekton validates the PipelineRun specification
+2. Tekton creates TaskRuns for each Task in the Pipeline
+3. TaskRuns are executed based on their dependencies
+4. Results from Tasks are collected and can be used by subsequent Tasks
+5. The PipelineRun status is updated as each TaskRun completes
+6. "Finally" Tasks are executed after all other Tasks complete or fail
+7. The PipelineRun completes when all TaskRuns complete
+
+### PipelineRun Status
+
+The PipelineRun status provides detailed information about the execution:
+
+1. Overall status (Running, Succeeded, Failed, etc.)
+2. Start and completion times
+3. Individual TaskRun statuses
+4. Task results
+5. Reason for failure (if applicable)
+6. TaskRun names for accessing logs
+
+## Configuration Examples
+
+### Basic PipelineRun Example
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: build-deploy-app-run
+spec:
+  pipelineRef:
+    name: build-deploy-app
+  params:
+    - name: image-name
+      value: my-registry/my-app:latest
+    - name: deployment-name
+      value: my-app
+  workspaces:
+    - name: source
+      persistentVolumeClaim:
+        claimName: app-source-pvc
+```
+
+### PipelineRun with Embedded Pipeline Definition
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: simple-pipeline-run
+spec:
+  pipelineSpec:
+    params:
+      - name: message
+        type: string
+    tasks:
+      - name: print-message
+        taskSpec:
+          params:
+            - name: message
+              type: string
+          steps:
+            - name: print
+              image: ubuntu
+              script: |
+                echo "$(params.message)"
+        params:
+          - name: message
+            value: "$(params.message)"
+  params:
+    - name: message
+      value: "Hello, Tekton Pipeline!"
+```
+
+## Important Parameters
+
+### Timeout
+
+Timeout allows setting a maximum duration for PipelineRun execution.
+
+#### Use Cases
+
+- Preventing long-running Pipelines from consuming resources indefinitely
+- Ensuring CI/CD workflows complete within a reasonable timeframe
+- Handling hung or deadlocked Tasks
+
+#### Principles
+
+Timeouts are:
+- Specified in the PipelineRun specification
+- Applied to the entire PipelineRun execution or specific sections (tasks, finally)
+- Measured from the start of the first Task to the completion of the last Task
+- Result in PipelineRun failure if exceeded
+
+#### Configuration Example
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: build-deploy-with-timeout
+spec:
+  pipelineRef:
+    name: build-deploy-app
+  timeouts:
+    pipeline: "1h"
+    tasks: "45m"
+    finally: "15m"
+  params:
+    - name: image-name
+      value: my-registry/my-app:latest
+```
+
+### ServiceAccount
+
+ServiceAccount allows specifying the Kubernetes ServiceAccount to use for authentication.
+
+#### Use Cases
+
+- Providing credentials for accessing private container registries
+- Authenticating with cloud providers
+- Authorizing access to Kubernetes resources
+- Providing credentials for Git operations
+
+#### Principles
+
+ServiceAccounts:
+- Can be specified at the PipelineRun level for all Tasks
+- Can be mapped to specific Tasks using taskRunSpecs
+- Provide credentials through Kubernetes secrets
+- Enable secure access to external resources
+
+#### Configuration Example
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: build-deploy-with-service-account
+spec:
+  pipelineRef:
+    name: build-deploy-app
+  taskRunTemplate:
+    serviceAccountName: pipeline-service-account
+  params:
+    - name: image-name
+      value: my-registry/my-app:latest
+```
+
+### TaskRunSpecs
+
+TaskRunSpecs allow customizing individual TaskRun configurations within a PipelineRun.
+
+#### Use Cases
+
+- Applying different ServiceAccounts to different Tasks
+- Setting Task-specific Pod templates
+- Configuring Task-specific timeouts
+- Applying Task-specific compute resources
+
+#### Principles
+
+TaskRunSpecs:
+- Override default PipelineRun configurations for specific Tasks
+- Allow fine-grained control over Task execution environments
+- Can be used to meet specific security or resource requirements
+- Enable different configurations for different stages of the Pipeline
+
+#### Configuration Example
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: build-deploy-with-taskrunspecs
+spec:
+  pipelineRef:
+    name: build-deploy-app
+  taskRunSpecs:
+    - pipelineTaskName: build
+      serviceAccountName: build-service-account
+      podTemplate:
+        nodeSelector:
+          disktype: ssd
+    - pipelineTaskName: deploy
+      serviceAccountName: deploy-service-account
+      podTemplate:
+        tolerations:
+        - key: "dedicated"
+          operator: "Equal"
+          value: "deploy"
+          effect: "NoSchedule"
+```
+
+### Workspaces
+
+Workspaces allow sharing data between Tasks in a Pipeline.
+
+#### Use Cases
+
+- Sharing source code between build and test Tasks
+- Passing build artifacts to deployment Tasks
+- Sharing configuration files across multiple Tasks
+- Persisting data between Pipeline executions
+
+#### Principles
+
+Workspaces:
+- Are declared in the Pipeline and bound in the PipelineRun
+- Can be backed by various volume types (PVC, ConfigMap, Secret, etc.)
+- Enable data sharing without direct dependencies
+- Support different access modes (ReadOnly, ReadWrite)
+
+#### Configuration Example
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: build-test-with-workspace
+spec:
+  pipelineRef:
+    name: build-test-pipeline
+  workspaces:
+    - name: source-code
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 1Gi
+    - name: cache
+      persistentVolumeClaim:
+        claimName: build-cache-pvc
+```
+
+## PipelineRun Status Management
+
+### Monitoring Execution Status
+
+The status field of a PipelineRun provides detailed information about the execution progress:
+
+```yaml
+status:
+  completionTime: "2023-05-04T02:19:14Z"
+  conditions:
+    - lastTransitionTime: "2023-05-04T02:19:14Z"
+      message: "Tasks Completed: 4, Skipped: 0"
+      reason: Succeeded
+      status: "True"
+      type: Succeeded
+  startTime: "2023-05-04T02:00:11Z"
+  childReferences:
+  - name: build-deploy-app-run-build
+    pipelineTaskName: build
+    kind: TaskRun
+```
+
+### Cancelling a PipelineRun
+
+To cancel a running PipelineRun, update its spec.status field:
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: build-deploy-app-run
+spec:
+  # [...other fields...]
+  status: "Cancelled"
+```
+
+This immediately terminates all running TaskRuns and does not execute pending Tasks or finally Tasks.
+
+### Gracefully Stopping a PipelineRun
+
+To gracefully stop a PipelineRun, allowing finally Tasks to execute:
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: build-deploy-app-run
+spec:
+  # [...other fields...]
+  status: "StoppedRunFinally"
+```
+
+This completes currently running Tasks but does not start new ones, except for finally Tasks.
+
+## References
+
+- [Tekton PipelineRuns Official Documentation](https://tekton.dev/docs/pipelines/pipelineruns/)
+- [Tekton Pipelines GitHub Repository](https://github.com/tektoncd/pipeline)
+- [Kubernetes Custom Resources](https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/)

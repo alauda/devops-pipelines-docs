@@ -1,0 +1,311 @@
+---
+title: Adjusting Optional Configuration Items of Subcomponents
+weight: 10
+sourceSHA: e8dc68e13b6a5eae97587db9ce12a604d239694ca4fe0d9d821af5791c22db01
+---
+
+# Adjusting Optional Configuration Items of Subcomponents
+
+## Function Overview
+
+By adjusting the `options` configuration of each component in the [`TektonConfig`](../apis/kubernetes_apis/operator/tektonconfig.mdx) resource, custom configurations for subcomponents can be achieved.
+
+This document introduces the configuration items supported by `options`, as well as how to configure these items.
+
+## Use Cases
+
+Tekton supports the deployment of subcomponents through the [`TektonConfig`](../apis/kubernetes_apis/operator/tektonconfig.mdx) resource. This resource has a common configuration item `options` under the fields of `spec.pipeline`, `spec.trigger`, `spec.hub`, `spec.chain`, and `spec.results`.
+
+Through the `options` configuration, you can achieve:
+
+- Point deployment of components
+- Modification of high availability settings
+- Modification of the number of replicas for components
+- Modification of resource quotas for components
+- Modification of default `ConfigMap` configuration items
+
+### Detailed Configurable Items
+
+- Modify the configuration of `Deployment` for the components, such as:
+  - `labels` and `annotations` configurations
+  - Number of replicas `replicas`
+  - Affinity rules `affinity`
+  - Priority class `priorityClassName`
+  - Node selector `nodeSelector`
+  - Toleration rules `tolerations`
+  - Topology spread constraints `topologySpreadConstraints`
+  - Runtime class `runtimeClassName`
+  - Volumes `volumes`
+  - Containers `containers` and `initContainers`
+    - Resource quotas `resources.limits` and `resources.requests`
+    - Environment variables `env`
+    - Volumes `volumes`
+    - Execution arguments `args`
+- Modify the configuration of `ConfigMap` for the components, such as:
+  - `labels` and `annotations` configurations
+  - Update or add new `data` configuration items
+- Modify the configuration of `Ingress` for the components, such as:
+  - `ingressClassName` to override the default ingressClass configuration
+  - `rules` to override the default routing rules
+  - `tls` to override the default certificate configuration
+- Modify the automatic scaling configuration of `HorizontalPodAutoscaler` for the components, such as:
+  - Adding this configuration
+  - Modifying `minReplicas` and `maxReplicas` configurations
+  - Modifying `targetCPUUtilizationPercentage` configurations, etc.
+- Modify the configuration of `StatefulSet` for the components
+- Modify the configuration of `ValidatingWebhookConfiguration` and `MutatingWebhookConfiguration` for the components
+
+## Pre-requisites
+
+Before using the functionality, ensure that:
+
+- The Tekton Operator component is installed
+- The TektonConfig resource has been automatically created in the environment
+- You have a basic understanding of the configuration items supported in [`TektonConfig`](../apis/kubernetes_apis/operator/tektonconfig.mdx)
+
+Below is a typical example of an options configuration:
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  targetNamespace: tekton-pipelines
+  hub: {}
+  chain: {}
+  trigger: {}
+  pipeline:
+    options:
+      # Whether to enable options configuration, default value is false. When set to true, all configurations under options will not take effect.
+      disabled: false
+
+      # Configure ConfigMap's configurations
+      configMaps:
+        # Name of the ConfigMap to be modified or added
+        config-defaults:
+          data:
+            # Configuration items to be modified or added
+            default-container-resource-requirements: |
+              place-scripts: # updates resource requirements of a 'place-scripts' container
+                requests:
+                  memory: "64Mi"
+                  cpu: "50m"
+                limits:
+                  memory: "128Mi"
+                  cpu: "100m"
+
+      # Configure Deployment's configurations
+      deployments:
+        # Name of the Deployment to be modified
+        tekton-events-controller:
+          metadata:
+            # Labels configuration of the Deployment to be modified
+            labels:
+              key: value
+            # Annotations configuration of the Deployment to be modified
+            annotations:
+              key: value
+          spec:
+            # Number of replicas of the Deployment to be modified
+            replicas: 1
+            # Template configuration to be modified
+            template:
+              metadata:
+                # Labels configuration to be modified
+                labels:
+                  key1: value
+                # Annotations configuration to be modified
+                annotations:
+                  key1: value
+              spec:
+                # Affinity configuration to be modified
+                affinity:
+                  nodeAffinity:
+                    requiredDuringSchedulingIgnoredDuringExecution:
+                      nodeSelectorTerms:
+                        - matchExpressions:
+                          - key: kubernetes.io/os
+                            operator: In
+                            values:
+                              - linux
+
+                # Node selector configuration to be modified
+                nodeSelector:
+                  kubernetes.io/os: linux
+
+                # Tolerations configuration to be modified
+                tolerations:
+                  - effect: NoSchedule
+                    key: node-role.kubernetes.io/master
+                    operator: Exists
+
+                # priorityClassName: ""
+                # topologySpreadConstraints: ""
+                # runtimeClassName: ""
+                # volumes: []
+                # initContainers: []
+
+                containers:
+                  # Name of the container to be modified
+                  - name: tekton-events-controller
+                    # Resource quotas to be modified
+                    resources:
+                      limits:
+                        cpu: "1"
+                        memory: 1Gi
+                      requests:
+                        cpu: 500m
+                        memory: 512Mi
+
+                    # Environment variables to be modified
+                    env:
+                      - name: key
+                        value: value
+
+                    # Volume configuration to be modified
+                    # volumes: []
+
+                    # Execution arguments to be added
+                    # args: []
+
+      # HorizontalPodAutoscalers configuration to be modified or added
+      horizontalPodAutoscalers:
+        # Name of the horizontalPodAutoscaler to be modified
+        tekton-pipelines-remote-resolvers:
+          metadata:
+            # Annotations configuration to be modified
+            # Labels configuration to be modified
+            labels:
+              key: value
+            annotations:
+              key: value
+          spec:
+            # MinReplicas configuration to be modified
+            minReplicas: 1
+            # MaxReplicas configuration to be modified
+            maxReplicas: 5
+            # Metrics configuration to be modified
+            metrics:
+              - resource:
+                  name: cpu
+                  target:
+                    averageUtilization: 50
+                    type: Utilization
+                type: Resource
+              - resource:
+                  name: memory
+                  target:
+                    averageUtilization: 50
+                    type: Utilization
+                type: Resource
+            # scaleTargetRef configuration to be modified
+            scaleTargetRef:
+              apiVersion: apps/v1
+              kind: Deployment
+              name: tekton-pipelines-remote-resolvers
+```
+
+## Steps to Operate
+
+Using the `pipeline` component as an example, this section describes how to configure resource quotas.
+
+<Steps>
+  ### Step 1
+
+  Edit the `TektonConfig` resource
+
+  ```bash
+  $ kubectl edit tektonconfigs.operator.tekton.dev config
+  ```
+
+  ### Step 2
+
+  :::warning
+  Modifying configurations may trigger a rolling update of the component Pods, which could temporarily make the service unavailable. Please execute this at an appropriate time.
+  :::
+
+  Modify the `spec.pipeline.options.deployments` configuration as follows:
+
+  - Change the number of replicas for `Deployment` `tekton-events-controller` to 2
+  - Modify the `resources` configuration of `Deployment` `tekton-events-controller`
+
+  ```yaml
+  apiVersion: operator.tekton.dev/v1alpha1
+  kind: TektonConfig
+  metadata:
+    name: config
+  spec:
+    targetNamespace: tekton-pipelines
+    hub: {}
+    chain: {}
+    trigger: {}
+    pipeline:
+      options:
+        disabled: false
+        deployments:
+          tekton-events-controller:
+            spec:
+              replicas: 2
+              template:
+                spec:
+                  containers:
+                    - name: tekton-events-controller
+                      resources:
+                        limits:
+                          cpu: "1"
+                          memory: 1Gi
+                        requests:
+                          cpu: 500m
+                          memory: 512Mi
+  ```
+
+  ### Step 3
+
+  Submit the configuration and wait for the Pods to update.
+
+  ```bash
+  $ kubectl get pods -n tekton-pipelines -l app=tekton-events-controller -w
+
+  NAME                                       READY   STATUS    RESTARTS   AGE
+  tekton-events-controller-fcd56975b-knvzx   1/1     Running   0          20s
+  tekton-events-controller-fcd56975b-qqprt   1/1     Running   0          31s
+  ```
+</Steps>
+
+## Operation Result
+
+You can see that the number of replicas of `tekton-events-controller` is 2 and the `resources` configuration is effective.
+
+```bash
+$ kubectl get deployments.apps -n tekton-pipelines tekton-events-controller -o yaml
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tekton-events-controller
+  namespace: tekton-pipelines
+spec:
+  replicas: 2
+  template:
+    metadata:
+    spec:
+      containers:
+      - name: tekton-events-controller
+        resources:
+          limits:
+            cpu: "1"
+            memory: 1Gi
+          requests:
+            cpu: 500m
+            memory: 512Mi
+```
+
+## Follow-up Actions
+
+If you need to modify the configuration of other components, you can refer to the above steps to modify the `options` configuration of other components.
+
+## References
+
+- [Official Documentation: Tekton Config](https://tekton.dev/vault/operator-v0.74.x-lts/tektonconfig/)
+- [Related Code](https://github.com/tektoncd/operator/blob/release-v0.74.x/pkg/reconciler/common/transformer_additional_options.go)

@@ -1,0 +1,392 @@
+---
+weight: 40
+sourceSHA: 2440c61387f788dd976c0fcdd63a64ce3ad449663a2b8144d2645c5ef4e6459c
+---
+
+# Quick Start
+
+## Installation of Tekton Results
+
+This document explains how to install Tekton Results using an **existing database**.
+
+:::note
+Currently, the built-in PostgreSQL database is not supported, please use an external database.
+:::
+
+### Prerequisites
+
+1. Tekton Pipelines must be installed in the cluster.
+
+   :::tip
+   The following instructions assume that you have installed Results into the `tekton-pipelines` namespace by default.
+
+   If you have installed it into a different namespace, please replace `tekton-pipelines` with your namespace.
+   :::
+
+2. Create a database root password.
+
+   Users must generate a database root password and store it in a
+   [Kubernetes Secret](https://kubernetes.io/docs/concepts/configuration/secret/) before installation. By default, Tekton Results expects this `Secret` to have the following attributes:
+
+   - Namespace: `tekton-pipelines`
+   - Name: `tekton-results-postgres`
+   - Including the following fields:
+     - `POSTGRES_USER=<your_username>`
+     - `POSTGRES_PASSWORD=<your_password>`
+
+   You can quickly generate a `Secret` using the following command:
+
+   ```sh
+   kubectl create secret generic tekton-results-postgres --namespace="tekton-pipelines" --from-literal=POSTGRES_USER={POSTGRES} --from-literal=POSTGRES_PASSWORD={PASSWORD}
+   ```
+
+3. Generate a certificate/key pair. Note: Any certificate management software can be used for this purpose!
+
+   Tekton Results expects the certificate/key pair to be stored in a
+   [TLS Kubernetes Secret](https://kubernetes.io/docs/concepts/configuration/secret/#tls-secrets) named `tekton-results-tls`.
+
+   - Generate a new self-signed certificate
+
+   ```sh
+   openssl req -x509 \
+     -newkey rsa:4096 \
+     -keyout key.pem \
+     -out cert.pem \
+     -days 365 \
+     -nodes \
+     -subj "/CN=tekton-results-api-service.tekton-pipelines.svc.cluster.local" \
+     -addext "subjectAltName = DNS:tekton-results-api-service.tekton-pipelines.svc.cluster.local"
+   ```
+
+   - Create a new TLS Secret from the certificate.
+
+   ```sh
+   kubectl create secret tls -n tekton-pipelines tekton-results-tls \
+     --cert=cert.pem \
+     --key=key.pem
+   ```
+
+4. Create a `PVC` if you are using `PVC` to store logs.
+
+   ```sh
+   cat <<EOF | kubectl create -f -
+   apiVersion: v1
+   kind: PersistentVolumeClaim
+   metadata:
+     name: tekton-logs
+     namespace: tekton-pipelines
+   spec:
+     accessModes:
+       - ReadWriteOnce  # The access mode indicating it can be read and written by a single node
+     resources:
+       requests:
+         storage: 100Gi  # The requested storage size
+   EOF
+   ```
+
+   - Please adjust the PVC size as needed.
+
+### Installing using operator CRD
+
+```sh
+$ cat <<EOF | kubectl create -f -
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonResult
+metadata:
+  name: result
+spec:
+  # Update with database address
+  db_host: <database_host>
+  db_port: 5432
+  db_name: <database_name>
+  # Use external database
+  is_external_db: true
+  # secret containing database account information created earlier
+  secret_name: tekton-results-postgres
+  # Basic settings
+  server_port: 8080
+  # Target namespace
+  targetNamespace: tekton-pipelines
+  # Disable authentication
+  auth_disable: true
+  db_enable_auto_migration: true
+  log_level: debug
+  # Use logs storage service
+  logs_api: true
+  logs_type: File
+  logs_path: /logs
+  logs_buffer_size: 92160
+  logging_pvc_name: tekton-logs
+EOF
+```
+
+:::details{title="Explanation of YAML fields"}
+  - `db_host`: The host of the database.
+  - `db_port`: The port of the database.
+  - `db_name`: The name of the database.
+  - `is_external_db`: Whether to use an external database.
+    - `true`: Use an external database.
+  - `secret_name`: The name of the secret containing the database account information.
+    - This is the secret created in the previous step.
+  - `server_port`: The port of the server.
+  - `targetNamespace`: The namespace where the Results is deployed.
+  - `auth_disable`: Whether to disable authentication.
+  - `db_enable_auto_migration`: Whether to enable automatic database migration.
+  - `log_level`: The level of the log.
+  - `logs_api`: Whether to enable the logs API.
+    - `true`: Enable the logs API.
+  - `logs_type`: The type of the logs.
+    - `File`: Store logs in a file.
+  - `logs_path`: The path of the logs.
+  - `logs_buffer_size`: The buffer size of the logs.
+  - `logging_pvc_name`: The name of the PVC to store the logs.
+    - This is the PVC created in the previous step.
+:::
+
+:::tip
+About more database configuration, please refer to [PostgreSQL Configuration](./configure/database_configuration.mdx)
+:::
+
+After deployment, you can see that the status of `results-api` / `results-retention-policy-agent` / `results-watcher` is `Running`
+
+```sh
+$ kubectl get pods -n tekton-pipelines
+
+NAME                                                    READY   STATUS    RESTARTS   AGE
+tekton-results-api-68bb657996-bb487                     1/1     Running   0          14s
+tekton-results-retention-policy-agent-c6ff5575b-prczg   1/1     Running   0          14s
+tekton-results-watcher-6d7c68f576-p2gbl                 1/1     Running   0          14s
+```
+
+### Verify Functionality
+
+Functionality can be verified through a simple taskrun.
+
+#### 1. Create a `TaskRun` resource
+
+```sh
+$ cat <<'EOF' | kubectl create -f -
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: hello
+spec:
+  taskSpec:
+    steps:
+      - name: hello
+        image: alpine
+        command: ["echo", "hello"]
+EOF
+```
+
+:::note
+For air-gapped environments change the `alpine` image address to another present in the network
+:::
+
+#### 2. Wait for the task execution to complete
+
+```sh
+$ kubectl get taskruns.tekton.dev -n default -w
+
+hello                                        Unknown     Pending     3s
+hello                                        True        Succeeded   11s         0s
+```
+
+#### 3. Use curl to query results
+
+> For more usage patterns, refer to the official documentation [Tekton Results API](https://github.com/tektoncd/results/blob/main/docs/api/README.md)
+
+##### Prepare permissions
+
+```yaml
+$ cat <<EOF | kubectl create -f -
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tekton-results-readonly
+rules:
+  - apiGroups: ["results.tekton.dev"]
+    resources: ["results", "records"]
+    verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tekton-results-impersonate
+rules:
+  - apiGroups: [""]
+    resources: ["users", "groups", "serviceaccounts"]
+    verbs: ["impersonate"]
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["uids"]
+    verbs: ["impersonate"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tekton-results-impersonate
+subjects:
+  - kind: ServiceAccount
+    name: impersonate-admin
+    namespace: tekton-pipelines
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tekton-results-impersonate
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tekton-results-user
+  namespace: default
+subjects:
+  - kind: ServiceAccount
+    name: impersonate-user
+    namespace: user-namespace
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tekton-results-readonly
+EOF
+```
+
+##### Verify permissions
+
+```sh
+$ kubectl create --validate=false --as=system:serviceaccount:tekton-pipelines:tekton-results-watcher -n tekton-pipelines -f - -o yaml << EOF
+apiVersion: authorization.k8s.io/v1
+kind: SelfSubjectAccessReview
+spec:
+  resourceAttributes:
+    group: results.tekton.dev
+    resource: results
+    verb: get
+EOF
+
+apiVersion: authorization.k8s.io/v1
+kind: SelfSubjectAccessReview
+metadata:
+  creationTimestamp: null
+spec:
+  resourceAttributes:
+    group: results.tekton.dev
+    resource: results
+    verb: get
+status:
+  allowed: true
+  reason: 'RBAC: allowed by ClusterRoleBinding "tekton-results-watcher" of ClusterRole
+    "tekton-results-watcher" to ServiceAccount "tekton-results-watcher/tekton-pipelines"'
+```
+
+##### Forward Ports
+
+Proxy the service to the local port 8080
+
+```sh
+$ kubectl port-forward -n tekton-pipelines service/tekton-results-api-service 8080
+```
+
+##### Get Token
+
+```sh
+$ token=$(kubectl create token impersonate-admin -n tekton-pipelines)
+```
+
+##### Query Results
+
+```sh
+$ curl -s -k \
+  -H 'authorization: Bearer '${token} \
+  -H 'Impersonate-User: system:serviceaccount:user-namespace:impersonate-user' \
+  https://localhost:8080/apis/results.tekton.dev/v1alpha2/parents/default/results
+
+{"results":[{"name":"default/results/0b165174-fd12-47f9-a8d8-c4ffcb1be0d4", "id":"65662a09-216a-4e6b-960c-260a2b05de9c", "uid":"65662a09-216a-4e6b-960c-260a2b05de9c", "createdTime":"2025-02-20T05:59:52.403661Z", "createTime":"2025-02-20T05:59:52.403661Z", "updatedTime":"2025-02-20T06:00:09.033206Z", "updateTime":"2025-02-20T06:00:09.033206Z", "annotations":{"object.metadata.name":"large-result-pipeline-run-c2mg4", "tekton.dev/pipeline":"large-result-pipeline"}, "etag":"65662a09-216a-4e6b-960c-260a2b05de9c-1740031209033206096", "summary":{"record":"default/results/0b165174-fd12-47f9-a8d8-c4ffcb1be0d4/records/0b165174-fd12-47f9-a8d8-c4ffcb1be0d4", "type":"tekton.dev/v1.PipelineRun", "startTime":null, "endTime":"2025-02-20T06:00:09Z", "status":"SUCCESS", "annotations":{}}}, {"name":"default/results/c308db48-9613-4652-8b5a-edd10eb9bda9", "id":"98d2bda3-2039-4e03-b78a-4e44637df4f2", "uid":"98d2bda3-2039-4e03-b78a-4e44637df4f2", "createdTime":"2025-02-20T05:25:44.226246Z", "createTime":"2025-02-20T05:25:44.226246Z", "updatedTime":"2025-02-20T13:12:20.823170Z", "updateTime":"2025-02-20T13:12:20.823170Z", "annotations":{"object.metadata.name":"hello"}, "etag":"98d2bda3-2039-4e03-b78a-4e44637df4f2-1740057140823170246", "summary":{"record":"default/results/c308db48-9613-4652-8b5a-edd10eb9bda9/records/c308db48-9613-4652-8b5a-edd10eb9bda9", "type":"tekton.dev/v1.TaskRun", "startTime":null, "endTime":"2025-02-20T13:12:20Z", "status":"SUCCESS", "annotations":{}}}, {"name":"default/results/e536090f-0819-46ae-86e6-1fe2fce6dc56", "id":"a7e8b252-bbce-4cb1-aa22-71cfb5a83639", "uid":"a7e8b252-bbce-4cb1-aa22-71cfb5a83639", "createdTime":"2025-02-20T13:13:33.323381Z", "createTime":"2025-02-20T13:13:33.323381Z", "updatedTime":"2025-02-20T13:13:45.480690Z", "updateTime":"2025-02-20T13:13:45.480690Z", "annotations":{"object.metadata.name":"large-result-pipeline-run-twnxc", "tekton.dev/pipeline":"large-result-pipeline"}, "etag":"a7e8b252-bbce-4cb1-aa22-71cfb5a83639-1740057225480690745", "summary":{"record":"default/results/e536090f-0819-46ae-86e6-1fe2fce6dc56/records/e536090f-0819-46ae-86e6-1fe2fce6dc56", "type":"tekton.dev/v1.PipelineRun", "startTime":null, "endTime":"2025-02-20T13:13:45Z", "status":"SUCCESS", "annotations":{}}}], "nextPageToken":""}
+```
+
+#### 4. Use tkn-results CLI to query results
+
+##### Preparing the CLI
+
+> [tkn](https://github.com/tektoncd/cli/releases) is a command-line tool for interacting with Tekton. You can download it from the [official page](https://github.com/tektoncd/cli/releases).
+>
+> You need to build [tkn-results](https://github.com/tektoncd/results/blob/main/cmd/tkn-results/main.go) using golang.
+
+```sh
+# 1. Clone the repository
+git clone https://github.com/tektoncd/results.git
+
+# 2. Change to the project directory
+cd results
+
+# 3. Build the binary
+go build -o tkn-results ./cmd/tkn-results/main.go
+
+# 4. Copy the binary to a directory in your PATH
+```
+
+##### Querying the execution record list
+
+```sh
+$ tkn results --insecure records list default/results/-
+
+default/results/209dcb81-e3c0-47cd-b082-d910e15702ae/records/209dcb81-e3c0-47cd-b082-d910e15702ae  tekton.dev/v1.TaskRun                   2025-02-19 16:17:11 +0800 CST           2025-02-19 16:17:21 +0800 CST
+default/results/209dcb81-e3c0-47cd-b082-d910e15702ae/records/a750035d-0479-34a1-9db2-9a256b53243f  results.tekton.dev/v1alpha3.Log         2025-02-19 16:17:21 +0800 CST           2025-02-19 16:17:21 +0800 CST
+```
+
+##### Querying a single execution record
+
+```sh
+$ tkn results --insecure records get -o textproto default/results/209dcb81-e3c0-47cd-b082-d910e15702ae/records/209dcb81-e3c0-47cd-b082-d910e15702ae
+
+name: "default/results/209dcb81-e3c0-47cd-b082-d910e15702ae/records/209dcb81-e3c0-47cd-b082-d910e15702ae"
+id: "0805bbd0-e390-40dc-a1ea-f65ae9401930"
+uid: "0805bbd0-e390-40dc-a1ea-f65ae9401930"
+data: {
+  type: "tekton.dev/v1.TaskRun"
+  value: "{\"kind\": \"TaskRun\", \"spec\": {\"timeout\": \"1h0m0s\", \"taskSpec\": {\"steps\": [{\"name\": \"hello\", \"image\": \"152-231-registry.alauda.cn:60070/ops/ubuntu:latest\", \"command\": [\"echo\", \"hello\"], \"computeResources\": {}}]}, \"serviceAccountName\": \"default\"}, \"status\": {\"steps\": [{\"name\": \"hello\", \"imageID\": \"alpine\", \"container\": \"step-hello\", \"terminated\": {\"reason\": \"Completed\", \"exitCode\": 0, \"startedAt\": \"2025-02-19T08:17:20Z\", \"finishedAt\": \"2025-02-19T08:17:20Z\", \"containerID\": \"containerd://5e2cb72ca758fc976744b06b5ee97564bcc0958ca9cee2a54fdaab64323a1bf9\"}, \"terminationReason\": \"Completed\"}], \"podName\": \"hello-pod\", \"taskSpec\": {\"steps\": [{\"name\": \"hello\", \"image\": \"152-231-registry.alauda.cn:60070/ops/ubuntu:latest\", \"command\": [\"echo\", \"hello\"], \"computeResources\": {}}]}, \"startTime\": \"2025-02-19T08:17:10Z\", \"conditions\": [{\"type\": \"Succeeded\", \"reason\": \"Succeeded\", \"status\": \"True\", \"message\": \"All Steps have completed executing\", \"lastTransitionTime\": \"2025-02-19T08:17:21Z\"}], \"provenance\": {\"featureFlags\": {\"Coschedule\": \"workspaces\", \"MaxResultSize\": 4096, \"EnableAPIFields\": \"beta\", \"EnableArtifacts\": false, \"EnableParamEnum\": false, \"DisableCredsInit\": false, \"EnableStepActions\": true, \"SetSecurityContext\": false, \"AwaitSidecarReadiness\": true, \"EnableKeepPodOnCancel\": false, \"EnableTektonOCIBundles\": false, \"ResultExtractionMethod\": \"termination-message\", \"SendCloudEventsForRuns\": false, \"DisableAffinityAssistant\": false, \"EnableProvenanceInStatus\": true, \"EnforceNonfalsifiability\": \"none\", \"EnableCELInWhenExpression\": false, \"VerificationNoMatchPolicy\": \"ignore\", \"ScopeWhenExpressionsToTask\": false, \"RequireGitSSHSecretKnownHosts\": false, \"RunningInEnvWithInjectedSidecars\": true}}, \"completionTime\": \"2025-02-19T08:17:21Z\"}, \"metadata\": {\"uid\": \"209dcb81-e3c0-47cd-b082-d910e15702ae\", \"name\": \"hello\", \"labels\": {\"app.kubernetes.io/managed-by\": \"tekton-pipelines\"}, \"namespace\": \"default\", \"finalizers\": [\"results.tekton.dev/taskrun\", \"chains.tekton.dev\"], \"generation\": 1, \"annotations\": {\"results.tekton.dev/log\": \"default/results/209dcb81-e3c0-47cd-b082-d910e15702ae/logs/a750035d-0479-34a1-9db2-9a256b53243f\", \"chains.tekton.dev/signed\": \"true\", \"results.tekton.dev/record\": \"default/results/209dcb81-e3c0-47cd-b082-d910e15702ae/records/209dcb81-e3c0-47cd-b082-d910e15702ae\", \"results.tekton.dev/result\": \"default/results/209dcb81-e3c0-47cd-b082-d910e15702ae\", \"pipeline.tekton.dev/release\": \"8bfd3273cbe7776847884d7fa5004481e6be8f4a\"}, \"managedFields\": [{\"time\": \"2025-02-19T08:17:10Z\", \"manager\": \"kubectl-create\", \"fieldsV1\": {\"f:spec\": {\".\": {}, \"f:taskSpec\": {\".\": {}, \"f:steps\": {}}}}, \"operation\": \"Update\", \"apiVersion\": \"tekton.dev/v1\", \"fieldsType\": \"FieldsV1\"}, {\"time\": \"2025-02-19T08:17:21Z\", \"manager\": \"controller\", \"fieldsV1\": {\"f:metadata\": {\"f:finalizers\": {\"v:\\\"chains.tekton.dev\\\"\": {}}, \"f:annotations\": {\"f:chains.tekton.dev/signed\": {}, \"f:pipeline.tekton.dev/release\": {}}}}, \"operation\": \"Update\", \"apiVersion\": \"tekton.dev/v1\", \"fieldsType\": \"FieldsV1\"}, {\"time\": \"2025-02-19T08:17:21Z\", \"manager\": \"controller\", \"fieldsV1\": {\"f:status\": {\".\": {}, \"f:steps\": {}, \"f:podName\": {}, \"f:taskSpec\": {\".\": {}, \"f:steps\": {}}, \"f:artifacts\": {}, \"f:startTime\": {}, \"f:conditions\": {}, \"f:provenance\": {\".\": {}, \"f:featureFlags\": {\".\": {}, \"f:Coschedule\": {}, \"f:MaxResultSize\": {}, \"f:EnableAPIFields\": {}, \"f:EnableArtifacts\": {}, \"f:EnableParamEnum\": {}, \"f:DisableCredsInit\": {}, \"f:DisableInlineSpec\": {}, \"f:EnableStepActions\": {}, \"f:SetSecurityContext\": {}, \"f:AwaitSidecarReadiness\": {}, \"f:EnableKeepPodOnCancel\": {}, \"f:ResultExtractionMethod\": {}, \"f:SendCloudEventsForRuns\": {}, \"f:EnableKubernetesSidecar\": {}, \"f:DisableAffinityAssistant\": {}, \"f:EnableProvenanceInStatus\": {}, \"f:EnforceNonfalsifiability\": {}, \"f:EnableCELInWhenExpression\": {}, \"f:VerificationNoMatchPolicy\": {}, \"f:EnableConciseResolverSyntax\": {}, \"f:RequireGitSSHSecretKnownHosts\": {}, \"f:RunningInEnvWithInjectedSidecars\": {}}}, \"f:completionTime\": {}}}, \"operation\": \"Update\", \"apiVersion\": \"tekton.dev/v1\", \"fieldsType\": \"FieldsV1\", \"subresource\": \"status\"}, {\"time\": \"2025-02-19T08:17:21Z\", \"manager\": \"watcher\", \"fieldsV1\": {\"f:metadata\": {\"f:finalizers\": {\".\": {}, \"v:\\\"results.tekton.dev/taskrun\\\"\": {}}, \"f:annotations\": {\".\": {}, \"f:results.tekton.dev/log\": {}, \"f:results.tekton.dev/record\": {}, \"f:results.tekton.dev/result\": {}}}}, \"operation\": \"Update\", \"apiVersion\": \"tekton.dev/v1\", \"fieldsType\": \"FieldsV1\"}], \"resourceVersion\": \"1592422\", \"creationTimestamp\": \"2025-02-19T08:17:10Z\"}, \"apiVersion\": \"tekton.dev/v1\"}"
+}
+etag: "0805bbd0-e390-40dc-a1ea-f65ae9401930-1739953041309658421"
+created_time: {
+  seconds: 1739953031
+  nanos: 16922000
+}
+create_time: {
+  seconds: 1739953031
+  nanos: 16922000
+}
+updated_time: {
+  seconds: 1739953041
+  nanos: 309658000
+}
+update_time: {
+  seconds: 1739953041
+  nanos: 309658000
+}
+```
+
+##### Querying the log list
+
+```sh
+$ tkn results --insecure logs list default/results/-
+
+default/results/209dcb81-e3c0-47cd-b082-d910e15702ae/logs/a750035d-0479-34a1-9db2-9a256b53243f  results.tekton.dev/v1alpha3.Log         2025-02-19 16:17:21 +0800 CST           2025-02-19 16:17:21 +0800 CST
+```
+
+##### Querying a single log
+
+```sh
+$ tkn results --insecure logs get -o textproto default/results/209dcb81-e3c0-47cd-b082-d910e15702ae/logs/a750035d-0479-34a1-9db2-9a256b53243f
+
+content_type: "text/plain"
+data: "[prepare] 2025/02/19 08:17:12 Entrypoint initialization\n\n[hello] hello\n\n"
+```
+
+## References
+
+- [Tekton Results Docs](https://github.com/tektoncd/results/tree/main/docs)
+- [Installation of Tekton Results](https://tekton.dev/docs/operator/tektonresult/)
+- [Tekton Results API](https://github.com/tektoncd/results/blob/main/docs/api/README.md)
+- [Download tkn](https://github.com/tektoncd/cli/releases)

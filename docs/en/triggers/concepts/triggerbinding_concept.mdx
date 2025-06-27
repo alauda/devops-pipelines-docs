@@ -1,0 +1,204 @@
+---
+weight: 40
+---
+
+# TriggerBinding
+
+A TriggerBinding is a key component in Tekton Triggers that allows you to extract fields from an event payload and bind them to named parameters. These parameters can then be used in a TriggerTemplate to create resources like TaskRuns and PipelineRuns with specific values extracted from the event.
+
+## Terminology Explanation
+
+| Term | Description |
+|------|-------------|
+| TriggerBinding | A Tekton Triggers resource that extracts fields from event payloads and binds them to named parameters. |
+| ClusterTriggerBinding | A cluster-scoped version of TriggerBinding that can be reused across your entire cluster. |
+| JSONPath | A query language used to extract data from JSON structures, utilized by TriggerBindings to access event data. |
+| Event Payload | The data received by an EventListener when an external system triggers an event. |
+
+## Why We Need TriggerBinding
+
+### The Challenge of Event-Driven Pipelines
+
+In CI/CD workflows, external systems (like GitHub, GitLab, or other webhook providers) send events with specific data structures. These events contain valuable information such as commit IDs, repository URLs, branch names, and other metadata that should be used in pipeline execution.
+
+Without TriggerBindings, there would be no standardized way to:
+- Extract specific fields from complex event payloads
+- Transform this data into parameters that pipelines can use
+- Handle different event structures from various systems
+
+### How TriggerBinding Solves These Problems
+
+TriggerBinding provides a declarative way to:
+1. Extract specific fields from event payloads using JSONPath expressions
+2. Convert these fields into named parameters that can be referenced in TriggerTemplates
+3. Create a separation of concerns between data extraction and resource creation
+
+This separation allows teams to create reusable bindings that can be mixed and matched with different templates, making the event-to-pipeline process more modular and maintainable.
+
+## Advantages
+
+- **Reusability**: Create bindings once and reuse them across multiple triggers
+- **Flexibility**: Extract data from both HTTP headers and JSON body payloads
+- **Scope options**: Use namespace-level TriggerBindings or cluster-wide ClusterTriggerBindings
+- **Fallback mechanism**: If a field isn't found, the system can use default values from the TriggerTemplate
+- **Composition**: Multiple bindings can be combined in a single Trigger to extract different sets of data
+
+## Applicable Scenarios
+
+TriggerBindings are essential in the following scenarios:
+
+1. **CI/CD Pipeline Automation**: Automatically triggering pipelines when code is pushed to a repository, extracting commit details for the pipeline to use.
+
+2. **Multi-Environment Deployments**: Using the same event data but combining it with environment-specific bindings to deploy to different environments.
+
+3. **Custom Webhook Processing**: Extracting relevant data from custom webhooks to trigger appropriate pipelines with the right parameters.
+
+4. **Complex Event Processing**: When working with complex event structures where only specific nested fields are needed for pipeline execution.
+
+## Constraints and Limitations
+
+- TriggerBindings can only extract data that exists in the event payload
+- JSONPath expressions must be properly formatted and wrapped in `$()` syntax
+- Field names in HTTP headers are case-sensitive
+- Special characters in JSON keys (like periods or slashes) must be escaped with backslashes
+
+## Principles
+
+### TriggerBinding Structure and Types
+
+There are three ways to declare a TriggerBinding:
+
+1. **Inline Bindings**: Defined directly within a Trigger resource
+   ```yaml
+   apiVersion: triggers.tekton.dev/v1beta1
+   kind: Trigger
+   metadata:
+     name: push-trigger
+   spec:
+     bindings:
+     - name: gitrevision
+       value: $(body.head_commit.id)
+     - name: gitrepositoryurl
+       value: $(body.repository.url)
+     template:
+       ref: git-clone-template
+   ```
+
+2. **TriggerBinding Resource**: Created as a separate resource for reuse across multiple Triggers
+   ```yaml
+   apiVersion: triggers.tekton.dev/v1beta1
+   kind: TriggerBinding
+   metadata:
+     name: pipeline-binding
+   spec:
+     params:
+     - name: gitrevision
+       value: $(body.head_commit.id)
+     - name: gitrepositoryurl
+       value: $(body.repository.url)
+     - name: contenttype
+       value: $(header.Content-Type)
+   ```
+
+3. **ClusterTriggerBinding**: Cluster-scoped binding for reuse across the entire cluster
+   ```yaml
+   apiVersion: triggers.tekton.dev/v1beta1
+   kind: ClusterTriggerBinding
+   metadata:
+     name: pipeline-clusterbinding
+   spec:
+     params:
+       - name: gitrevision
+         value: $(body.head_commit.id)
+       - name: gitrepositoryurl
+         value: $(body.repository.url)
+       - name: contenttype
+         value: $(header.Content-Type)
+   ```
+
+### Data Access Patterns
+
+TriggerBindings use JSONPath expressions wrapped in `$()` syntax to access data:
+
+- **HTTP Body Access**: `$(body.repository.url)`
+- **HTTP Headers Access**: `$(header.Content-Type)`
+- **Interceptor Data Access**: `$(extensions.field-name)`
+- **EventListener Context Access**: `$(context.eventID)`
+- **Special Character Handling**: `$(body.dev\.tekton\.dev\/foo)`
+
+## Configuration Examples
+
+### Basic GitHub Webhook TriggerBinding
+
+```yaml
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerBinding
+metadata:
+  name: github-push-binding
+spec:
+  params:
+  - name: gitrevision
+    value: $(body.after)
+  - name: gitrepositoryurl
+    value: $(body.repository.clone_url)
+  - name: gitrepositoryname
+    value: $(body.repository.name)
+  - name: gitusername
+    value: $(body.pusher.name)
+```
+
+### Multiple Bindings Example
+
+```yaml
+apiVersion: triggers.tekton.dev/v1beta1
+kind: EventListener
+metadata:
+  name: listener
+spec:
+  triggers:
+    - name: prod-trigger
+      bindings:
+        - ref: event-binding
+        - ref: prod-env
+      template:
+        ref: pipeline-template
+    - name: staging-trigger
+      bindings:
+        - ref: event-binding
+        - ref: staging-env
+      template:
+        ref: pipeline-template
+```
+
+## Important Parameter Explanations
+
+### JSONPath Expressions
+
+JSONPath expressions are the core mechanism for extracting data in TriggerBindings.
+
+#### Applicable Scenarios
+- Extracting nested fields from complex JSON structures
+- Accessing array elements within the payload
+- Accessing the entire body or header data
+
+#### Constraints and Limitations
+- Must be wrapped in `$()` syntax
+- Nested `$()` wrappers are parsed as the innermost expression
+- Invalid expressions will result in empty values
+
+#### Principles/Parameter Explanation
+Common JSONPath patterns:
+```
+$(body) -> replaced by the entire body
+$(body.key1) -> value of key1 in the body
+$(body.key2.key3) -> nested value access
+$(body.key4[0]) -> first element of an array
+$(header.Content-Type) -> value of the Content-Type header
+```
+
+## Reference Materials
+
+- [Tekton Triggers Documentation](https://tekton.dev/docs/triggers/)
+- [TriggerBinding Official Documentation](https://tekton.dev/docs/triggers/triggerbindings/)
+- [TriggerTemplate Documentation](https://tekton.dev/docs/triggers/triggertemplates/)
+- [EventListener Documentation](https://tekton.dev/docs/triggers/eventlisteners/)

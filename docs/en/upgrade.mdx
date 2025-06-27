@@ -1,0 +1,119 @@
+---
+weight: 250
+---
+
+# Upgrade
+
+This document provides instructions for upgrading the Tekton Operator to a newer version using the Marketplace/OperatorHub interface in your cluster. The upgrade process is designed to be straightforward while ensuring minimal disruption to existing Tekton resources.
+
+## Upgrade Overview
+
+Upgrading the Tekton Operator allows you to access new features, bug fixes, and improvements to the Tekton ecosystem. The Operator handles the upgrade of all Tekton components (Pipelines, Triggers, Hub, etc.) according to your configuration.
+
+## Before You Begin
+
+Before upgrading the Tekton Operator, ensure you:
+
+- Have administrative access to your cluster
+- Review the release notes for the new version to understand any breaking changes
+- Check if your existing Tekton component configurations are compatible with the new version
+- Check the Tekton components is ready state
+
+## Upgrade Process
+
+### Using Marketplace/OperatorHub
+
+1. **Access the Marketplace/OperatorHub**
+   - Log in to your cluster's management console
+   - Navigate to the "Marketplace" or "OperatorHub" section
+
+2. **Locate the Tekton Operator**
+   - Search for "Tekton" or "Alauda DevOps Pipelines" in the search bar
+   - Click on the Tekton Operator card
+
+3. **View Available Versions**
+   - On the Operator details page, you'll see information about the currently installed version
+   - The interface will indicate if a newer version is available
+
+4. **Initiate the Upgrade**
+   - Click the "Upgrade" or "Update" button next to the new version
+   - Review the upgrade details and confirm your selection
+
+5. **Configure Upgrade Settings (if applicable)**
+   - Some upgrades may present configuration options
+   - In most cases, the default settings will preserve your existing configuration
+
+6. **Confirm and Start the Upgrade**
+   - Click "Upgrade" or "Install" to begin the process
+   - The system will update the Operator while maintaining your custom resources
+
+7. **Monitor the Upgrade**
+   - The upgrade progress will be displayed in the OperatorHub interface
+   - You can also check the status in the `tekton-operator` namespace:
+     ```bash
+     kubectl get pods -n tekton-operator
+     ```
+
+8. **Verify the Upgrade**
+   - Check that the Operator version has been updated:
+     ```bash
+     kubectl get csv -n tekton-operator
+     ```
+   - Verify that your Tekton components are functioning correctly
+
+## Post-Upgrade Steps
+
+After the upgrade completes successfully:
+
+1. **Verify Component Status**
+   - Check that all Tekton components have been updated:
+     ```bash
+     kubectl get tektonconfig,tektonpipeline,tektontrigger -A
+     kubectl get tektoninstallerset -A
+     ```
+
+2. **Test Functionality**
+   - Run a simple pipeline to verify that the system is working correctly
+   - Ensure that all existing integrations continue to function
+
+3. **Update Custom Resources if Needed**
+   - If the new version introduces changes to CRDs, you may need to update your custom resources
+   - Refer to the release notes for specific migration steps
+
+## Rollback Procedure
+
+If you encounter issues with the new version, you can roll back to the previous version:
+
+1. Return to the Marketplace/OperatorHub interface
+2. Select the Tekton Operator
+3. Choose the previous version from the version list
+4. Follow the installation process for that version
+
+Note that downgrading may require additional steps to ensure compatibility of your resources with the older version.
+
+## Troubleshooting
+
+If you encounter issues during or after the upgrade:
+
+- Check the Operator pod logs:
+  ```bash
+  kubectl logs -l name=tekton-operator -n tekton-operator
+  ```
+
+- Verify the status of your Tekton resources:
+  ```bash
+  kubectl get tektonconfig config -o yaml
+  ```
+
+- Ensure that all components have the expected status:
+  ```bash
+  kubectl get tektoninstallerset
+  ```
+
+## Next Steps
+
+After successfully upgrading the Tekton Operator:
+
+- Explore new features introduced in the latest version
+- Update your CI/CD pipelines to leverage new capabilities
+- Consider enabling additional components that may be available in the new version

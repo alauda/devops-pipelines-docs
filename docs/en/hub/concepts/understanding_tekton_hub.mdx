@@ -1,0 +1,101 @@
+---
+weight: 20
+---
+
+# Understanding Tekton Hub
+
+Tekton Hub is a web-based graphical interface that serves as a centralized repository and discovery platform for Tekton resources. It provides a user-friendly way to access, search, and share reusable Tekton components from the Tekton Catalog, enabling developers to quickly find and integrate pre-built CI/CD building blocks into their pipelines.
+
+## Terminology
+
+| Term | Description |
+|------|-------------|
+| Catalog | A collection of Tekton resources organized according to the Tekton Catalog Organization TEP structure |
+| Resource | A Tekton component such as Task, Pipeline, or other building blocks stored in a catalog |
+| Rating | User-provided feedback score for resources in Tekton Hub |
+| Category | Classification of resources by their purpose or functionality |
+| API Service | Backend service that provides data access and management for Tekton Hub |
+| UI | Web interface for users to interact with Tekton Hub |
+
+## Why Tekton Hub is Needed
+
+### The Challenge of Resource Discovery and Reuse
+
+In traditional CI/CD environments, teams often face the challenge of discovering and sharing reusable components. Without a centralized repository, developers frequently:
+
+- Reinvent the wheel by creating similar pipeline components from scratch
+- Struggle to find high-quality, tested components for common tasks
+- Lack visibility into what components already exist within their organization or the broader community
+- Have difficulty determining which components are well-maintained and reliable
+
+This leads to inefficiency, inconsistency, and duplication of effort across teams and projects.
+
+### Tekton Hub's Solution
+
+Tekton Hub addresses these challenges by providing a centralized platform that:
+
+- Aggregates Tekton resources from multiple catalogs into a searchable repository
+- Enables users to discover, evaluate, and use pre-built components
+- Provides a rating system to help identify high-quality resources
+- Offers detailed information about each resource, including versions, documentation, and examples
+- Simplifies the process of incorporating these resources into pipelines
+
+By centralizing resource discovery and management, Tekton Hub promotes reusability, standardization, and collaboration across the Tekton ecosystem.
+
+## Advantages
+
+- **Simplified Discovery**: Easy-to-use web interface for finding Tekton resources
+- **Improved Reusability**: Promotes sharing and reuse of well-tested components
+- **Quality Assurance**: Rating system helps users identify reliable resources
+- **Version Management**: Tracks multiple versions of resources for compatibility
+- **Categorization**: Organizes resources by type and purpose for easier navigation
+- **Authentication**: Supports multiple authentication methods (GitHub, GitLab, BitBucket)
+- **API Access**: Provides both versioned and internal APIs for integration
+
+## Scenarios
+
+### Scenario 1: Developer Seeking CI Components
+
+A developer needs to set up a CI pipeline for a new project. Instead of creating all the necessary tasks from scratch, they visit Tekton Hub to search for pre-built components. They find tasks for running tests, building containers, and scanning for vulnerabilities. With a few clicks, they can view documentation, check ratings, and install these components into their Kubernetes cluster.
+
+### Scenario 2: Platform Team Managing Custom Catalogs
+
+A platform engineering team wants to create and share standardized CI/CD components across their organization. They set up a custom catalog following the Tekton Catalog structure, add it to their Tekton Hub deployment, and make it available to all developers in the organization. This ensures consistency and best practices across teams.
+
+### Scenario 3: Contributing to the Community
+
+A developer creates a useful Task for a specific tool and wants to share it with the community. After testing and documenting the Task, they contribute it to a public catalog. Once approved, it becomes available through Tekton Hub for others to discover and use.
+
+## Constraints and Limitations
+
+- Requires a Kubernetes cluster for deployment
+- Catalogs must follow the structure defined in the Tekton Catalog Organization TEP
+- Authentication is required for certain operations like rating resources
+- Custom catalogs need to be manually added to the configuration
+- Resources are limited to those available in configured catalogs
+
+## Principles
+
+### Architecture
+
+Tekton Hub consists of three main components:
+
+1. **Database**: PostgreSQL database that stores catalog, resource, and user information
+2. **API Service**: Backend service that provides data access and management
+
+
+The API Service communicates with the database to store and retrieve information about resources, and catalogs. It periodically refreshes catalog data to ensure that the latest resources are available.
+
+### Resource Management Workflow
+
+1. **Catalog Registration**: Catalogs are registered in the Tekton Hub configuration
+2. **Catalog Refresh**: The system periodically scans catalogs for new or updated resources
+3. **Resource Indexing**: Resources are indexed with metadata for efficient searching
+4. **Resource Discovery**: Users search and browse resources through the UI
+5. **Resource Installation**: Users can install resources directly into their Kubernetes clusters
+
+## References
+
+- [Tekton Hub GitHub Repository](https://github.com/tektoncd/hub)
+- [Tekton Catalog Organization TEP](https://github.com/tektoncd/community/blob/main/teps/0003-tekton-catalog-organization.md)
+

@@ -1,0 +1,101 @@
+---
+title: Deploying tekton-pipelines in a global cluster through TektonConfig
+weight: 12
+sourceSHA: 287827cef494ef625663ba58b166f501370529a167b85b165f8716055bb7a512
+---
+
+# Deploying tekton-pipelines in a global cluster through TektonConfig
+
+## Feature Overview
+
+Customize the configuration of each component in the [`TektonConfig`](../apis/kubernetes_apis/operator/tektonconfig.mdx) resource by adjusting the `options` settings.
+
+## Use Cases
+
+Typically, tekton-pipelines should be deployed in various business clusters, specifically designed for deployment in those environments.
+
+If a user wishes to deploy this service in a global cluster, they need to reference this document for configuration, as the network, authentication settings, and other configurations in the global cluster differ from those in business clusters.
+
+## Prerequisites
+
+Before using this feature, ensure the following:
+
+- The Tekton Operator component is installed.
+- The TektonConfig resource has been automatically created in the environment.
+- A basic understanding of the configurations supported in [`TektonConfig`](../apis/kubernetes_apis/operator/tektonconfig.mdx).
+- A basic understanding of how the options work in [`Customizing Subcomponent Optional Configuration`](../configure/customize_options.mdx).
+
+## Deployment Process
+
+If a user wants to deploy this service in a global cluster, they need to adjust the TektonConfig resource configuration because the global cluster's network, authentication settings, and other configurations differ from those of the business cluster.
+
+To correctly deploy tekton-pipelines in the global cluster, the user must modify the TektonConfig resource through the following configuration of `spec.pipeline.options`:
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+spec:
+  pipeline:
+    options:
+      ingress:
+        tektoncd-hubs-api:
+          spec:
+            ingressClassName: global-alb2
+      deployments:
+        tektoncd-hubs-api:
+          spec:
+            template:
+              spec:
+                containers:
+                  - env:
+                      - name: KUBERNETES_PORT_443_TCP
+                        value: tcp://erebus.cpaas-system:443
+                      - name: KUBERNETES_PORT_443_TCP_ADDR
+                        value: erebus.cpaas-system
+                      - name: KUBERNETES_PORT
+                        value: tcp://erebus.cpaas-system:443
+                      - name: EREBUS
+                        value: https://erebus.cpaas-system:443
+                      - name: KUBERNETES_SERVICE_HOST
+                        value: erebus.cpaas-system
+                    name: tektoncd-hubs-api
+      disabled: false
+```
+
+## Optional: Deploying tekton-results in a global cluster
+
+If users have deployed tekton-results in a global cluster, they also need to configure the `options` for the results component. Similar to the pipeline configuration, you need to configure both ingress and deployment settings for the `tektoncd-results-api` component.
+
+Add the following configuration to the `spec.results.options` section:
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonResult
+metadata:
+  name: result
+spec:
+  options:
+    ingress:
+      tektoncd-results-api:
+        spec:
+          ingressClassName: global-alb2
+    deployments:
+      tektoncd-results-api:
+        spec:
+          template:
+            spec:
+              containers:
+                - env:
+                    - name: KUBERNETES_PORT_443_TCP
+                      value: tcp://erebus.cpaas-system:443
+                    - name: KUBERNETES_PORT_443_TCP_ADDR
+                      value: erebus.cpaas-system
+                    - name: KUBERNETES_PORT
+                      value: tcp://erebus.cpaas-system:443
+                    - name: EREBUS
+                      value: https://erebus.cpaas-system:443
+                    - name: KUBERNETES_SERVICE_HOST
+                      value: erebus.cpaas-system
+                  name: tektoncd-results-api
+    disabled: false
+```

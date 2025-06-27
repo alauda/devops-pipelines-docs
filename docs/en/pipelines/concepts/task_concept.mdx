@@ -1,0 +1,183 @@
+---
+weight: 10
+---
+
+# Tasks
+
+A Task is a collection of Steps that execute sequentially on the same node in Kubernetes. Tasks are the fundamental building blocks of a Tekton CI/CD workflow, allowing you to define a series of operations to be performed in order.
+
+## Why Tasks are Needed
+
+### Traditional CI/CD Challenges
+
+In traditional CI/CD systems, workflow steps are often tightly coupled with the CI/CD platform itself. This creates several challenges:
+
+- **Portability**: Workflows defined in one CI/CD system cannot be easily moved to another
+- **Flexibility**: Limited ability to customize execution environments for different steps
+- **Scalability**: Difficulty in scaling individual steps based on resource requirements
+- **Reusability**: Steps defined for one project are difficult to reuse in other projects
+
+### Tekton's Solution
+
+Tekton Tasks address these challenges by:
+
+- **Container-Based Execution**: Each Step runs in its own container, providing isolation and flexibility
+- **Kubernetes Native**: Tasks run as Kubernetes pods, leveraging Kubernetes' scheduling and scaling capabilities
+- **Declarative Definition**: Tasks are defined as Kubernetes Custom Resources, making them portable and version-controllable
+- **Reusability**: Tasks can be shared and reused across projects and teams
+
+## Advantages
+
+- **Isolation**: Each Step runs in its own container, preventing conflicts between dependencies
+- **Portability**: Tasks can run on any Kubernetes cluster without modification
+- **Reusability**: Tasks can be shared across teams and projects
+- **Scalability**: Tasks leverage Kubernetes' scheduling and resource management
+- **Flexibility**: Tasks can be customized with parameters and workspaces
+- **Observability**: Task execution can be monitored and logged through Kubernetes
+
+## Scenarios
+
+Tasks are useful in various scenarios, including:
+
+- **Build Operations**: Compiling source code, running unit tests
+- **Deployment Operations**: Deploying applications to different environments
+- **Validation Operations**: Running security scans, code quality checks
+- **Infrastructure Operations**: Provisioning and configuring infrastructure
+- **Data Processing**: ETL operations, data validation
+
+## Constraints and Limitations
+
+- Tasks run on a single Kubernetes node and cannot span multiple nodes
+- All Steps in a Task share the same pod lifecycle
+- Steps in a Task must run sequentially, not in parallel
+- Tasks have limited ability to handle conditional execution (use Pipelines for complex conditions)
+- Task execution time is limited by the Kubernetes pod timeout
+
+## Principles
+
+### Task Execution Model
+
+When a Task is executed through a TaskRun:
+
+1. Kubernetes creates a Pod for the Task
+2. Each Step in the Task becomes a container in the Pod
+3. Steps run sequentially in the order defined
+4. Tekton injects an entrypoint binary into each Step container
+5. The entrypoint ensures Steps run in the correct order
+6. Workspaces are mounted as volumes in the Pod
+7. Parameters are passed to the Task as environment variables or files
+8. Results are stored and made available to subsequent Tasks
+
+### Step Execution
+
+Steps within a Task execute sequentially. Each Step:
+
+1. Runs in its own container
+2. Has access to shared workspaces
+3. Can access outputs from previous Steps
+4. Can produce results for subsequent Steps or Tasks
+
+## Configuration Examples
+
+### Basic Task Example
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: build
+spec:
+  workspaces:
+    - name: source
+      description: The workspace containing the source code
+  steps:
+    - name: build
+      image: golang
+      workingDir: $(workspaces.source.path)
+      script: |
+        go build -o app .
+```
+
+### Results
+
+Results allow Tasks to produce output values that can be consumed by other Tasks.
+
+#### Use Cases
+
+- Passing build version information
+- Sharing generated artifacts paths
+- Communicating test results
+- Passing deployment URLs
+
+#### Principles
+
+Results are:
+- Declared in the Task specification
+- Written to a specific file path by the Task
+- Read by Tekton after Task completion
+- Made available to subsequent Tasks in a Pipeline
+
+#### Configuration Example
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: generate-version
+spec:
+  results:
+    - name: version
+      description: The generated version number
+  steps:
+    - name: generate
+      image: ubuntu
+      script: |
+        echo "1.0.$(date +%s)" | tee $(results.version.path)
+```
+
+## Important Parameters
+
+### Workspaces
+
+Workspaces allow Tasks to share data with each other and provide a way to access persistent volumes.
+
+#### Use Cases
+
+- Sharing source code between Tasks
+- Storing build artifacts
+- Sharing configuration files
+- Persisting data between Task runs
+
+#### Principles
+
+Workspaces are:
+- Declared in the Task specification
+- Bound to actual storage when creating a TaskRun
+- Mounted at the specified path in each Step container
+- Can be shared between multiple Tasks in a Pipeline
+
+#### Configuration Example
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: build
+spec:
+  workspaces:
+    - name: source
+      description: The workspace containing the source code
+      optional: true
+  steps:
+    - name: build
+      image: golang
+      workingDir: $(workspaces.source.path)
+      script: |
+        go build -o app .
+```
+
+## References
+
+- [Tekton Tasks Official Documentation](https://tekton.dev/docs/pipelines/tasks/)
+- [Tekton Pipelines GitHub Repository](https://github.com/tektoncd/pipeline)
+- [Kubernetes Custom Resources](https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/)

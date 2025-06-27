@@ -1,0 +1,181 @@
+---
+weight: 20
+sourceSHA: 5bd5013186a875741b3642a1a9bf6273a6b3bd6db4d27e61dbd5ffc8134d327a
+---
+
+# Architecture
+
+## Architecture Overview
+
+Tekton Triggers is a Kubernetes-based event listening and processing system that enables the automatic triggering of CI/CD pipelines by converting external events (such as Git commits, image pushes, etc.) into Kubernetes resources.
+
+![Tekton Triggers Architecture Diagram](/triggers/TriggerFlow.svg)
+
+## Core Components
+
+### 1. EventListener
+
+The EventListener is the entry point of the entire system. It:
+
+- Creates a Kubernetes Service and Pod
+- Exposes an HTTP endpoint to receive external events
+- Manages the event handling process
+- Supports multiple authentication methods
+
+Main responsibilities:
+
+- Receives and validates Webhook events
+- Invokes corresponding interceptors based on configurations
+- Executes trigger logic
+- Creates Kubernetes resources
+
+### 2. Trigger
+
+The Trigger defines how to handle received events, and it includes:
+
+- TriggerBinding: Data extraction rules
+- TriggerTemplate: Resource templates
+- Interceptors: Event interceptors (optional)
+
+Workflow:
+
+1. Receives event data
+2. Processes through interceptors (if configured)
+3. Extracts data using TriggerBinding
+4. Applies data to TriggerTemplate
+
+### 3. Interceptor
+
+Interceptors provide an additional processing layer in the event handling workflow:
+
+- Event filtering
+- Payload validation
+- Data transformation
+- Authentication and authorization
+
+It supports two types:
+
+1. **Built-in Interceptors**
+   - GitHub
+   - GitLab
+   - Bitbucket
+   - CEL (Common Expression Language)
+2. **Custom Interceptors**
+   - Independently deployed services
+   - Implement standard interfaces
+   - High extensibility
+
+### 4. TriggerBinding
+
+Responsible for extracting information from event data:
+
+- Defines data mapping rules
+- Supports JSONPath syntax
+- Can be cluster-level or namespace-level
+
+Main functions:
+
+- Parameter extraction
+- Data transformation
+- Variable mapping
+
+### 5. TriggerTemplate
+
+Defines the Kubernetes resources to be created:
+
+- Supports parameterized templates
+- Can create multiple resources
+- Supports dynamic naming
+
+Features:
+
+- Resource templating
+- Parameter replacement
+- Dynamically generated names
+
+## Workflow
+
+1. **Event Reception**
+   - External system sends Webhook to EventListener
+   - EventListener validates the request
+
+2. **Interceptor Processing**
+   - Calls the configured interceptor chain
+   - Executes validation and transformation
+   - Can terminate or modify the request
+
+3. **Data Extraction**
+   - TriggerBinding extracts data from the event
+   - Applies data mapping rules
+   - Prepares parameters
+
+4. **Resource Creation**
+   - TriggerTemplate uses the extracted data
+   - Replaces parameters in the template
+   - Creates Kubernetes resources
+
+## Deployment Architecture
+
+### Basic Components
+
+1. **EventListener Pod**
+   - Runs the event reception service
+   - Contains core processing logic
+   - Requires specific RBAC permissions
+
+2. **EventListener Service**
+   - Exposes an HTTP endpoint
+   - Supports different service types
+   - Configurable TLS
+
+### Optional Components
+
+1. **Interceptor Service**
+   - Independently deployed interceptor
+   - Custom event handling logic
+   - Requires network accessibility
+
+2. **Ingress/Route**
+   - External access configuration
+   - TLS termination
+   - Routing rules
+
+## Security Architecture
+
+### Authentication Mechanisms
+
+1. **Webhook Authentication**
+   - Secret Token verification
+   - Signature validation
+   - OAuth integration
+
+2. **Kubernetes Authentication**
+   - ServiceAccount
+   - RBAC permissions
+   - Secret management
+
+### Authorization Control
+
+1. **Resource Access Control**
+   - Role-based access control
+   - Namespace isolation
+   - Principle of least privilege
+
+2. **Network Security**
+   - TLS encryption
+   - Network policies
+   - Access restrictions
+
+## Extensibility Design
+
+### 1. Custom Interceptors
+
+- Standard HTTP interface
+- Flexible deployment options
+- Pluggable architecture
+
+### 2. Resource Templates
+
+- Supports multiple resource types
+- Parameterized configuration
+- Dynamically generated

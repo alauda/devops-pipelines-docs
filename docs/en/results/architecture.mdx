@@ -1,0 +1,20 @@
+---
+weight: 20
+sourceSHA: 40155ea232f165caffcdc31f86a0887747f31547bafc5855f32831053776695d
+---
+
+# Architecture
+
+<img src="/results/architecture.svg" width="300" />
+
+## Introduction
+
+This architecture diagram illustrates the overall structure of Tekton Results. The main components include:
+
+1. **User**: Creates TaskRuns or PipelineRuns through the Kubernetes API.
+2. **Pipeline Controller**: Responsible for managing and executing TaskRuns and PipelineRuns.
+3. **Results Watcher**: Monitors changes to all TaskRuns/PipelineRuns and sends updates to the Results API.
+4. **Results API Server**: A queryable gRPC API server that is responsible for storing and managing all results data.
+5. **Persistent Storage**: Used to store all results data, ensuring data persistence and reliability.
+
+Through this architectural design, Tekton Results effectively separates the historical record storage of CI/CD workloads and provides flexible result querying and management capabilities.

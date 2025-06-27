@@ -1,0 +1,126 @@
+---
+title: Regular Cleanup of TaskRun and PipelineRun Resources
+weight: 50
+sourceSHA: 313ba737795bfb999dc2a2966d96c050aeb829bb8ec33ec574de730a4082f125
+---
+
+# Regular Cleanup of TaskRun and PipelineRun Resources
+
+## Overview
+
+Automatically clean up `TaskRun` and `PipelineRun` resources in Tekton using the Pruner feature. The Pruner operates in the background by executing the `tkn` command to perform resource cleanup.
+
+## Use Cases
+
+- Regularly clean up TaskRun resources
+- Regularly clean up PipelineRun resources
+- Configure different cleanup strategies based on namespaces
+
+## Prerequisites
+
+- Tekton Operator component must be installed
+- TektonConfig resource must have been automatically created in the environment
+
+## Steps
+
+<Steps>
+### Step 1
+
+Edit the `TektonConfig` resource
+
+```bash
+$ kubectl edit tektonconfigs.operator.tekton.dev config
+```
+
+### Step 2
+
+Modify the `spec.pruner` configuration, as shown below:
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  pruner:
+    # Whether to disable the pruner functionality, defaults to false
+    disabled: false
+    # Cron expression for scheduled cleanup
+    schedule: "0 8 * * *"
+    # Optional: Deadline for task start (in seconds)
+    startingDeadlineSeconds: 100
+    # Types of resources to clean up
+    resources:
+      - taskrun
+      - pipelinerun
+    # Number of resources to retain
+    keep: 3
+    # Apply cleanup strategies separately for each resource type
+    prune-per-resource: true
+    # Retain resources within the specified time (in minutes)
+    # keep-since: 1440
+    # Note: only one of keep and keep-since can be used
+```
+
+Key configuration descriptions:
+
+- `disabled`: When set to `true`, disables the pruner functionality (default value: `false`)
+- `schedule`: Execution schedule for the cleanup task, using cron expression format
+- `startingDeadlineSeconds`: Optional configuration for the deadline for task start (in seconds). If the task misses the scheduled time and exceeds this duration, it is counted as failed
+- `resources`: Supported resource types for cleanup, including `taskrun` and `pipelinerun`
+- `keep`: Maximum number of resources to retain during cleanup
+- `keep-since`: Retain resources within a specified time (in minutes)
+- `prune-per-resource`: When set to `true` (default value is `false`), applies the `keep` configuration separately for each resource
+  - For example: If there are two Pipelines in namespace `ns-1`, named `pipeline-1` and `pipeline-2`, the following will be executed:
+    ```bash
+    tkn pipelinerun delete --pipeline=my-pipeline-1 --keep=3 --namespace=ns-1
+    tkn pipelinerun delete --pipeline=my-pipeline-2 --keep=3 --namespace=ns-1
+    ```
+  - Note: When using `keep-since`, enabling `prune-per-resource=true` has no practical meaning, as `keep-since` is based on time constraint for resources, unrelated to the quantity of resources.
+
+::: note
+If `disabled: false` and `schedule` is empty, the global pruner task will be disabled.
+However, if there is an annotation `operator.tekton.dev/prune.schedule` with a value in the namespace, a pruner task for that namespace will be created.
+:::
+
+### Step 3
+
+Configure cleanup strategies via namespace annotations (optional)
+
+By default, the pruner task will use the global configuration (`spec.pruner`), but users can customize the pruner configuration for specific namespaces through the following annotations. If certain annotations are missing or have invalid values, global configuration values will be used, or the namespace will be skipped.
+
+Supported annotations:
+
+- `operator.tekton.dev/prune.skip`: When set to `true`, skips the pruner task for that namespace
+- `operator.tekton.dev/prune.schedule`: Sets the cleanup schedule for that namespace
+- `operator.tekton.dev/prune.keep`: Sets the maximum number of resources to retain
+- `operator.tekton.dev/prune.keep-since`: Sets the retention period for resources within a specified time (in minutes)
+- `operator.tekton.dev/prune.prune-per-resource`: Sets whether to apply the cleanup strategy separately for each resource
+- `operator.tekton.dev/prune.resources`: Sets the types of resources to clean up, which can be `taskrun` and/or `pipelinerun`, with multiple values separated by commas
+- `operator.tekton.dev/prune.strategy`: Sets the cleanup strategy, with optional values of `keep` or `keep-since`
+
+Example:
+
+```bash
+$ kubectl annotate namespace default \
+    operator.tekton.dev/prune.schedule="0 1 * * *" \
+    operator.tekton.dev/prune.keep="5" \
+    operator.tekton.dev/prune.resources="taskrun,pipelinerun"
+```
+
+::: note
+If no global configuration is set, the following default values will be used:
+
+- `resources: pipelinerun`
+- `keep: 100`
+:::
+
+</Steps>
+
+## Results
+
+After configuration is complete, the system will automatically clean up expired TaskRun and PipelineRun resources according to the set schedule.
+
+## Reference
+
+- [Official Documentation: Pruner Configuration](https://tekton.dev/vault/operator-v0.74.x-lts/tektonconfig/#pruner)

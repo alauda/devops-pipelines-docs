@@ -1,0 +1,21 @@
+---
+weight: 30
+---
+
+# Concepts
+
+## Terminology
+
+| Term | Description |
+|------|-------------|
+| PipelineRun | A Kubernetes Custom Resource that instantiates a Pipeline for execution |
+| Pipeline | A Kubernetes Custom Resource that defines a collection of Tasks arranged in a specific execution order |
+| Task | A Kubernetes Custom Resource that defines a sequence of Steps to be executed in order |
+| TaskRun | A Kubernetes Custom Resource that instantiates a Task for execution |
+| Step | An individual operation in a CI/CD workflow that runs in its own container |
+| Workspace | A pre-declared volume that Tasks can mount to share data |
+| Parameter | A variable that can be passed to a PipelineRun during execution |
+| Result | A value produced by a Task that can be used by other Tasks |
+| Status | The current state of a PipelineRun's execution |
+
+<Overview />

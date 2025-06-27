@@ -1,0 +1,224 @@
+---
+weight: 10
+i18n:
+  title:
+    en: >-
+      Failed to create pod due to config error when using custom images in
+      Tekton
+    zh: 在 Tekton 中使用自定义镜像时遇到容器创建失败的问题
+title: Failed to create pod due to config error when using custom images in Tekton
+---
+
+# Failed to create pod due to config error when using custom images in Tekton
+
+## Problem Description
+
+In the Tekton pipeline, using images provided by the product works correctly, but when using user-defined images, you may encounter TaskRun execution failures.
+
+### Error Manifestation
+
+1. TaskRun execution fails with a status of `False`, and the reason is `CreateContainerConfigError`:
+   ```bash
+   $ kubectl get taskruns -n ${namespace} ${taskrun_name}
+   NAME                     SUCCEEDED   REASON                       STARTTIME   COMPLETIONTIME
+   hello-c7pnj-run-script   False       CreateContainerConfigError   9m43s
+   ```
+
+2. The TaskRun event displays an error message:
+   ```
+   Failed: Failed to create pod due to config error
+   ```
+
+3. Relevant pod events show an error message:
+   ```
+   Failed: Error: container's runAsUser breaks non-root policy
+   ```
+
+## Root Cause Analysis
+
+Such issues are typically caused by the following two reasons:
+
+1. The image itself has issues.
+2. The image is incompatible with the Task configuration.
+
+## Troubleshooting
+
+If this issue only appears when using custom images, it is recommended to follow these steps for troubleshooting:
+
+1. Verify if the image itself has issues:
+   ```bash
+   $ docker run -it --rm ${registry} ${cmd}
+   ```
+
+2. Check the compatibility of the Task configuration with the image:
+   - Check if the Task is configured with `runAsNonRoot: true`.
+   - Check whether the default user of the image is root or a non-numeric user ID.
+
+Example Task configuration:
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: foo
+spec:
+  steps:
+    - name: bar
+      securityContext:
+        runAsNonRoot: true
+```
+
+Example Dockerfile configuration:
+
+```dockerfile
+USER root
+```
+
+## Solution
+
+### Option 1: Adjust Image Build Configuration to Set the Default User to a Non-root User
+
+#### Prerequisites
+
+- Environment and permissions to rebuild the image.
+
+#### Steps
+
+Refer to [Adjust Dockerfile for Task-Compatible Custom Images](../how_to/adjust_dockerfile_for_task_compatible_image.mdx) to modify the Dockerfile configuration.
+
+### Option 2: Modify TaskRun or PipelineRun Execution Configuration
+
+#### Prerequisites
+
+- Permissions to modify TaskRun or PipelineRun.
+
+#### Steps
+
+1. Add configuration when executing TaskRun separately:
+   ```yaml
+   apiVersion: tekton.dev/v1
+   kind: TaskRun
+   metadata:
+     name: foo
+   spec:
+     taskRef:
+       name: foo
+     podTemplate:
+       securityContext:
+         runAsUser: 65532
+   ```
+
+2. Add configuration when executing PipelineRun:
+   ```yaml
+   # Method 1: Add configuration for all Tasks
+   apiVersion: tekton.dev/v1
+   kind: PipelineRun
+   spec:
+     taskRunTemplate:
+       podTemplate:
+         securityContext:
+           runAsUser: 65532
+
+   # Method 2: Add configuration for specific Tasks
+   apiVersion: tekton.dev/v1
+   kind: PipelineRun
+   spec:
+     taskRunSpecs:
+       - pipelineTaskName: example-git-clone
+         podTemplate:
+           securityContext:
+             runAsUser: 65532
+             fsGroup: 65532
+   ```
+
+### Option 3: Modify Global Tekton Configuration
+
+#### Prerequisites
+
+- Cluster operation permissions.
+- Permissions to modify the TektonConfig resource.
+- **Note: This configuration will affect all Tasks.**
+
+#### Steps
+
+1. Modify the TektonConfig resource:
+   Increase the following `spec.pipeline.default-pod-template` configuration:
+   ```yaml
+   apiVersion: config.tekton.dev/v1beta1
+   kind: TektonConfig
+   metadata:
+     name: config
+   spec:
+     pipeline:
+       default-pod-template: |
+         securityContext:
+           runAsUser: 65532
+   ```
+
+2. Verify whether the configuration takes effect:
+   ```bash
+   $ kubectl get configmap -n tekton-pipelines config-defaults -o yaml | grep 'default-pod-template: |' -A2
+
+   # Expected output
+   default-pod-template: |
+     securityContext:
+       runAsUser: 65532
+   ```
+
+### Option 4: Modify Task Definition
+
+#### Prerequisites
+
+- Permissions to modify the Task.
+- **Note: This configuration will affect all TaskRuns or PipelineRuns that use this Task.**
+
+#### Steps
+
+1. Method 1: Remove runAsNonRoot configuration:
+   ```yaml
+   apiVersion: tekton.dev/v1
+   kind: Task
+   metadata:
+     name: foo
+   spec:
+     steps:
+       - name: bar
+         securityContext:
+           # runAsNonRoot: true
+   ```
+
+2. Method 2: Add runAsUser configuration:
+   ```yaml
+   apiVersion: tekton.dev/v1
+   kind: Task
+   metadata:
+     name: foo
+   spec:
+     steps:
+       - name: bar
+         securityContext:
+           runAsNonRoot: true
+           runAsUser: 65532
+   ```
+
+## Prevent Errors
+
+1. Image Building
+   - Prioritize using non-root users for building images.
+   - Use UID 65532 as the non-root user consistently.
+   - Ensure that the application can run normally with a non-root user.
+
+2. Task Configuration
+   - Decide whether to enable `runAsNonRoot` based on security requirements.
+   - If required, configure `runAsUser` accordingly.
+
+3. Permission Management
+   - Follow the principle of least privilege.
+   - Plan directory permissions in advance.
+   - Regularly review permission configurations.
+
+## Related Content
+
+- [Adjust Dockerfile for Task-Compatible Custom Images](../how_to/adjust_dockerfile_for_task_compatible_image.mdx)
+- [Official Dockerfile Documentation](https://docs.docker.com/get-started/docker-concepts/building-images/writing-a-dockerfile/)
+- [Dockerfile Best Practices](https://docs.docker.com/build/building/best-practices/)

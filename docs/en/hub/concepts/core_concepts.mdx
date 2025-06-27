@@ -1,0 +1,76 @@
+---
+weight: 10
+---
+
+# Concepts
+
+## Catalog
+
+A catalog is a structured collection of Tekton resources organized according to the [Tekton Catalog Organization TEP](https://github.com/tektoncd/community/blob/main/teps/0003-tekton-catalog-organization.md). Catalogs are the primary source of resources in Tekton Hub.
+
+Tekton Hub supports multiple catalogs, including the official Tekton Catalog and custom catalogs defined by organizations. Each catalog is identified by a unique name and has specific metadata such as organization, type, URL, and revision.
+
+For more information about catalogs and how they work, see [Understanding Tekton Hub](./understanding_tekton_hub.mdx#principles).
+
+Example of catalog configuration:
+```yaml
+catalogs:
+- name: tekton
+  org: tektoncd
+  type: community
+  url: https://github.com/tektoncd/catalog
+  revision: main
+```
+
+## Resource
+
+A resource is a reusable Tekton component stored in a catalog. Resources can be Tasks, Pipelines, or other building blocks that can be incorporated into CI/CD workflows.
+
+Each resource has metadata such as name, kind, version, description, and tags. Resources are categorized to make them easier to discover and can be rated by users to indicate their quality and usefulness.
+
+For more information about resources and how they're managed, see [Understanding Tekton Hub](./understanding_tekton_hub.mdx#resource-management-workflow).
+
+Example of a resource in Tekton Hub:
+```yaml
+name: git-clone
+kind: Task
+description: "Clone a git repository into a workspace"
+tags: ["git", "clone"]
+versions:
+  - version: "0.1"
+    displayName: "0.1"
+    description: "Initial version"
+  - version: "0.2"
+    displayName: "0.2"
+    description: "Added authentication support"
+```
+
+## Category
+
+Categories are classifications used to organize resources by their purpose or functionality. They help users discover relevant resources more easily by grouping similar components together.
+
+Tekton Hub comes with predefined categories, and administrators can add new categories as needed. Each resource can belong to one or more categories.
+
+For more information about how categories help with resource discovery, see [Understanding Tekton Hub](./understanding_tekton_hub.mdx#advantages).
+
+Examples of categories:
+- Build Tools
+- Cloud Providers
+- Deployment
+- Image Build
+- Testing
+- Security
+
+## API Service
+
+The API Service is the backend component of Tekton Hub that provides data access and management functionality. It offers both versioned APIs for external integration and internal APIs for the UI and system operations.
+
+Versioned APIs are stable interfaces with backward compatibility guarantees, while internal APIs may change without notice and are primarily used by the Tekton Hub UI.
+
+For more information about the API Service and its architecture, see [Understanding Tekton Hub](./understanding_tekton_hub.mdx#architecture).
+
+## Catalog Refresh
+
+Catalog refresh is the process by which Tekton Hub updates its database with the latest resources from configured catalogs. This can be triggered manually or scheduled to run at regular intervals.
+
+For more information about catalog refresh, see [Understanding Tekton Hub](./understanding_tekton_hub.mdx#resource-management-workflow).

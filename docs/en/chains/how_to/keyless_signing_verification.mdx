@@ -1,0 +1,263 @@
+---
+weight: 70
+i18n:
+  title:
+    en: Keyless Signing Verification
+    zh: 零信任签名验证
+title: Keyless Signing Verification
+---
+
+# (Optional) Keyless Signing Verification
+
+:::tip
+- If you interested about the keyless signing verification, you can continue to read the following content.
+- The content in this chapter needs to be able to access the public network.
+- But you can use the private Rekor services if you have already deployed them.
+:::
+
+:::note
+- **This method requires the environment to access the Internet.**
+- If you have deployed private [Rekor](https://github.com/sigstore/rekor) services, you can also use these capabilities by adjusting the related configurations.
+- About deploying private [Rekor](https://github.com/sigstore/rekor) services is not in the scope of this document, please refer to the relevant documentation.
+:::
+
+While ACP (Alauda Container Platform) currently does not provide the capability to deploy private Rekor instances, it does offer integration capabilities with Rekor services.
+
+Here, we take the integration of public Rekor as an example to introduce how to use these services.
+If you have already deployed private Rekor services, please refer to the relevant documentation for configuration.
+
+## Feature Overview
+
+This method uses transparency logs to enhance security by eliminating the need for key management:
+
+1. Configure Tekton Chains to use keyless signing.
+2. Use `buildah` Tekton Task to build the image.
+3. Configure Kyverno rules to verify the keyless signature.
+4. Use the image to create a Pod to verify the keyless signature.
+
+## Use Cases
+
+The following scenarios require referring to the guidance in this document:
+
+- Implementing keyless signing and verification for container images in Kubernetes clusters
+- Enforcing security policies to verify image signatures without managing signing keys
+- Setting up automated transparency log verification in CI/CD pipelines
+- Ensuring image provenance and integrity through Rekor transparency logs
+- Implementing supply chain security controls by verifying image signatures against public Rekor services
+
+## Prerequisites
+
+- A Kubernetes cluster with Tekton Pipelines, Tekton Chains and Kyverno installed
+- A registry with image pushing enabled
+- `kubectl` CLI installed and configured to access your cluster
+- `cosign` CLI tool installed
+- `jq` CLI tool installed
+- `curl` installed
+- [rekor-cli](https://github.com/sigstore/rekor/releases) installed
+  - Used to verify and interact with attestations stored in the Rekor transparency log server.
+
+## Process Overview
+
+| Step | Operation | Description |
+|------|-----------|-------------|
+| 1 | Generate Signing Keys | Create a key pair for signing artifacts using cosign |
+| 2 | Set up Authentication | Configure registry credentials for image pushing |
+| 3 | Configure Tekton Chains | Set up Chains to use OCI storage and configure signing |
+| 4 | Re-run Pipeline | Trigger a new pipeline run to generate transparency log entries |
+| 5 | Get Rekor Log Index | Extract the Rekor log index from PipelineRun annotations |
+| 6 | Verify Rekor Signature | Use curl to retrieve and verify the Rekor signature |
+| 7 | Use Rekor CLI | Get and verify signatures using rekor-cli tool |
+| 8 | Verify with Kyverno | Set up Kyverno policy with Rekor verification |
+
+## Step-by-Step Instructions
+
+### Steps 1-3: Basic Setup
+
+These steps are identical to the [Quick Start: Signed Provenance](../quick_start/signed_provenance.mdx) guide. Please follow the instructions in that guide for:
+
+- [Step 1: Generate Signing Keys](../quick_start/signed_provenance.mdx#step-1-generate-signing-keys)
+- [Step 2: Set up Authentication](../quick_start/signed_provenance.mdx#step-2-set-up-authentication)
+- [Step 3: Configure Tekton Chains](../quick_start/signed_provenance.mdx#step-3-configure-tekton-chains)
+
+    Configure the transparency log of Tekton Chains
+
+    ```shell
+    $ kubectl patch tektonconfigs.operator.tekton.dev config --type=merge -p='{
+      "spec": {
+        "chain": {
+          "transparency.enabled": true
+        }
+      }
+    }'
+    ```
+
+:::tip
+- If you have private Rekor services, you can set the `transparency.url` to the URL of your Rekor server.
+  - `transparency.url: "<https://rekor.sigstore.dev>"`
+
+More details about the configuration, please refer to [Transparency Log](https://tekton.dev/docs/chains/config/#transparency-log)
+:::
+
+
+### Step 4: Re-run the pipeline to generate the image
+
+:::tip
+- Since we modified the transparency log configuration, we need to trigger a new pipeline run in [Signed Provenance](../quick_start/signed_provenance.mdx#step-5-run-a-sample-pipeline).
+- This will allow Tekton Chains to generate transparency log entries for new image and PipelineRun.
+:::
+
+### Step 5: Get the rekor log index
+
+Get the rekor log index from the annotations of the PipelineRun.
+
+```shell
+$ export NAMESPACE=<pipeline-namespace>
+$ export PIPELINERUN_NAME=<pipelinerun-name>
+$ kubectl get pipelinerun -n $NAMESPACE $PIPELINERUN_NAME -o jsonpath='{.metadata.annotations.chains\.tekton\.dev/transparency}'
+
+https://rekor.sigstore.dev/api/v1/log/entries?logIndex=232330257
+```
+
+### Step 6: Get the rekor signature by curl
+
+```shell
+$ curl -s "https://rekor.sigstore.dev/api/v1/log/entries?logIndex=232330257" | jq
+```
+
+If you need to view the content of the rekor signature, you can execute the following command:
+
+```shell
+$ curl -s "https://rekor.sigstore.dev/api/v1/log/entries?logIndex=232330257" | jq -r '.[keys[0]].attestation.data | @base64d' | jq .
+
+{
+  "_type": "https://in-toto.io/Statement/v0.1",
+  "subject": null,
+  "predicateType": "https://slsa.dev/provenance/v0.2",
+  "predicate": {
+    "buildType": "tekton.dev/v1beta1/PipelineRun",
+    "builder": {
+      "id": "https://alauda.io/builders/tekton/v1"
+    },
+    "materials": [
+      {
+        "digest": {
+          "sha256": "8d5ea9ecd9b531e798fecd87ca3b64ee1c95e4f2621d09e893c58ed593bfd4c4"
+        },
+        "uri": "oci://<registry>/devops/tektoncd/hub/buildah"
+      }
+    ],
+    "metadata": {
+      "buildFinishedOn": "2025-06-08T03:11:52Z",
+      "buildStartedOn": "2025-06-08T03:10:33Z"
+    }
+  }
+}
+```
+
+This content is same as the attestation in the image, which verifies the authenticity and integrity of the image content.
+The attestation information can be retrieved from Rekor without requiring credentials from the image registry, making it more convenient and accessible for verification purposes.
+
+### Step 7: Get the rekor signature by rekor-cli
+
+Get signature by log index
+
+```shell
+# the log index is same as the one in the annotations of the PipelineRun
+$ rekor-cli get --log-index 232330257 --format json | jq -r .Attestation | jq .
+```
+
+Get signature by image digest
+
+```shell
+# get the uuid by image digest
+$ rekor-cli search --sha da4885861a8304abad71fcdd569c92daf33422073d1102013a1fed615dfb285a
+
+Found matching entries (listed by UUID):
+108e9186e8c5677a1364e68001a916d3a7316bc2580bd6b5fbbce39a9c62f13282d3e974a6b434ab
+
+# get the signature by uuid
+$ rekor-cli get --uuid 108e9186e8c5677a1364e68001a916d3a7316bc2580bd6b5fbbce39a9c62f13282d3e974a6b434ab --format json | jq -r .Attestation | jq .
+```
+
+### Step 8: Verify the rekor in Kyverno
+
+Modify the `keys` section of the `ClusterPolicy` to add rekor verification.
+
+```yaml
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+spec:
+  rules:
+    - name: check-image
+      verifyImages:
+        - attestors:
+            - count: 1
+              entries:
+                - keys:
+                    publicKeys: |- # <- The public key of the signer
+                      -----BEGIN PUBLIC KEY-----
+                      MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEFZNGfYwn7+b4uSdEYLKjxWi3xtP3
+                      UkR8hQvGrG25r0Ikoq0hI3/tr0m7ecvfM75TKh5jGAlLKSZUJpmCGaTToQ==
+                      -----END PUBLIC KEY-----
+
+                    rekor:
+                      ignoreTlog: false
+                      # url: <https://rekor.sigstore.dev>
+                      # # get the public key from the rekor server
+                      # # curl <https://rekor.sigstore.dev>/api/v1/log/publicKey
+                      # pubkey: |-
+                      #   -----BEGIN PUBLIC KEY-----
+                      #   MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE2G2Y+2tabdTV5BcGiBIx0a9fAFwr
+                      #   kBbmLSGtks4L3qX6yYY0zufBnhC8Ur/iy55GhWP/9A/bY2LhC30M9+RYtw==
+                      #   -----END PUBLIC KEY-----
+```
+
+:::details{title="Explanation of YAML fields"}
+- `rekor`: The rekor verification configuration.
+  - `ignoreTlog`: Whether to ignore the transparency log.
+    - If `false`, the rekor server will be verified.
+  - `url`: The URL of the rekor server.
+    - If not set, the default rekor server `https://rekor.sigstore.dev` will be used.
+  - `pubkey`: The public key of the signer.
+    - If not set, the public key will be fetched from the rekor server.
+    - If the rekor server is private, you need to get the public key from the rekor server.
+      - `curl <https://rekor.sigstore.dev>/api/v1/log/publicKey`
+:::
+
+If your image not signed, the Pod will be blocked.
+
+```text
+Error from server: admission webhook "mutate.kyverno.svc-fail" denied the request:
+
+resource Pod/policy/sign was blocked due to the following policies
+
+only-cosign-image-deploy:
+  check-image: 'failed to verify image <registry>/test/chains/demo-1:latest:
+    .attestors[0].entries[0].keys: no matching signatures: searching log query: Post
+    "http:///api/v1/log/entries/retrieve": POST http:///api/v1/log/entries/retrieve
+    giving up after 4 attempt(s): Post "http:///api/v1/log/entries/retrieve": http:
+    no Host in request URL'
+```
+
+## Expected Results
+
+After completing this guide:
+
+- You have a working setup with Tekton Chains for keyless signing and Rekor integration
+- Your container images are automatically signed and their signatures are stored in Rekor transparency logs
+- Image signatures can be verified without managing signing keys
+- Only images with valid signatures in Rekor can be deployed in the specified namespace
+- You have implemented a keyless supply chain security control by verifying image signatures through Rekor
+
+This guide provides a foundation for implementing keyless signing and verification in your CI/CD pipelines. In a production environment, you should:
+
+1. Configure proper namespace isolation and access controls
+2. Set up monitoring and alerting for signature verification failures
+3. Regularly review and update security policies
+4. Consider deploying private Rekor instances for enhanced security
+
+## References
+
+- [Chains Signed Provenance Tutorial](https://tekton.dev/docs/chains/signed-provenance-tutorial/)
+- [Chains Configuration](../configure/chains_configuration)

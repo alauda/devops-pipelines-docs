@@ -1,0 +1,197 @@
+---
+weight: 20
+---
+
+# EventListener
+
+EventListener is a fundamental component in Tekton Triggers that acts as the entry point for external events. It provides a Kubernetes-native way to receive, validate, filter, and process events from external systems, ultimately triggering the execution of Tekton resources such as PipelineRuns and TaskRuns.
+
+## Terminology Explanation
+
+| Term | Description |
+| ---- | ----------- |
+| EventListener | A Kubernetes object that listens for events at a specified port on your Kubernetes cluster |
+| Trigger | Specifies what happens when the EventListener detects an event, including TriggerTemplate, TriggerBinding, and optional Interceptors |
+| Interceptor | Components that process and filter events before they reach the TriggerBinding |
+| TriggerBinding | Extracts fields from event payloads and binds them to parameters |
+| TriggerTemplate | Specifies the blueprint for resources (like PipelineRun) to be created when an event is received |
+
+## Why We Need EventListener
+
+### Traditional CI/CD Challenges
+
+In traditional CI/CD systems, integrating external event sources often requires:
+
+- Custom webhook handlers for each event source
+- Manual configuration of event processing logic
+- Complex deployment and management of webhook receivers
+- Lack of standardized security and validation mechanisms
+
+These challenges lead to fragmented CI/CD pipelines, security vulnerabilities, and maintenance overhead.
+
+### The EventListener Solution
+
+EventListener addresses these challenges by providing:
+
+1. A unified entry point for all external events
+2. Declarative configuration through Kubernetes resources
+3. Built-in security and validation mechanisms
+4. Seamless integration with Tekton's pipeline execution system
+5. Kubernetes-native deployment and scaling
+
+## Advantages
+
+- **Kubernetes-Native**: Deployed as standard Kubernetes resources (Deployment and Service)
+- **Declarative Configuration**: Defined using YAML, following Kubernetes patterns
+- **Extensible**: Supports various event sources and custom interceptors
+- **Secure**: Built-in authentication and validation mechanisms
+- **Scalable**: Can be horizontally scaled to handle high volumes of events
+- **Flexible Deployment**: Supports various networking configurations (ClusterIP, NodePort, LoadBalancer, Ingress)
+
+## Applicable Scenarios
+
+EventListener is ideal for:
+
+1. **CI/CD Automation**: Automatically triggering pipelines when code is pushed or PRs are created
+2. **GitOps Workflows**: Responding to changes in Git repositories
+3. **Multi-System Integration**: Connecting various systems (GitHub, GitLab, Jenkins, etc.) to Tekton pipelines
+4. **Custom Event Processing**: Handling custom events from internal systems
+5. **Webhook Management**: Centralizing webhook handling for multiple services
+
+## Constraints and Limitations
+
+- **Kubernetes Dependency**: Requires a Kubernetes cluster to operate
+- **Resource Requirements**: Needs appropriate CPU and memory resources based on event volume
+- **Network Configuration**: Requires proper network setup for external accessibility
+- **Security Considerations**: Needs proper RBAC configuration and potentially TLS setup
+- **Scaling Limits**: Very high event volumes may require careful resource planning
+
+## Principles
+
+The EventListener operates on the following principles:
+
+1. **Event Reception**: The EventListener exposes an HTTP endpoint that receives webhook events from external systems.
+
+2. **Event Processing Flow**:
+   - Event is received by the EventListener service
+   - Event is validated and processed by configured interceptors
+   - Event data is extracted using TriggerBindings
+   - Resources are created based on TriggerTemplates
+   - Created resources (e.g., PipelineRuns) are executed by Tekton
+
+3. **Deployment Architecture**:
+   - EventListener is deployed as a Kubernetes Deployment
+   - A Service is created to expose the EventListener
+   - The EventListener uses a ServiceAccount with appropriate permissions
+   - Optional Ingress/Route for external access
+
+4. **Security Model**:
+   - Authentication via interceptors
+   - Authorization via Kubernetes RBAC
+   - Validation of event payloads
+   - Optional TLS encryption
+
+## Configuration Examples
+
+### Basic EventListener
+
+```yaml
+apiVersion: triggers.tekton.dev/v1beta1
+kind: EventListener
+metadata:
+  name: github-listener
+spec:
+  serviceAccountName: tekton-triggers-sa
+  triggers:
+    - name: github-push
+      interceptors:
+        - ref:
+            name: "github"
+          params:
+            - name: "secretRef"
+              value:
+                secretName: github-secret
+                secretKey: secretToken
+            - name: "eventTypes"
+              value: ["push"]
+      bindings:
+        - ref: github-push-binding
+      template:
+        ref: build-template
+```
+
+### EventListener with Multiple Triggers
+
+```yaml
+apiVersion: triggers.tekton.dev/v1beta1
+kind: EventListener
+metadata:
+  name: multi-listener
+spec:
+  serviceAccountName: tekton-triggers-sa
+  triggers:
+    - name: github-push
+      interceptors:
+        - ref:
+            name: "github"
+          params:
+            - name: "eventTypes"
+              value: ["push"]
+      bindings:
+        - ref: github-push-binding
+      template:
+        ref: build-template
+    - name: github-pr
+      interceptors:
+        - ref:
+            name: "github"
+          params:
+            - name: "eventTypes"
+              value: ["pull_request"]
+      bindings:
+        - ref: github-pr-binding
+      template:
+        ref: pr-template
+```
+
+## Important Parameter Explanations
+
+### ServiceAccountName
+
+The ServiceAccount parameter is crucial for EventListener as it determines what permissions the EventListener has to create resources.
+
+#### Applicable Scenarios
+- When EventListener needs to create resources in multiple namespaces
+- When specific security constraints are required
+
+#### Constraints and Limitations
+- The ServiceAccount must have appropriate RBAC permissions
+- Least privilege principles should be applied
+
+#### Principles
+The ServiceAccount needs permissions to:
+- Read ConfigMaps, Secrets, and ServiceAccounts
+- Create and manage PipelineRuns and TaskRuns
+- Access TriggerBindings and TriggerTemplates
+
+### Resources Configuration
+
+The resources parameter allows you to customize how the EventListener is deployed.
+
+#### Applicable Scenarios
+- High-availability deployments
+- Custom resource requirements
+- Specific networking requirements
+
+#### Principles
+You can configure:
+- Replica count for high availability
+- Resource limits and requests
+- Service type (ClusterIP, NodePort, LoadBalancer)
+- Custom Pod template specifications
+
+## Reference Materials
+
+- [Tekton Triggers Official Documentation](https://tekton.dev/docs/triggers/)
+- [EventListener API Reference](https://tekton.dev/docs/triggers/eventlisteners/)
+- [Tekton Trigger Examples](https://github.com/tektoncd/triggers/tree/main/examples)

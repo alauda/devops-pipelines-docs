@@ -1,0 +1,279 @@
+---
+weight: 30
+---
+
+# TektonConfig
+
+TektonConfig is the top-level custom resource provided by the Tekton Operator that enables users to install, configure, and manage all Tekton components from a single control point. It provides a unified approach to Tekton ecosystem management within a Kubernetes cluster.
+
+## Terminology Explanation
+
+| Term | Description |
+|------|-------------|
+| TektonConfig | The primary custom resource for managing all Tekton components through the Operator. |
+| TektonPipeline | Component that provides the core pipeline functionality for defining and running CI/CD workflows. |
+| TektonTrigger | Component that allows events to trigger pipeline executions. |
+| TektonChain | Component that provides supply chain security features like signing and verification. |
+| TektonHub | Component that hosts a catalog of reusable Tasks and Pipelines. |
+| TektonResult | Component that stores and enables querying of TaskRun and PipelineRun results. |
+| Profile | Configuration option that determines which components to install. |
+| Target Namespace | The namespace where Tekton components will be installed. |
+| Pruner | Feature that cleans up completed TaskRuns and PipelineRuns to manage cluster resources. |
+
+## Why We Need TektonConfig
+
+### The Challenge of Managing Tekton Components
+
+Without TektonConfig, managing Tekton components in a Kubernetes cluster requires:
+
+- Manual installation and configuration of each component separately
+- Individual management of component versions and compatibility
+- Custom scripting to handle upgrades and configuration changes
+- Separate maintenance of each component's configuration
+- Complex coordination of inter-component dependencies
+
+This approach leads to:
+- Increased operational complexity
+- Higher risk of configuration errors
+- Difficulty maintaining version compatibility
+- Time-consuming upgrades and changes
+- Inconsistent configuration across environments
+
+### How TektonConfig Addresses These Problems
+
+TektonConfig provides a unified, declarative approach to:
+
+1. **Install multiple components**: Deploy Pipelines, Triggers, and other components from a single resource
+2. **Ensure compatibility**: The Operator manages version compatibility between components
+3. **Centralize configuration**: Configure all components through a single specification
+4. **Simplify upgrades**: Update component versions by changing a single resource
+5. **Standardize management**: Use consistent patterns for all components
+6. **Enable platform-specific features**: Configure features specific to Kubernetes or OpenShift seamlessly
+
+This centralized approach significantly reduces operational complexity and ensures consistent configuration across environments.
+
+## Advantages
+
+- **Simplified management**: Control all Tekton components through a single resource
+- **Reduced operational overhead**: The Operator handles installation, configuration, and upgrades
+- **Consistency**: Ensure consistent configuration across all components
+- **Version compatibility**: The Operator ensures that component versions work together
+- **Platform-aware**: Provides platform-specific features for Kubernetes and OpenShift
+- **Declarative configuration**: Use Kubernetes-native approaches to manage the entire Tekton stack
+- **Reduced error risk**: Centralized validation prevents misconfigurations
+- **Resource cleanup**: Built-in pruner functionality to manage cluster resources
+
+## Applicable Scenarios
+
+TektonConfig is essential in the following scenarios:
+
+1. **Production CI/CD Environments**: Simplify management of production-grade Tekton installations.
+2. **Multi-tenant Clusters**: Configure and isolate Tekton components in shared environments.
+3. **Enterprise Deployments**: Ensure consistent configuration across multiple clusters.
+4. **Regulated Environments**: Maintain and verify specific configurations for compliance.
+5. **Automated Infrastructure**: Use GitOps approaches to manage Tekton components.
+6. **Complex CI/CD Workflows**: Coordinate multiple Tekton components for comprehensive pipelines.
+
+## Constraints and Limitations
+
+- Requires cluster-level permissions to install and manage components
+- Some configurations may be platform-specific (Kubernetes vs. OpenShift)
+- Changes to the TektonConfig resource can trigger redeployments of components
+- Some advanced configurations may still require direct interaction with component-specific resources
+- Upgrades between major versions may require additional steps
+
+## Principles
+
+### TektonConfig Structure
+
+A TektonConfig resource has the following structure:
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  # Profile determines which components to install
+  profile: all  # Options: lite, basic, all
+
+  # Target namespace for the Tekton components
+  targetNamespace: tekton-pipelines
+
+  config:
+    nodeSelector:
+      key: value
+    tolerations:
+    - key: "key1"
+      operator: "Equal"
+      value: "value1"
+      effect: "NoSchedule"
+    priorityClassName: system-node-critical
+
+  # Component-specific configurations
+  pipeline:
+    disable-affinity-assistant: false
+    disable-creds-init: false
+    enable-api-fields: alpha
+    enable-tekton-oci-bundles: true
+    performance:
+      disable-ha: false
+      buckets: 1
+      threads-per-controller: 2
+    pruner:
+      resources:
+        - taskrun
+        - pipelinerun
+      schedule: "0 8 * * *"
+      keep: 100
+      keep-since: 43200
+
+  trigger:
+    enable-api-fields: stable
+
+  hub:
+    params:
+      - name: enable-devconsole-integration
+        value: "false"
+
+  results:
+    enable: false
+
+  chain:
+    enable: false
+```
+
+### Key Components and Their Relationships
+
+1. **Profile**: Determines which components to install
+   - **lite**: Installs only the basic Pipeline controller
+   - **basic**: Installs Pipeline and Triggers controllers
+   - **all**: Installs all available components
+
+2. **targetNamespace**: The namespace where components will be installed
+   - Default is typically `tekton-pipelines`
+   - All components are installed in this namespace
+
+3. **Component Configurations**: Specific settings for each component
+   - **pipeline**: Configuration for the Pipeline controller
+   - **trigger**: Configuration for the Triggers controller
+   - **hub**: Configuration for Tekton Hub
+   - **results**: Configuration for Tekton Results
+   - **chain**: Configuration for Tekton Chains
+
+4. **Pruner**: Configuration for automatic cleanup of resources
+   - **resources**: Which resources to clean up (TaskRuns, PipelineRuns)
+   - **schedule**: Cron schedule for cleanup jobs
+   - **keep**: Number of resources to retain
+   - **keep-since**: Duration in seconds to retain resources
+
+## Configuration Examples
+
+### Minimal Configuration
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  profile: basic
+  targetNamespace: tekton-pipelines
+```
+
+### Production Configuration with All Components
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  profile: all
+  targetNamespace: tekton-pipelines
+
+  pipeline:
+    enable-api-fields: stable
+    performance:
+      disable-ha: false
+      buckets: 3
+      threads-per-controller: 2
+    pruner:
+      resources:
+        - taskrun
+        - pipelinerun
+      schedule: "0 1 * * *"
+      keep: 500
+      keep-since: 172800  # 48 hours
+
+  trigger:
+    enable-api-fields: stable
+
+  hub:
+    enable: true
+
+  results:
+    enable: true
+
+  chain:
+    enable: true
+```
+
+## Important Parameter Explanations
+
+### Pipeline Configuration
+
+The pipeline section configures the core Pipeline controller.
+
+#### Applicable Scenarios
+
+- Controlling high availability for production environments
+- Managing resource usage in constrained environments
+- Enabling experimental features for testing
+- Setting up automatic cleanup of completed runs
+
+#### Constraints and Limitations
+
+- Some features may be specific to certain Kubernetes platforms
+- Changes to HA settings may cause temporary disruption
+- Alpha API fields may change between versions
+
+#### Principles/Parameter Explanation
+
+Key parameters include:
+
+- **disable-affinity-assistant**: Controls the affinity assistant for workspaces
+- **disable-creds-init**: Controls credential initialization
+- **enable-api-fields**: Controls feature gates (stable, alpha, beta)
+- **performance**: Settings for controller performance and scaling
+- **pruner**: Configuration for automatic cleanup of resources
+
+### Pruner Configuration
+
+The pruner automatically cleans up completed TaskRuns and PipelineRuns to manage cluster resources.
+
+#### Applicable Scenarios
+
+- Long-running clusters with many pipeline executions
+- CI/CD systems with high execution volume
+- Environments with limited storage resources
+- Compliance scenarios requiring retention policies
+
+#### Configuration Examples
+
+```yaml
+pruner:
+  resources:
+    - taskrun
+    - pipelinerun
+  schedule: "0 1 * * *"  # Run at 1:00 AM daily
+  keep: 100  # Keep the 100 most recent runs
+  keep-since: 43200  # Keep runs from the last 12 hours (in seconds)
+```
+
+## Reference Materials
+
+- [Tekton Operator Documentation](https://tekton.dev/docs/operator/)
+- [TektonConfig Official Documentation](https://tekton.dev/docs/operator/tektonconfig/)
+- [Tekton Pipeline Configuration](https://tekton.dev/docs/pipelines/)
+- [Tekton Triggers Configuration](https://tekton.dev/docs/triggers/)

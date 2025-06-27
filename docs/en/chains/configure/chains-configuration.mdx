@@ -1,0 +1,227 @@
+---
+title: Chains Configuration
+weight: 50
+---
+
+# Chains Configuration
+
+## Overview
+
+Tekton Chains is a Kubernetes Custom Resource Definition (CRD) controller that allows you to manage your supply chain security in Tekton. This document describes how to configure Tekton Chains.
+
+## Configuration
+
+Chains configuration is stored in a ConfigMap named `chains-config` in the `tekton-pipelines` or `tekton-chains` namespace. You can modify this ConfigMap to change the behavior of Chains.
+
+By default, Tekton Chains is deployed automatically through the `TektonConfig` resource. You can modify the `TektonConfig` resource to configure Chains.
+
+Essentially, Tekton Operator will synchronize the Chains configuration from the `TektonConfig` resource to the `TektonChains` resource, and finally reflect in the `chains-config` ConfigMap.
+
+:::warning
+If you deploy `Chains` through `TektonConfig`, you must configure `Chains` through `TektonConfig`.
+
+If you only modify the configuration in the `chains-config` ConfigMap, and it is not synchronized to the `TektonChains` resource, the configuration may be lost.
+
+When the configuration in `TektonConfig` changes, or some other reason triggers a reconciliation, the configuration in `chains-config` ConfigMap will be overwritten.
+
+:::
+
+:::tip
+However, some advanced configurations are only supported in the `chains-config` ConfigMap, and cannot be configured in the `TektonConfig` due to the validation webhook.
+
+If you encounter this problem, you need to disable the automatic deployment of `Chains` by `TektonConfig`, and manually create a `TektonHub` resource.
+:::
+
+Below is a simple demonstration of the different ways to configure Chains.
+
+### Configuration in `chains-config` ConfigMap
+
+The following is an example of the `chains-config` ConfigMap:
+
+```yaml
+apiVersion: v1
+data:
+  artifacts.oci.format: simplesigning
+  artifacts.oci.storage: oci
+  artifacts.pipelinerun.format: in-toto
+  artifacts.pipelinerun.storage: oci
+  artifacts.taskrun.format: in-toto
+  artifacts.taskrun.storage: oci
+  transparency.enabled: "false"
+kind: ConfigMap
+metadata:
+  name: chains-config
+```
+
+> **Tips:** The boolean values are strings, such as `"true"` or `"false"`.
+
+**Explanation of YAML fields:**
+
+- `artifacts.oci.format`: The format of the attestations.
+- `artifacts.oci.storage`: The storage backend for the attestations.
+- `artifacts.pipelinerun.format`: The format of the attestations for PipelineRuns.
+- `artifacts.pipelinerun.storage`: The storage backend for the attestations for PipelineRuns.
+- `artifacts.taskrun.format`: The format of the attestations for TaskRuns.
+- `artifacts.taskrun.storage`: The storage backend for the attestations for TaskRuns.
+
+### Configuration in TektonConfig
+
+At the `TektonConfig` resource, the configuration of Chains is roughly as follows:
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  chain:
+    disabled: false
+    generateSigningSecret: false
+    controllerEnvs:
+      - name: SIGSTORE_ID_TOKEN
+        value: "<your-id-token>"
+
+    artifacts.oci.format: simplesigning
+    artifacts.oci.storage: oci
+    artifacts.pipelinerun.format: in-toto
+    artifacts.pipelinerun.storage: oci
+    artifacts.taskrun.format: in-toto
+    artifacts.taskrun.storage: oci
+
+    signers.x509.fulcio.enabled: <false>
+    signers.x509.fulcio.address: <ttps://fulcio.sigstore.dev>
+    signers.x509.fulcio.issuer: <https://oauth2.sigstore.dev/auth>
+    transparency.enabled: <false>
+    transparency.url: <https://rekor.sigstore.dev>
+
+    storage.oci.repository.insecure: true
+
+    options:
+      deployments:
+        tekton-chains-controller:
+          spec:
+            template:
+              spec:
+                containers:
+                - name: tekton-chains-controller
+                  env:
+                    - name: SIGSTORE_ID_TOKEN
+                      value: "<your-id-token>"
+                  resources: {}
+```
+
+> **Tips:** The boolean values are the original type, such as `true` or `false`.
+
+**Explanation of YAML fields:**
+
+- `spec.chain`: This section contains the configuration for Chains.
+    - `disabled`: Whether to disable Chains.
+        - **This configuration is unique to TektonConfig and does not exist in TektonChains.**
+    - `generateSigningSecret`: Whether to generate a signing secret.
+        - **This configuration is unique to TektonConfig and does not exist in TektonChains.**
+    - `controllerEnvs`: The environment variables for the Tekton Chains controller.
+        - **This configuration is unique to TektonConfig and does not exist in TektonChains.**
+        - `name`: The name of the environment variable.
+        - `value`: The value of the environment variable.
+    - `options`: The options for the Tekton Chains controller.
+        - **This configuration is unique to TektonConfig and does not exist in TektonChains.**
+        - `deployments.tekton-chains-controller`: The deployment options for the Tekton Chains controller.
+            - `spec.template.spec.containers.env.SIGSTORE_ID_TOKEN`: The ID token for the Tekton Chains controller.
+        - More detailed support can be found in [Additional fields as options](https://tekton.dev/docs/operator/tektonconfig/#additional-fields-as-options)
+    - **The following configurations also exist in `TektonChains` and will ultimately be synchronized to the `chains-config` ConfigMap.**
+        - `artifacts.oci.format`
+        - `artifacts.oci.storage`
+        - `artifacts.pipelinerun.format`
+        - `artifacts.pipelinerun.storage`
+        - `artifacts.taskrun.format`
+        - `artifacts.taskrun.storage`
+        - `storage.oci.repository.insecure`
+        - `signers.x509.fulcio.address`
+        - `signers.x509.fulcio.issuer`
+        - `transparency.enabled`
+        - `transparency.url`
+
+
+## TaskRun Configuration
+
+| Key | Description | Supported Values | Default |
+|-----|-------------|-----------------|---------|
+| artifacts.taskrun.format | The format to store TaskRun payloads in. | in-toto, slsa/v1, slsa/v2alpha3, slsa/v2alpha4 | in-toto |
+| artifacts.taskrun.storage | The storage backend to store TaskRun signatures in. Multiple backends can be specified with comma-separated list ("tekton,oci"). To disable the TaskRun artifact input an empty string (""). | tekton, oci, gcs, docdb, grafeas, archivista | tekton |
+| artifacts.taskrun.signer | The signature backend to sign TaskRun payloads with. | x509, kms | x509 |
+
+**Explanation**
+
+- `slsa/v1` is an alias of `in-toto` for backwards compatibility.
+- If the storage is `oci`, the attestations will be stored alongside the stored OCI artifact itself. See [cosign documentation](https://github.com/sigstore/cosign#specifying-registry) for additional information.
+- If the storage is `tekton`, the attestations will be stored in the Tekton `TaskRun`'s annotations.
+
+## PipelineRun Configuration
+
+Similar to TaskRuns, you can configure PipelineRun signing and storage.
+
+| Key | Description | Supported Values | Default |
+|-----|-------------|-----------------|---------|
+| artifacts.pipelinerun.format | The format to store PipelineRun payloads in. | in-toto, slsa/v1, slsa/v2alpha3, slsa/v2alpha4 | in-toto |
+| artifacts.pipelinerun.storage | The storage backend to store PipelineRun signatures in. Multiple backends can be specified with comma-separated list ("tekton,oci"). To disable the PipelineRun artifact input an empty string (""). | tekton, oci, gcs, docdb, grafeas, archivista | tekton |
+| artifacts.pipelinerun.signer | The signature backend to sign PipelineRun payloads with. | x509, kms | x509 |
+| artifacts.pipelinerun.enable-deep-inspection | This boolean option will configure whether Chains should inspect child taskruns in order to capture inputs/outputs within a pipelinerun. "false" means that Chains only checks pipeline level results, whereas "true" means Chains inspects both pipeline level and task level results. | "true", "false" | "false" |
+
+- If the storage is `oci`, the attestations will be stored alongside the stored OCI artifact itself. See [cosign documentation](https://github.com/sigstore/cosign#specifying-registry) for additional information.
+- If the storage is `tekton`, the attestations will be stored in the Tekton `PipelineRun`'s annotations.
+
+## OCI Configuration
+
+| Key | Description | Supported Values | Default |
+|-----|-------------|-----------------|---------|
+| artifacts.oci.format | The format to store OCI payloads in. | simplesigning | simplesigning |
+| artifacts.oci.storage | The storage backend to store OCI signatures in. Multiple backends can be specified with comma-separated list ("oci,tekton"). To disable the OCI artifact input an empty string (""). | tekton, oci | oci |
+| artifacts.oci.signer | The signature backend to sign OCI payloads with. | x509, kms | x509 |
+
+- If the storage is `oci`, the attestations will be stored alongside the stored OCI artifact itself. See [cosign documentation](https://github.com/sigstore/cosign#specifying-registry) for additional information.
+- If the storage is `tekton`, the attestations will be stored in the Tekton `TaskRun` or `PipelineRun`'s annotations.
+
+## Storage Configuration
+
+Chains supports multiple storage backends for storing attestations and signatures.
+A few of the more common ones are listed below, for more detailed configuration, please refer to [Storage Configuration](https://tekton.dev/docs/chains/config/#storage-configuration)
+
+| Key | Description | Supported Values | Default |
+|-----|-------------|-----------------|---------|
+| storage.oci.repository | The OCI repo to store OCI signatures and attestation in | If left undefined and one of artifacts.\{oci,taskrun\}.storage includes oci storage, attestations will be stored alongside the stored OCI artifact itself. (example on GCP) Defining this value results in the OCI bundle stored in the designated location instead of alongside the image. See cosign documentation for additional information. | |
+| storage.oci.repository.insecure | Whether to use insecure connection when connecting to the OCI repository | `true`, `false` | `false` |
+
+**Explanation**
+
+- If your OCI repository is use self-signed certificate, you need to set `storage.oci.repository.insecure` to `true` to allow insecure connection.
+
+## Sigstore Features Configuration
+
+### Transparency Log
+
+| Key | Description | Supported Values | Default |
+|-----|-------------|-----------------|---------|
+| transparency.enabled | Whether to enable transparency. | "true", "false" | "false" |
+| transparency.url | The URL of the transparency log. | | "https://rekor.sigstore.dev" |
+
+**Note:** If transparency.enabled is set to manual, then only TaskRuns and PipelineRuns with the following annotation will be uploaded to the transparency log:
+
+```yaml
+chains.tekton.dev/transparency-upload: "true"
+```
+
+### Keyless Signing with Fulcio
+
+| Key | Description | Supported Values | Default |
+|-----|-------------|-----------------|---------|
+| signers.x509.fulcio.enabled | Whether to enable automatic certificates from fulcio. | "true", "false" | "false" |
+| signers.x509.fulcio.address | Fulcio address to request certificate from, if enabled | | "https://fulcio.sigstore.dev" |
+| signers.x509.fulcio.issuer | Expected OIDC issuer. | | "https://oauth2.sigstore.dev/auth" |
+| signers.x509.fulcio.provider | Provider to request ID Token from | "google", "spiffe", "github", "filesystem" | Unset, each provider will be attempted. |
+| signers.x509.identity.token.file | Path to file containing ID Token. | | |
+| signers.x509.tuf.mirror.url | TUF server URL. $TUF_URL/root.json is expected to be present. | | "https://sigstore-tuf-root.storage.googleapis.com" |
+
+## References
+
+- [Tekton Chains Configuration](https://tekton.dev/docs/chains/config/)
+- [Additional fields as options](https://tekton.dev/docs/operator/tektonconfig/#additional-fields-as-options)

@@ -1,0 +1,101 @@
+---
+weight: 10
+---
+
+# Core Concepts
+
+This document introduces the fundamental concepts of Tekton Results, helping you understand its purpose, components, and data model.
+
+## What is Tekton Results?
+
+Tekton Results is a component of the Tekton CI/CD ecosystem that provides long-term storage and querying capabilities for Tekton execution data. It helps users logically group CI/CD workload history and separate long-term result storage away from the Pipeline controller.
+
+The primary benefits of Tekton Results include:
+
+- **Persistent Storage**: Store execution history (TaskRuns, PipelineRuns, logs) in a dedicated database instead of Kubernetes etcd
+- **Result Grouping**: Group related workloads together (e.g., bundle related TaskRuns and PipelineRuns into a single unit)
+- **Resource Optimization**: Free up etcd resources by moving completed runs to external storage
+- **Log Retention**: Store logs produced by TaskRuns/PipelineRuns so that completed runs can be cleaned to save cluster resources
+
+## Key Components
+
+Tekton Results consists of three main components:
+
+### 1. API Server
+
+The API server provides a queryable gRPC and REST interface backed by persistent storage. It allows users to:
+
+- Store and retrieve execution data (TaskRuns, PipelineRuns, logs)
+- Query and filter results based on various criteria
+- Group related executions together
+
+The API server uses Kubernetes-style authentication and authorization, making it familiar to users of the Kubernetes ecosystem.
+
+### 2. Watcher
+
+The Watcher is a Kubernetes controller that:
+
+- Watches for TaskRun and PipelineRun changes in the cluster
+- Automatically creates or updates corresponding Records in the Results database
+- Annotates the original TaskRun/PipelineRun objects with Result identifiers
+- Optionally deletes completed runs after they've been stored in the database
+
+The Watcher ensures that execution data is automatically captured without requiring changes to your existing Tekton workflows.
+
+### 3. Retention Policy Agent
+
+The Retention Policy Agent manages the lifecycle of stored data by:
+
+- Removing older Results and their associated Records from the database based on configurable policies
+- Running pruning jobs according to a schedule
+- Enforcing maximum retention periods for execution data
+
+## Data Model
+
+Tekton Results uses a hierarchical data model consisting of two primary entities:
+
+### Results
+
+Results are top-level aggregators that group related Records together. They represent a logical unit of work, such as a CI/CD pipeline execution triggered by a specific event. Results contain:
+
+- A unique identifier
+- Metadata (creation time, update time)
+- Annotations (key-value pairs for custom metadata)
+- Summary information (status, type, etc.)
+
+### Records
+
+Records are individual instances of data that belong to a Result. They represent specific artifacts or events within a CI/CD workflow, such as:
+
+- TaskRun executions
+- PipelineRun executions
+- Log data
+- Event data
+
+Records contain:
+
+- A unique name
+- A reference to their parent Result
+- A data type identifier (e.g., `tekton.dev/v1.TaskRun`, `tekton.dev/v1.PipelineRun`)
+- The actual data content (stored as a serialized object)
+
+This data model allows for flexible organization of CI/CD execution data, making it easier to track and query related activities.
+
+## Life of a Result
+
+The typical flow of data through Tekton Results is as follows:
+
+1. A user creates a TaskRun or PipelineRun via the Kubernetes API
+2. The Result Watcher detects the new resource and monitors its changes
+3. When the TaskRun/PipelineRun is updated, the Watcher creates or updates corresponding Records in the Results database
+4. The Watcher annotates the original TaskRun/PipelineRun with Result identifiers
+5. Users can query the Results API to retrieve execution data
+6. Once the data is safely stored in the Results database, the original Kubernetes resources can be safely removed from the cluster
+
+This flow ensures that execution data is preserved even after the original Kubernetes resources are deleted, providing a complete history of CI/CD activities.
+
+## References
+
+- [Tekton Results Documentation](https://tekton.dev/docs/results/)
+- [Tekton Results GitHub Repository](https://github.com/tektoncd/results)
+- [TEP-0021: Results API](https://github.com/tektoncd/community/blob/main/teps/0021-results-api.md)

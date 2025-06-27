@@ -1,0 +1,117 @@
+---
+weight: 10
+---
+
+# Introduction
+
+## What is Tekton Pipeline?
+
+Tekton Pipeline is a core component of Tekton that provides Kubernetes-native CI/CD solutions. It allows users to define and run automated workflows as a series of steps, tasks, and pipelines, all running as containers on a Kubernetes cluster.
+
+### Core Features
+
+1. **Declarative Pipeline Definition**
+   - Define pipelines using Kubernetes Custom Resources
+   - Compose complex workflows from reusable tasks
+   - Support for conditional execution and parallel processing
+
+2. **Resource Management**
+   - Efficient handling of inputs and outputs
+   - Support for workspaces to share data between tasks
+   - Parameter passing between pipeline components
+
+3. **Extensibility and Flexibility**
+   - Custom task definitions
+   - Integration with various tools and platforms
+   - Support for matrix-based execution
+
+4. **Kubernetes Native**
+   - Runs entirely on Kubernetes
+   - Leverages Kubernetes security and scaling capabilities
+   - Follows Kubernetes resource management patterns
+
+## How It Works
+
+Tekton Pipeline operates with the following core components:
+
+1. **Task**
+   - Defines a series of steps to be executed sequentially
+   - Runs in isolated containers within a Kubernetes pod
+   - Can define inputs, outputs, and resource requirements
+
+2. **TaskRun**
+   - Instantiates and executes a Task
+   - Provides runtime parameters and resources
+   - Tracks execution status and results
+
+3. **Pipeline**
+   - Defines an ordered series of Tasks
+   - Specifies execution order and dependencies
+   - Manages data flow between Tasks
+
+4. **PipelineRun**
+   - Instantiates and executes a Pipeline
+   - Provides runtime parameters and resources
+   - Tracks overall pipeline execution status
+
+5. **Workspaces**
+   - Provides shared storage between Tasks
+   - Supports various storage backends (PVC, ConfigMap, etc.)
+   - Enables data persistence across Task executions
+
+## Use Cases
+
+Tekton Pipeline is suitable for the following scenarios:
+
+1. **Continuous Integration/Continuous Deployment (CI/CD)**
+   - Automated build and test processes
+   - Deployment automation
+   - Release management
+
+2. **Infrastructure as Code**
+   - Automated infrastructure provisioning
+   - Configuration management
+   - Environment setup and teardown
+
+3. **Application Lifecycle Management**
+   - Automated testing
+   - Security scanning
+   - Performance testing
+
+## Key Advantages
+
+1. **Reusability**
+   - Modular task definitions
+   - Shareable pipeline components
+   - Standardized workflows
+
+2. **Portability**
+   - Kubernetes-native design
+   - Container-based execution
+   - Platform-agnostic workflows
+
+3. **Scalability**
+   - Leverages Kubernetes scaling
+   - Parallel task execution
+   - Resource-efficient execution
+
+4. **Observability**
+   - Detailed execution logs
+   - Status tracking
+   - Integration with monitoring tools
+
+## Next Steps
+
+- [Quick Start](./quick_start.mdx)
+- [Tasks](./concepts/task_concept.mdx)
+- [TaskRuns](./concepts/taskrun_concept.mdx)
+- [Workspaces](./concepts/workspace_concept.mdx)
+- [Pipelines](./concepts/pipeline_concept.mdx)
+- [PipelineRuns](./concepts/pipelinerun_concept.mdx)
+- [Resolvers](./concepts/resolver_concept.mdx)
+
+## Reference Resources
+
+- [Official Documentation](https://tekton.dev/docs/pipelines/)
+- [GitHub Repository](https://github.com/tektoncd/pipeline)
+- [Example Collection](https://github.com/tektoncd/pipeline/tree/main/examples)

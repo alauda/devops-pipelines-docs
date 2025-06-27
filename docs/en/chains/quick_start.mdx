@@ -1,0 +1,178 @@
+---
+weight: 40
+---
+
+# Quick Start
+
+This guide helps new users quickly set up Tekton Chains to secure their CI/CD pipelines by generating and verifying cryptographic signatures for Tekton TaskRuns.
+
+## Introduction
+
+### Use Cases
+
+Tekton Chains helps you secure your software supply chain by automatically generating cryptographic signatures for your build artifacts. This quick start demonstrates how to set up Tekton Chains, generate a signing key, run a simple task, and verify its signature.
+
+### Estimated Reading Time
+
+10-15 minutes
+
+## Important Notes
+
+- Tekton Chains is installed by default in the `tekton-pipelines` namespace when using Alauda Devops Pipelines Operator
+- The signing keys should be securely managed; in production environments, consider using a key management system (KMS)
+- This guide uses the simplest configuration for demonstration purposes
+
+## Prerequisites
+
+- A Kubernetes cluster with Tekton Pipelines and Tekton Chains installed via Alauda Devops Pipelines Operator
+- `kubectl` CLI installed and configured to access your cluster
+- `tkn` (Tekton CLI) installed
+- `cosign` CLI installed (for key generation and signature verification)
+
+## Process Overview
+
+| Step | Operation | Description |
+|------|-----------|-------------|
+| 1 | Generate signing keys | Create a key pair for signing artifacts |
+| 2 | Configure Tekton Chains | Set up Chains to use the Tekton storage backend |
+| 3 | Run a sample task | Create and run a simple TaskRun |
+| 4 | Verify the signature | Extract and verify the signature of the TaskRun |
+
+## Step-by-Step Instructions
+
+### Step 1: Generate Signing Keys
+
+Tekton Chains uses cryptographic keys to sign artifacts. By default, it looks for a secret named `signing-secrets` in the Chains namespace.
+
+1. Install [cosign](https://github.com/sigstore/cosign/releases) if you haven't already
+2. Generate a key pair and store it as a Kubernetes secret:
+
+   ```bash
+   cosign generate-key-pair k8s://tekton-pipelines/signing-secrets
+   ```
+
+   You'll be prompted to enter a password, which will be stored in the secret. This command also generates a public key `cosign.pub` in the current folder that will be used later during verification.
+
+3. Verify the secret was created:
+
+   ```bash
+   kubectl get secret signing-secrets -n tekton-pipelines
+   ```
+
+### Step 2: Configure Tekton Chains
+
+By default, Tekton Chains is configured to store signatures in an OCI registry. For this quick start, we'll configure it to store signatures as annotations on the TaskRun itself.
+
+1. Configure Chains to use the Tekton storage backend:
+
+   ```bash
+   kubectl patch configmap chains-config -n tekton-pipelines -p='{"data":{"artifacts.taskrun.storage": "tekton"}}'
+   ```
+
+2. Set the format to in-toto (SLSA v0.2):
+
+   ```bash
+   kubectl patch configmap chains-config -n tekton-pipelines -p='{"data":{"artifacts.taskrun.format": "in-toto"}}'
+   ```
+
+3. Restart the Chains controller to apply the changes:
+
+   ```bash
+   kubectl delete pod -n tekton-pipelines -l app=tekton-chains-controller
+   ```
+
+### Step 3: Run a Sample Task
+
+Now let's create a simple TaskRun that Chains will automatically sign.
+
+1. Create a simple Task and TaskRun:
+
+   ```bash
+   cat <<EOF | kubectl apply -f -
+   apiVersion: tekton.dev/v1
+   kind: Task
+   metadata:
+     name: hello-world
+   spec:
+     steps:
+       - name: hello
+         image: alpine
+         script: |
+           #!/bin/sh
+           
+           echo 'Hello, Tekton Chains!'
+   ---
+   apiVersion: tekton.dev/v1
+   kind: TaskRun
+   metadata:
+     name: hello-world-run
+   spec:
+     taskRef:
+       name: hello-world
+   EOF
+   ```
+  
+   :::tip
+   If working in a air-gapped environment, please modify the image to a local containing `sh`.
+   :::
+
+2. Wait for the TaskRun to complete:
+
+   ```bash
+   kubectl get taskrun hello-world-run -w
+   ```
+
+   Wait until the status shows `Succeeded`.
+
+### Step 4: Verify the Signature
+
+Once the TaskRun completes, Tekton Chains will automatically sign it. Let's verify the signature.
+
+1. Get the TaskRun UID:
+
+   ```bash
+   export TASKRUN_UID=$(kubectl get taskrun hello-world-run -o jsonpath='{.metadata.uid}')
+   ```
+
+2. Extract the signature:
+
+   ```bash
+   kubectl get taskrun hello-world-run -o jsonpath="{.metadata.annotations.chains\\.tekton\\.dev/signature-taskrun-$TASKRUN_UID}" | base64 -d > signature
+   ```
+
+3. Verify the signature using cosign:
+
+   ```bash
+   cosign verify-blob-attestation \
+     --key cosign.pub \
+     --signature signature \
+     --type slsaprovenance \
+     --check-claims=false \
+     --insecure-ignore-tlog \
+     /dev/null
+   ```
+
+   If successful, you'll see `Verified OK`.
+
+4. Clean up:
+
+   ```bash
+   kubectl delete taskrun hello-world-run
+   kubectl delete task hello-world
+   ```
+
+## Expected Results
+
+After completing this quick start:
+
+- You have a working Tekton Chains setup with a signing key
+- Your TaskRuns are automatically signed when they complete
+- You can verify the signatures to ensure the integrity of your builds
+
+This demonstrates the basic functionality of Tekton Chains. In a real-world scenario, you would:
+
+1. Configure Chains to sign container images and store signatures in your registry
+2. Set up a verification step in your deployment process
+3. Potentially use a cloud KMS for more secure key management
+
+For more advanced configurations, refer to the [Tekton Chains documentation](https://tekton.dev/docs/chains/).

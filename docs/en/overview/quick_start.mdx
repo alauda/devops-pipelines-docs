@@ -1,0 +1,135 @@
+---
+weight: 30
+---
+
+# Quick Start
+
+This document helps new users quickly understand and install the Tekton Operator, enabling management of Tekton components in a Kubernetes cluster.
+
+## Introduction
+
+### Applicable Scenarios
+
+This guide is suitable for users who need to deploy and manage Tekton Pipeline, Triggers, or other Tekton components on a Kubernetes cluster. Tekton Operator simplifies the installation, upgrade, and management of these components.
+
+### Expected Reading Time
+
+10-15 minutes
+
+## Notes
+
+- You must have cluster administrator privileges to install Tekton Operator
+- Installing Tekton components through the Operator will create resources in your cluster
+- All commands assume you have configured kubectl to connect to your cluster
+
+## Prerequisites
+
+- Kubernetes cluster (version 1.21 or higher)
+- kubectl command line tool installed and configured
+- Cluster administrator permissions
+- Internet access for pulling container images
+
+## Overview of the Process
+
+| Number | Operational Steps | Description |
+|--------|-------------------|-------------|
+| 1 | Install Tekton Operator | Deploy the Tekton Operator in your Kubernetes cluster |
+| 2 | Verify Operator Installation | Confirm that the Tekton Operator is running correctly |
+| 3 | Install Tekton Components | Use the Operator to install Tekton Pipeline, Triggers |
+| 4 | Verify Component Installation | Check that the Tekton components are properly installed and running |
+
+## Operational Steps
+
+### Install Tekton Operator
+
+The Tekton Operator allows you to install, upgrade, and manage Tekton Pipeline, and Triggers components in your Kubernetes cluster.
+
+1. Open the Operator Hub in Marketplace of Platform Management
+
+2. Search for "Alauda DevOps Pipelines" and click "Install"
+
+3. Select the namespace to install the Operator, e.g. `tekton-operator`
+
+4. After installation, you can see the Operator in the `tekton-operator` namespace
+
+### Verify Operator Installation
+
+After installing the Tekton Operator, you should verify that it's running properly before proceeding.
+
+1. Check that the Operator pods are running:
+
+  ```bash
+  kubectl get pods -n tekton-operator
+  ```
+
+2. Verify the Operator CRDs (Custom Resource Definitions) are installed:
+
+  ```bash
+  kubectl get crds | grep tekton
+  ```
+
+### Install Tekton Components
+
+The Tekton Operator uses custom resources to manage Tekton components.
+By default, the Operator will install Pipeline, Triggers, Chains, and Hub automatically.
+You can install Results, Pipelines-as-Code by creating these custom resources.
+
+
+### Verify Component Installation
+
+After installing the Tekton components, you should verify that they are running properly.
+
+1. Check the TektonConfig resource:
+
+  ```bash
+  kubectl get tektonconfig config
+  ```
+
+  The results should be similar to the following:
+
+  ```bash
+  NAME     VERSION           READY   REASON
+  config   v0.74.1-fb53414   True
+  ```
+
+2. If the TektonConfig resource is not ready, you can continue to check the TektonInstallerSet resource for details.
+
+  ```bash
+  kubectl get tektoninstallerset
+  ```
+
+  The results should be similar to the following:
+
+  ```bash
+  NAME                                READY   REASON
+  chain-config-5scx2                  True
+  chain-secret-xrq7b                  True
+  chain-t6wb6                         True
+  pipeline-main-deployment-9d9cc      True
+  pipeline-main-static-c7zlz          True
+  result-j74p5                        True
+  tekton-hub-api-jl9xj                True
+  tekton-hub-db-5g89c                 True
+  tekton-hub-db-migration-q7m8l       True
+  tekton-hub-ui-jn6bw                 True
+  tektoncd-pruner-fgzfh               True
+  trigger-main-deployment-q8zkd       True
+  trigger-main-static-8x5w6           True
+  validating-mutating-webhook-ksz2k   True
+  ```
+
+### Expected Results
+
+After completing all steps, you should have:
+
+- A running Tekton Operator in the `tekton-operator` namespace
+- One or more installed Tekton components (Pipeline, Triggers, Hub) in the `tekton-pipelines` namespace
+- Custom Resource Definitions (CRDs) for managing Tekton resources
+
+## Next Steps
+
+Now that you have successfully installed the Tekton Operator and components, you can:
+
+1. Learn how to create and run Tekton [Pipeline Tasks and Pipelines](../pipelines/quick_start.mdx)
+2. Set up [Tekton Triggers](../triggers/quick_start.mdx) for event-driven pipelines
+3. Configure advanced settings for your Tekton components using the Operator

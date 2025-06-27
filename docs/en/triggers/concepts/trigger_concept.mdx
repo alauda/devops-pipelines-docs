@@ -1,0 +1,268 @@
+---
+weight: 30
+---
+
+# Trigger
+
+A Trigger is a key component in Tekton Triggers that specifies what happens when an EventListener detects an event. It connects event data to pipeline execution by defining how incoming data should be processed, extracted, and used to create Kubernetes resources.
+
+## Terminology Explanation
+
+| Term | Description |
+|------|-------------|
+| Trigger | A Tekton resource that defines what happens when an event is detected, linking event data to pipeline execution. |
+| TriggerBinding | A resource that extracts fields from event payloads and binds them to named parameters. |
+| TriggerTemplate | A resource that specifies which resources to create (like TaskRuns or PipelineRuns) when an event is received. |
+| EventListener | A Kubernetes service that listens for events and processes them according to defined Triggers. |
+| Interceptor | An optional component that processes and filters event data before it's passed to TriggerBindings and TriggerTemplates. |
+
+## Why We Need Trigger
+
+### The Challenge of Event-Driven CI/CD
+
+In traditional CI/CD systems, connecting external events (like Git pushes or webhook calls) to pipeline execution requires:
+
+- Custom integration code for each event source
+- Manual configuration to map event data to pipeline parameters
+- Complex logic to determine when and how to run specific pipelines
+- Separate handling for different environments and conditions
+
+This approach leads to:
+- Tight coupling between event sources and pipeline execution
+- Duplication of integration code across projects
+- Difficulty in maintaining and evolving the system
+- Limited reusability of integration patterns
+
+### How Trigger Addresses These Problems
+
+Tekton Trigger provides a declarative, Kubernetes-native way to:
+
+1. **Define event processing logic**: Specify exactly how events should be processed without custom code
+2. **Extract relevant data**: Use TriggerBindings to extract specific fields from event payloads
+3. **Create appropriate resources**: Use TriggerTemplates to dynamically create the right resources based on event data
+4. **Filter and transform events**: Apply Interceptors to validate, filter, and transform event data before processing
+5. **Separate concerns**: Decouple event reception from resource creation for better maintainability
+
+This approach enables a fully event-driven CI/CD system that can respond automatically to various external events while maintaining flexibility and reusability.
+
+## Advantages
+
+- **Declarative configuration**: Define event-to-pipeline connections using Kubernetes resources
+- **Reusability**: Create reusable Triggers that can be applied across multiple projects
+- **Flexibility**: Support for various event sources (GitHub, GitLab, generic webhooks, etc.)
+- **Extensibility**: Custom Interceptors can be created for specialized event processing
+- **Separation of concerns**: Clear separation between event reception, data extraction, and resource creation
+- **Security**: Built-in support for event validation and filtering
+- **Kubernetes-native**: Integrates seamlessly with the Kubernetes ecosystem
+
+## Applicable Scenarios
+
+Triggers are essential in the following scenarios:
+
+1. **Automated CI/CD Pipelines**: Automatically start builds and deployments when code is pushed to a repository.
+
+2. **Multi-environment Deployments**: Use the same event data but trigger different pipelines for different environments.
+
+3. **ChatOps**: Execute pipelines in response to comments in pull requests or issues.
+
+4. **Scheduled Operations**: Combine with cron jobs to trigger periodic maintenance or testing pipelines.
+
+5. **Cross-service Workflows**: Trigger pipelines when events occur in other systems (e.g., issue trackers, monitoring systems).
+
+6. **GitOps**: Automatically apply configuration changes when Git repositories are updated.
+
+## Constraints and Limitations
+
+- Triggers require an EventListener to receive and process events
+- Each EventListener creates a Kubernetes service that needs to be accessible to event sources
+- Complex event processing might require custom Interceptors
+- Event sources must be able to send HTTP requests to the EventListener
+- Webhook security considerations must be addressed (authentication, authorization)
+
+## Principles
+
+### Trigger Structure
+
+A Trigger resource in Tekton has the following structure:
+
+```yaml
+apiVersion: triggers.tekton.dev/v1beta1
+kind: Trigger
+metadata:
+  name: trigger-name
+spec:
+  # Optional: Process and filter events
+  interceptors:
+    - ref:
+        name: "interceptor-name"
+      params:
+        - name: "param-name"
+          value: "param-value"
+
+  # Extract data from events
+  bindings:
+    - ref: binding-name  # Reference existing TriggerBinding
+    # Or embed binding directly
+    - name: param-name
+      value: $(body.field.path)
+
+  # Specify resources to create
+  template:
+    ref: template-name  # Reference existing TriggerTemplate
+    # Or embed template directly
+    # spec: ...
+
+  # Optional: ServiceAccount for resource creation
+  serviceAccountName: service-account-name
+```
+
+### Key Components and Their Relationships
+
+1. **Interceptors**: Process incoming events before they reach bindings and templates
+   - Filter events based on specific criteria
+   - Transform event data
+   - Add additional data to the event payload
+   - Validate event authenticity
+
+2. **Bindings**: Extract data from event payloads
+   - Can reference existing TriggerBindings or ClusterTriggerBindings
+   - Can be embedded directly in the Trigger
+   - Multiple bindings can be combined in a single Trigger
+
+3. **Template**: Defines which resources to create
+   - Can reference existing TriggerTemplates
+   - Can be embedded directly in the Trigger
+   - Uses parameters extracted by bindings
+
+4. **ServiceAccount**: Provides necessary permissions for creating resources
+   - Must have permissions to create the resources defined in the template
+
+## Configuration Examples
+
+### GitHub Pull Request Trigger
+
+```yaml
+apiVersion: triggers.tekton.dev/v1beta1
+kind: Trigger
+metadata:
+  name: github-pull-request-trigger
+spec:
+  interceptors:
+    - ref:
+        name: "github"
+      params:
+        - name: "eventTypes"
+          value: ["pull_request"]
+    - ref:
+        name: "cel"
+      params:
+        - name: "filter"
+          value: "body.action in ['opened', 'synchronize', 'reopened']"
+        - name: "overlays"
+          value:
+            - key: truncated_sha
+              expression: "body.pull_request.head.sha.truncate(7)"
+  bindings:
+    - name: git-revision
+      value: $(body.pull_request.head.sha)
+    - name: git-repository-url
+      value: $(body.repository.clone_url)
+    - name: pull-request-number
+      value: $(body.number)
+  template:
+    ref: pull-request-template
+```
+
+### GitLab Push Event Trigger
+
+Based on the GitLab events documentation provided:
+
+```yaml
+apiVersion: triggers.tekton.dev/v1beta1
+kind: Trigger
+metadata:
+  name: gitlab-push-trigger
+spec:
+  interceptors:
+    - ref:
+        name: "gitlab"
+      params:
+        - name: "eventTypes"
+          value: ["Push Hook"]
+  bindings:
+    - name: git-revision
+      value: $(body.checkout_sha)
+    - name: git-repository-url
+      value: $(body.project.git_http_url)
+    - name: git-repo-name
+      value: $(body.project.name)
+    - name: git-commit-message
+      value: $(body.commits[0].message)
+  template:
+    ref: gitlab-ci-template
+```
+
+## Important Parameter Explanations Related to Trigger
+
+### Interceptors
+
+Interceptors are powerful components that process events before they reach TriggerBindings and TriggerTemplates.
+
+#### Applicable Scenarios
+
+- Validating webhook signatures
+- Filtering events based on specific criteria
+- Transforming event data
+- Adding additional context to events
+
+#### Constraints and Limitations
+
+- Each interceptor adds processing time to event handling
+- Complex filtering logic may require CEL expressions
+- Custom interceptors require additional deployment and management
+
+#### Principles/Parameter Explanation
+
+Common interceptors include:
+
+- **GitHub**: Validates GitHub webhook signatures and filters by event type
+- **GitLab**: Validates GitLab webhook signatures and filters by event type
+- **BitBucket**: Validates BitBucket webhook signatures and filters by event type
+- **CEL**: Uses Common Expression Language for filtering and transformation
+- **Webhook**: Validates webhook signatures using a secret
+
+### Bindings
+
+The bindings field in a Trigger specifies how to extract data from events.
+
+#### Applicable Scenarios
+
+- Extracting Git commit information
+- Capturing metadata about pull requests or merge requests
+- Retrieving repository information
+- Accessing custom headers or payload fields
+
+#### Configuration Examples
+
+```yaml
+bindings:
+  # Reference existing TriggerBinding
+  - ref: common-git-binding
+
+  # Embed binding directly
+  - name: custom-field
+    value: $(body.custom.field)
+
+  # Reference ClusterTriggerBinding
+  - ref: cluster-git-binding
+    kind: ClusterTriggerBinding
+```
+
+## Reference Materials
+
+- [Tekton Triggers Documentation](https://tekton.dev/docs/triggers/)
+- [Trigger Official Documentation](https://tekton.dev/docs/triggers/triggers/)
+- [EventListener Documentation](https://tekton.dev/docs/triggers/eventlisteners/)
+- [TriggerBinding Documentation](https://tekton.dev/docs/triggers/triggerbindings/)
+- [TriggerTemplate Documentation](https://tekton.dev/docs/triggers/triggertemplates/)
+- [Interceptors Documentation](https://tekton.dev/docs/triggers/interceptors/)
