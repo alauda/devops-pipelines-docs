@@ -1,0 +1,353 @@
+---
+weight: 10
+i18n:
+  title:
+    en: Use java-image-build-scan-deploy Pipeline
+    zh: 使用 java-image-build-scan-deploy 管道
+title: Use java-image-build-scan-deploy Pipeline
+---
+
+# Use java-image-build-scan-deploy Pipeline
+
+This pipeline is designed to automate a full CI/CD workflow for Java applications.
+It is reusable and flexible, supporting custom build arguments, multiple workspaces, and conditional execution of steps.
+
+Key Features:
+
+* ✅ Flexible code source
+* ⚙️ Customizable Maven settings
+* 🚀 Maven local repo caching support
+* 🔌 Pluggable tasks via params
+* 🛠️ Dynamic image build and push
+* ☁️ Workload image update via kubectl
+
+## Specifying it using hub resolvers
+
+The following example pipeline run references pipeline from the catalog:
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: java-pipeline-run
+spec:
+  pipelineRef:
+    resolver: hub
+    params:
+    - name: catalog
+      value: catalog
+    - name: kind
+      value: pipeline
+    - name: name
+      value: java-image-build-scan-deploy
+    - name: version
+      value: "0.1"
+```
+
+## Parameters
+
+### Git Clone
+
+- **git-url**
+  - **type**: string
+  - **default**: `""`
+  - **description**: Repository URL to clone from.
+
+- **git-revision**
+  - **type**: string
+  - **default**: `""`
+  - **description**: Revision to checkout (branch, tag, sha, ref, etc...).
+
+- **skip-git-clone**
+  - **type**: string
+  - **default**: `"false"`
+  - **description**: Skip to execute the git clone task. It can only be enabled if the corresponding code repository already exists in the workspace.
+
+- **git-crt-file-name**
+  - **type**: string
+  - **default**: `"ca-bundle.crt"`
+  - **description**: File name of mounted crt using ssl-ca-directory workspace. default value is ca-bundle.crt.
+
+### Maven
+
+- **maven-subdirectory**
+  - **type**: string
+  - **default**: `.`
+  - **description**: The context directory for Maven project.
+
+- **maven-goals**
+  - **type**: array
+  - **default**: `["package"]`
+  - **description**: Maven goals to run.
+
+- **maven-mirror-url**
+  - **type**: string
+  - **default**: `""`
+  - **description**: Maven repository mirror URL.
+
+### SonarQube Scanner
+
+- **sonar-url**
+  - **type**: string
+  - **default**: `""`
+  - **description**: The URL to your SonarQube Server instance. If not specified, sonarqube scanner task will be skipped.
+
+- **sonar-project-key**
+  - **type**: string
+  - **default**: `""`
+  - **description**: Unique key of the Sonarqube project.
+
+- **sonar-properties**
+  - **type**: array
+  - **default**: `["sonar.sources=.", "sonar.java.binaries=target/classes"]`
+  - **description**: Additional properties to pass to SonarQube. You can refer to [Configuration of SonarQube properties](#sonarqube-properties) for more details.
+
+### Build Images
+
+- **images**
+  - **type**: array
+  - **description**: Reference of the images buildah will produce. Can contain multiple image addresses separated by commas. For example:
+    - busybox:latest
+    - busybox:v1.30.1
+
+- **dockerfile-path**
+  - **type**: string
+  - **default**: ./Dockerfile
+  - **description**: Path to the Dockerfile to build.
+
+- **build-extra-args**
+  - **type**: string
+  - **default**: ""
+  - **description**: Extra parameters passed for the build command when building images. WARNING - must be sanitized to avoid command injection. e.g., --build-arg key=value --label key=value
+
+- **build-args**
+  - **type**: array
+  - **default**: [""]
+  - **description**: Specifies a build argument and its value, which will be interpolated in instructions read from the Dockerfile in the same way that environment variables are, but which will not be added to environment variable list in the resulting image's configuration. eg. HTTP_PROXY=http://10.10.10.10:8080
+
+- **build-context**
+  - **type**: string
+  - **default**: .
+  - **description**: Path to the directory to use as context.
+
+- **push-extra-args**
+  - **type**: string
+  - **default**: ""
+  - **description**: Extra parameters passed for the push command when pushing images. WARNING - must be sanitized to avoid command injection. e.g., --creds=username:password
+
+### Trivy Scanner
+
+- **skip-trivy-scan**
+  - **type**: string
+  - **default**: "false"
+  - **description**: Set to skip trivy image scan after build.
+
+- **trivy-extra-args**
+  - **type**: string
+  - **default**: ""
+  - **description**: Extra parameters passed for the trivy command when scanning images. WARNING - must be sanitized to avoid command injection. e.g., --insecure. You can use `--skip-db-update` `--skip-java-db-update` to skip updating vulnerability database.
+
+### Update Workload
+
+- **workload-name**
+  - **type**: string
+  - **default**: ""
+  - **description**: The name of the workload to update.
+
+- **workload-kind**
+  - **type**: string
+  - **default**: Deployment
+  - **description**: The kind of workload to update, such as Deployment, StatefulSet, etc.
+
+- **workload-namespace**
+  - **type**: string
+  - **default**: ""
+  - **description**: The namespace of the workload to update. If not specified, will use the namespace of the current TaskRun.
+
+- **workload-container**
+  - **type**: string
+  - **default**: "*"
+  - **description**: This parameter is used to specify the container within the workload whose image needs to be updated. By default, the images of all containers in the workload will be updated.
+
+- **workload-rollout-timeout**
+  - **type**: string
+  - **default**: "0"
+  - **description**: The timeout for the rollout to complete. If it is not specified or set to 0, it will never timeout.
+
+## Workspaces
+
+- **source**: Workspace to share information between tasks.
+- **git-basic-auth**: An [optional workspace](https://github.com/tektoncd/pipeline/blob/v0.65.5/docs/workspaces.md#using-workspaces-in-pipelines) containing a .gitconfig and .git-credentials file. These will be copied to the user's home before any git commands are run. Any other files in this Workspace are ignored. It is strongly recommended to use ssh-directory over basic-auth whenever possible and to bind a Secret to this Workspace over other volume types.
+- **git-ssh-directory**: An [optional workspace](https://github.com/tektoncd/pipeline/blob/v0.65.5/docs/workspaces.md#using-workspaces-in-pipelines) with private key, known_hosts, config, etc. Copied to the user's home before git commands are executed. Used to authenticate with the git remote when performing the clone. Binding a Secret to this Workspace is strongly recommended over other volume types.
+- **git-ssl-ca-directory**: An [optional workspace](https://github.com/tektoncd/pipeline/blob/v0.65.5/docs/workspaces.md#using-workspaces-in-pipelines) containing CA certificates, this will be used by Git to verify the peer with when fetching or pushing over HTTPS.
+- **maven-settings**: An [optional workspace](https://github.com/tektoncd/pipeline/blob/v0.65.5/docs/workspaces.md#using-workspaces-in-pipelines) containing custom maven settings.
+- **maven-local-repo**: An [optional workspace](https://github.com/tektoncd/pipeline/blob/v0.65.5/docs/workspaces.md#using-workspaces-in-pipelines) for Maven local repository.
+- **maven-server-secret**: An [optional workspace](https://github.com/tektoncd/pipeline/blob/v0.65.5/docs/workspaces.md#using-workspaces-in-pipelines) containing server credentials.
+- **sonar-settings**: An [optional workspace](https://github.com/tektoncd/pipeline/blob/v0.65.5/docs/workspaces.md#using-workspaces-in-pipelines) where SonarQube properties can be mounted.
+- **sonar-credentials**: An [optional workspace](https://github.com/tektoncd/pipeline/blob/v0.65.5/docs/workspaces.md#using-workspaces-in-pipelines) containing credentials for use within SonarQube.
+- **dockerconfig**: An [optional workspace](https://github.com/tektoncd/pipeline/blob/v0.65.5/docs/workspaces.md#using-workspaces-in-pipelines) for Docker configuration files, such as `config.json` or `.dockerconfigjson`. This is optional and is used for authentication when pushing images to the registry.
+- **kubeconfig**: An [Optional workspace](https://github.com/tektoncd/pipeline/blob/v0.65.5/docs/workspaces.md#using-workspaces-in-pipelines) containing kubeconfig file. The name of kubeconfig should be `kubeconfig`. If there is no kubeconfig in this workspace, the workspace will be ignored.
+
+## Platforms
+
+The Task can be run on `linux/amd64` and `linux/arm64` platforms.
+
+## Usage
+
+### Minimal Setup: Run End-to-End With Minimal Parameters
+
+Optional tasks (sonarqube-scanner, update-workload, etc.) will be gracefully skipped when unset or omitted.
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: java-build-run-
+spec:
+  pipelineRef:
+    name: java-image-build-scan-deploy
+  params:
+    - name: git-url
+      value: https://github.com/example/java-app
+    - name: git-revision
+      value: refs/heads/main
+    - name: images
+      value: ["registry.example.com/java-app:latest"]
+  workspaces:
+    - name: source
+      persistentVolumeClaim:
+        claimName: source
+    - name: git-basic-auth
+      secret:
+        secretName: gitconfig
+    - name: dockerconfig
+      secret:
+        secretName: dockerconfig
+```
+
+### Use Maven Settings.xml
+
+You can mount `maven-settings` workspace to apply the `settings.xml` for Maven builds.
+
+```yaml
+workspaces:
+  - name: maven-settings
+    configMap:
+      name: maven-settings
+```
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: maven-settings
+data:
+  settings.xml: |
+    <!--# your maven settings.xml ...-->
+```
+
+You can also use `maven-mirror-url` param to set a Maven repository mirror. It will be used as the `<mirror>` in `settings.xml`.
+```xml
+<mirror>
+  <id>mirror.default</id>
+  <url>$(params.maven-mirror-url)</url>
+  <mirrorOf>central</mirrorOf>
+</mirror>
+```
+
+### Use Build Cache to Accelerate CI
+
+Attach a persistent `maven-local-repo` workspace to cache `.m2/repository` contents between pipeline runs.
+Reuse dependencies can greatly reduce Maven dependency resolution time. Dramatically reduce build time across runs.
+
+```yaml
+workspaces:
+  - name: maven-local-repo
+    persistentVolumeClaim:
+      claimName: maven-repo-cache
+```
+
+### Configuration of SonarQube properties \{#sonarqube-properties}
+
+You can mount `sonar-settings` workspace or use `sonar-properties` param to apply the properties for `sonar-project.properties` file.
+
+The default properties are: `sonar.sources=.`, `sonar.java.binaries=target/classes`.
+
+You can find the usage of SonarQube properties from [analysis parameters](https://docs.sonarsource.com/sonarqube-server/latest/analyzing-source-code/analysis-parameters/), and [the properties for Java](https://docs.sonarsource.com/sonarqube-server/latest/analyzing-source-code/languages/java/)
+
+Here is some of the properties you can set:
+
+| Properties                     | Description                                                                                                                                                                                                            |
+|--------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| sonar.java.binaries (required) | Comma-separated paths to directories containing the compiled bytecode files corresponding to your source files.                                                                                                        |
+| sonar.java.libraries           | Comma-separated paths to files with third-party libraries (JAR or Zip files) used by your project. Wildcards can be used: sonar.java.libraries=path/to/Library.jar,directory/**/*.jar                                  |
+| sonar.java.test.binaries       | Comma-separated paths to directories containing the compiled bytecode files corresponding to your test files                                                                                                           |
+| sonar.java.test.libraries      | Comma-separated paths to files with third-party libraries (JAR or Zip files) used by your tests. (For example, this should include the junit jar). Wildcards can be used: sonar.java.test.libraries=directory/**/*.jar |
+| sonar.qualitygate.wait         | Forces the analysis step to poll the server instance and wait for the Quality Gate status.                                                                                                                             |
+| sonar.qualitygate.timeout      | The number of seconds that the scanner should wait for a report to be processed.                                                                                                                                       |
+| sonar.projectVersion           | The project version. It should be set for branch analysis in case you use the new code definition based on the previous version.                                                                                       |
+| sonar.sources                  | Comma-separated paths to directories containing main source files                                                                                                                                                      |
+| sonar.organization             | The organization in SonarQube where the project exists                                                                                                                                                                 |
+
+### Skip tasks with Params
+
+The pipeline supports skipping tasks using params:
+
+| Task              | Param             | Default   | Description                                                                                 |
+|-------------------|-------------------|-----------|---------------------------------------------------------------------------------------------|
+| git-clone         | `skip-git-clone`  | `"false"` | If code already exists in `source` workspace, you can set this to `"true"` to skip cloning. |
+| sonarqube-scanner | `sonar-url`       | `""`      | Scan will be skipped if `sonar-url` is not set.                                             |
+| trivy-scanner     | `skip-trivy-scan` | `"false"` | Scan will be skipped if `skip-trivy-scan` is set to `"true"`.                               |
+| update-workload   | `workload-name`   | `""`      | If you don't want to update the workload, you can left `workload-name` empty.               |
+
+### Full Example with All Tasks
+
+This example demonstrates how to use all tasks in the pipeline. It includes following tasks:
+
+* Cloning the source code
+* Building the code by Maven
+* Building the image and pushing the image to the registry.
+* Scanning the image with Trivy
+* Scanning the code with SonarQube
+* Updating the workload
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: java-build-run-
+spec:
+  pipelineRef:
+    name: java-image-build-scan-deploy
+  params:
+    - name: git-url
+      value: https://github.com/example/java-app
+    - name: git-revision
+      value: refs/heads/main
+    - name: sonar-url
+      value: https://sonar.example.com
+    - name: sonar-project-key
+      value: java-pipeline-example-key
+    - name: images
+      value: ["registry.example.com/java-app:latest"]
+    - name: workload-name
+      value: java-app
+    - name: workload-namespace
+      value: default
+  workspaces:
+    - name: source
+      persistentVolumeClaim:
+        claimName: source
+    - name: git-basic-auth
+      secret:
+        secretName: gitconfig
+    - name: sonar-credentials
+      secret:
+        secretName: sonar-credentials
+    - name: dockerconfig
+      secret:
+        secretName: docker-credentials
+    - name: kubeconfig
+      configMap:
+        name: kubeconfig
+```
