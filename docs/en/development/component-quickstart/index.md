@@ -1,6 +1,5 @@
 ---
 created: '2025-01-07'
-sourceSHA: 1f19cac3ea0607ba2d121d6734b84d2150fab490db2b9e53af98021051a20f97
 ---
 
 # Component Quick Start
@@ -236,7 +235,7 @@ metadata:
         #   - https://pipelinesascode.com/docs/guide/matchingevents/#matching-a-pipelinerun-to-specific-path-changes
         #   - https://en.wikipedia.org/wiki/Glob_%28programming%29
         #   - https://pipelinesascode.com/docs/guide/cli/#test-globbing-pattern
-        # TL;DR: 
+        # TL;DR:
         #   - `.tekton` matches all file changes in the `.tekton` directory.
         #   - `.tekton/**` matches all file changes within the `.tekton` directory.
         #   - `.tekton/.*` does not match all file changes within the `.tekton` directory.
@@ -332,7 +331,7 @@ spec:
         echo "update_image_version.sh values.yaml ${IMAGE}"
         update_image_version.sh values.yaml ${IMAGE}
 
-        # **Important** Update the component's version number 
+        # **Important** Update the component's version number
         # It will be based on the calculated last changed commit sha, used as the version suffix.
 
         # Get the current version and remove the -.* suffix

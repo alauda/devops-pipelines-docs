@@ -1,6 +1,5 @@
 ---
 created: '2025-01-10'
-sourceSHA: 423aae74086ccd5e58bf95963dba1872dde2b1e215377c15812fd75e0246284b
 ---
 
 # Update Frontend Images

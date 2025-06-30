@@ -1,6 +1,5 @@
 ---
 weight: 10
-sourceSHA: 4894d6ee9f6876a61b243b991087cc3b3083a7c424fdf0374d5300a347099774
 ---
 
 
@@ -19,16 +18,16 @@ There are several possible causes for this issue:
 3. The `ServiceAccount` used by the `EventListener` deployment does not have enough permissions.
 4. The `Trigger` is not configured correctly.
 
-## Problem Investigation 
+## Problem Investigation
 
-Given the possible issues mentioned above, follow the steps to find the root cause of the problem: 
+Given the possible issues mentioned above, follow the steps to find the root cause of the problem:
 
-### Webhook configuration was not setup correctly 
+### Webhook configuration was not setup correctly
 
   1. Access your repository/settings using an account with appropriate permissions.
   2. Check all webhook settings and confirm with the platform administrator details regarding the target address of the webhook.
   3. Make sure the required events are enabled by the webhook. For Gitlab events please refer to [GitLab Event Triggers](../how_to/gitlab_events.mdx)
-  
+
 
 ### EventLister not deployed or setup incorrectly
 
