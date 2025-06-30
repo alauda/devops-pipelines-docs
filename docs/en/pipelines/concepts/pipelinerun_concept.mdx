@@ -147,17 +147,27 @@ Timeout allows setting a maximum duration for PipelineRun execution.
 - Preventing long-running Pipelines from consuming resources indefinitely
 - Ensuring CI/CD workflows complete within a reasonable timeframe
 - Handling hung or deadlocked Tasks
+- Setting different timeout limits for different phases of pipeline execution
 
 #### Principles
 
 Timeouts are:
-- Specified in the PipelineRun specification
+- Specified in the PipelineRun specification using the `timeouts` field (the legacy `timeout` field is deprecated)
 - Applied to the entire PipelineRun execution or specific sections (tasks, finally)
 - Measured from the start of the first Task to the completion of the last Task
 - Result in PipelineRun failure if exceeded
+- Must follow the constraint: `timeouts.pipeline >= timeouts.tasks + timeouts.finally`
+- **Important**: If any sub-field is set to "0", there is no timeout for that section. To set `timeouts.tasks` or `timeouts.finally` to "0", you must also set `timeouts.pipeline` to "0"
 
-#### Configuration Example
+#### Timeout Fields
 
+- **pipeline**: Maximum duration for the entire PipelineRun
+- **tasks**: Maximum duration for all non-finally tasks
+- **finally**: Maximum duration for all finally tasks
+
+#### Configuration Examples
+
+**Example 1: Standard timeout configuration**
 ```yaml
 apiVersion: tekton.dev/v1
 kind: PipelineRun
@@ -167,13 +177,35 @@ spec:
   pipelineRef:
     name: build-deploy-app
   timeouts:
-    pipeline: "1h"
-    tasks: "45m"
-    finally: "15m"
+    pipeline: "1h"    # Total pipeline timeout
+    tasks: "45m"      # Timeout for all regular tasks
+    finally: "15m"    # Timeout for finally tasks
   params:
     - name: image-name
       value: my-registry/my-app:latest
 ```
+
+**Example 2: No timeout for tasks and finally (requires pipeline timeout to be 0)**
+```yaml
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: build-deploy-no-timeout
+spec:
+  pipelineRef:
+    name: build-deploy-app
+  timeouts:
+    pipeline: "0"     # No overall timeout
+    tasks: "0"        # No timeout for regular tasks
+    finally: "0"      # No timeout for finally tasks
+  params:
+    - name: image-name
+      value: my-registry/my-app:latest
+```
+
+**Note**:
+- Example 1 follows the constraint where `pipeline (1h) >= tasks (45m) + finally (15m)`
+- Example 2 shows how to disable timeouts by setting all values to "0"
 
 ### ServiceAccount
 
@@ -211,26 +243,106 @@ spec:
       value: my-registry/my-app:latest
 ```
 
-### TaskRunSpecs
+### Pod Template
 
-TaskRunSpecs allow customizing individual TaskRun configurations within a PipelineRun.
+Pod Template allows specifying a Pod template to use as the basis for the configuration of the Pod that executes each Task.
+
+:::tip
+For more information about Pod Templates, please refer to [Pod Templates](./pod_templates_concept.mdx).
+:::
 
 #### Use Cases
 
-- Applying different ServiceAccounts to different Tasks
-- Setting Task-specific Pod templates
-- Configuring Task-specific timeouts
-- Applying Task-specific compute resources
+- Setting node selectors for specific hardware requirements
+- Configuring tolerations for dedicated nodes
+- Specifying security contexts for enhanced security
+- Setting resource limits and requests at the Pod level
+- Configuring affinity rules for better resource utilization
+- Adding custom annotations or labels to Pods
+
+#### Principles
+
+Pod Templates:
+- Are applied to all Tasks in the PipelineRun unless overridden by taskRunSpecs
+- Follow Kubernetes Pod template specifications
+- Can be overridden by Task-specific configurations in taskRunSpecs
+- Enable consistent Pod configuration across all Tasks in a PipelineRun
+- Support all standard Kubernetes Pod template fields
+
+#### Configuration Example
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: build-deploy-with-pod-template
+spec:
+  pipelineRef:
+    name: build-deploy-app
+  taskRunTemplate:
+    serviceAccountName: default
+    # Global Pod template for all Tasks in the PipelineRun
+    podTemplate:
+      nodeSelector:
+        disktype: ssd
+        environment: production
+      tolerations:
+      - key: "dedicated"
+        operator: "Equal"
+        value: "pipeline"
+        effect: "NoSchedule"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 2000
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/os
+                operator: In
+                values:
+                - linux
+  params:
+    - name: image-name
+      value: my-registry/my-app:latest
+```
+
+### TaskRunSpecs
+
+TaskRunSpecs allow customizing individual TaskRun configurations within a PipelineRun by specifying a list of `PipelineTaskRunSpec` which enables setting `ServiceAccountName`, Pod template, and `Metadata` for each task.
+
+#### Use Cases
+
+- Applying different ServiceAccounts to different Tasks for fine-grained access control
+- Setting Task-specific Pod templates to meet different resource or security requirements
+- Configuring Task-specific metadata for better organization and tracking
+- Overriding global PipelineRun configurations for specific Tasks
+- Applying different compute resources or node selectors to different stages of the Pipeline
 
 #### Principles
 
 TaskRunSpecs:
-- Override default PipelineRun configurations for specific Tasks
+- Override the Pod template set for the entire Pipeline
 - Allow fine-grained control over Task execution environments
-- Can be used to meet specific security or resource requirements
+- Can be used to meet specific security, resource, or scheduling requirements
 - Enable different configurations for different stages of the Pipeline
+- Support all standard Kubernetes Pod template specifications
+- Can be combined with global PipelineRun configurations
 
-#### Configuration Example
+#### Configuration Fields
+
+Each TaskRunSpec supports the following fields:
+
+- **pipelineTaskName**: The name of the Pipeline task to apply the configuration to
+- **serviceAccountName**: The ServiceAccount to use for this specific Task
+- **podTemplate**: Pod template configuration specific to this Task
+- **metadata**: Metadata configuration for the TaskRun
+
+#### Configuration Examples
+
+**Example 1: Basic TaskRunSpecs with ServiceAccount and Pod Template**
 
 ```yaml
 apiVersion: tekton.dev/v1
@@ -246,14 +358,155 @@ spec:
       podTemplate:
         nodeSelector:
           disktype: ssd
+          environment: build
+        tolerations:
+        - key: "dedicated"
+          operator: "Equal"
+          value: "build"
     - pipelineTaskName: deploy
       serviceAccountName: deploy-service-account
       podTemplate:
+        nodeSelector:
+          disktype: ssd
+          environment: production
         tolerations:
         - key: "dedicated"
           operator: "Equal"
           value: "deploy"
           effect: "NoSchedule"
+  params:
+    - name: image-name
+      value: my-registry/my-app:latest
+```
+
+**Example 2: TaskRunSpecs with Advanced Pod Configuration**
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: advanced-taskrunspecs
+spec:
+  pipelineRef:
+    name: multi-stage-pipeline
+  taskRunSpecs:
+    - pipelineTaskName: build
+      serviceAccountName: build-sa
+      podTemplate:
+        nodeSelector:
+          gpu: available
+          disktype: nvme
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+    - pipelineTaskName: test
+      serviceAccountName: test-sa
+      podTemplate:
+        nodeSelector:
+          environment: testing
+        tolerations:
+        - key: "test-only"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"
+    - pipelineTaskName: deploy
+      serviceAccountName: deploy-sa
+      podTemplate:
+        nodeSelector:
+          environment: production
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+              - matchExpressions:
+                - key: kubernetes.io/os
+                  operator: In
+                  values:
+                  - linux
+```
+
+**Example 3: TaskRunSpecs with Metadata Configuration**
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: taskrunspecs-with-metadata
+spec:
+  pipelineRef:
+    name: build-test-deploy
+  taskRunSpecs:
+    - pipelineTaskName: build
+      serviceAccountName: build-sa
+      metadata:
+        labels:
+          stage: build
+          environment: development
+        annotations:
+          tekton.dev/description: "Build stage with optimized resources"
+      podTemplate:
+        nodeSelector:
+          disktype: ssd
+    - pipelineTaskName: deploy
+      serviceAccountName: deploy-sa
+      metadata:
+        labels:
+          stage: deploy
+          environment: production
+        annotations:
+          tekton.dev/description: "Production deployment stage"
+      podTemplate:
+        nodeSelector:
+          environment: production
+```
+
+**Example 4: TaskRunSpecs Overriding Global Pod Template**
+
+TaskRunSpecs can override the global Pod template set at the PipelineRun level:
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: override-global-template
+spec:
+  pipelineRef:
+    name: build-deploy-app
+  taskRunTemplate:
+    serviceAccountName: default
+    # Global Pod template for all Tasks
+    podTemplate:
+      nodeSelector:
+        disktype: ssd
+      tolerations:
+      - key: "general"
+        operator: "Equal"
+        value: "pipeline"
+        effect: "NoSchedule"
+  # Task-specific overrides
+  taskRunSpecs:
+    - pipelineTaskName: build
+      podTemplate:
+        nodeSelector:
+          disktype: nvme
+          gpu: available
+        tolerations:
+        - key: "build-only"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"
+    - pipelineTaskName: deploy
+      podTemplate:
+        nodeSelector:
+          environment: production
+        tolerations:
+        - key: "deploy-only"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"
+  params:
+    - name: image-name
+      value: my-registry/my-app:latest
 ```
 
 ### Workspaces

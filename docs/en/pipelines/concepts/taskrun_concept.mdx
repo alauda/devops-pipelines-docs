@@ -160,26 +160,79 @@ spec:
       value: my-registry/my-app:latest
 ```
 
-### Pod Template
+### Resource Limits
 
-Pod templates allow customizing the Kubernetes Pod configuration for a TaskRun.
+Resource limits allow you to specify compute resource requirements and limits for TaskRun execution. The `computeResources` field in the TaskRun specification provides a way to control CPU and memory allocation for the Pod that executes the TaskRun steps.
 
 #### Use Cases
 
-- Setting resource limits and requests
-- Configuring node selectors and tolerations
-- Adding security contexts
-- Configuring service accounts
+- **Resource Management**: Fair resource allocation across TaskRuns
+- **Cost Control**: Prevent excessive resource consumption
+- **Performance**: Optimize resource allocation for compute-intensive operations
+- **Stability**: Avoid resource exhaustion affecting other workloads
+
+#### Principles
+
+Resource limits:
+- Use `computeResources` field in TaskRun specification
+- Include `requests` (minimum) and `limits` (maximum)
+- Apply to all containers in the TaskRun Pod
+- Can be overridden by individual Step specifications
+- Follow Kubernetes resource specification format
+
+#### Configuration Examples
+
+**Basic Resource Limits**
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: build-with-resources
+spec:
+  taskRef:
+    name: build-app
+  computeResources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+```
+
+### Pod Template
+
+Pod templates allow customizing the Kubernetes Pod configuration for a TaskRun.
+The `podTemplate` field in the TaskRun specification provides a way to configure the underlying Pod that executes the TaskRun steps.
+
+:::tip
+For more information about Pod Templates, please refer to [Pod Templates](./pod_templates_concept.mdx).
+:::
+
+#### Use Cases
+
+- **Security Configuration**: Setting security contexts to run containers as non-root users
+- **Node Selection**: Using node selectors to schedule Pods on specific nodes
+- **Tolerations**: Adding tolerations for nodes with taints
+- **Service Accounts**: Configuring custom service accounts for Pod execution
+- **Volume Configuration**: Adding additional volumes or configuring volume mounts
+- **Environment Variables**: Setting environment variables at the Pod level
+- **Affinity Rules**: Configuring pod affinity and anti-affinity rules
 
 #### Principles
 
 Pod templates:
 - Are applied to the Pod created for the TaskRun
-- Can override default Pod configurations
+- Can override default Pod configurations set by Tekton
 - Allow fine-grained control over Pod execution environment
-- Can be used to meet specific security or resource requirements
+- Can be used to meet specific security, compliance, or resource requirements
+- Support all standard Kubernetes Pod specification fields
+- Are merged with Tekton's default Pod configuration
 
-#### Configuration Example
+#### Configuration Examples
+
+**Basic Pod Template with Security Context**
 
 ```yaml
 apiVersion: tekton.dev/v1
@@ -192,8 +245,78 @@ spec:
   podTemplate:
     securityContext:
       runAsNonRoot: true
+      runAsUser: 1001
+      fsGroup: 1001
+```
+
+**Pod Template with Node Selector and Resource Limits**
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: build-with-resources
+spec:
+  taskRef:
+    name: build-app
+  computeResources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+  podTemplate:
     nodeSelector:
       disktype: ssd
+      environment: production
+```
+
+**Pod Template with Tolerations and Affinity**
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: build-with-affinity
+spec:
+  taskRef:
+    name: build-app
+  podTemplate:
+    tolerations:
+      - key: "dedicated"
+        operator: "Equal"
+        value: "build"
+        effect: "NoSchedule"
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: "kubernetes.io/e2e-az-name"
+                  operator: "In"
+                  values:
+                    - "e2e-az1"
+                    - "e2e-az2"
+```
+
+**Pod Template with Service Account and Environment Variables**
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: build-with-env
+spec:
+  taskRef:
+    name: build-app
+  podTemplate:
+    serviceAccountName: build-service-account
+    env:
+      - name: BUILD_ENVIRONMENT
+        value: "production"
+      - name: LOG_LEVEL
+        value: "debug"
 ```
 
 ## References

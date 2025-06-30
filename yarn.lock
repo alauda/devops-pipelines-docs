@@ -5,9 +5,9 @@ __metadata:
   version: 8
   cacheKey: 10c0
 
-"@alauda/doom@npm:^1.4.1":
-  version: 1.4.1
-  resolution: "@alauda/doom@npm:1.4.1"
+"@alauda/doom@npm:^1.5.1":
+  version: 1.5.1
+  resolution: "@alauda/doom@npm:1.5.1"
   dependencies:
     "@cspell/eslint-plugin": "npm:^8.19.4 || ^9.1.1"
     "@eslint-react/eslint-plugin": "npm:^1.52.2"
@@ -31,6 +31,7 @@ __metadata:
     es-toolkit: "npm:^1.39.3"
     eslint: "npm:^9.29.0"
     eslint-plugin-mdx: "npm:^3.5.0"
+    globals: "npm:^16.2.0"
     html-tag-names: "npm:^2.1.0"
     mdast-util-mdx: "npm:^3.0.0"
     mdast-util-mdx-jsx: "npm:^3.2.0"
@@ -62,7 +63,7 @@ __metadata:
     yoctocolors: "npm:^2.1.1"
   bin:
     doom: lib/cli/index.js
-  checksum: 10c0/2050f730ce5a16e4a3c804c4701e26d62488de1bde6432400cfdfe643cbf7c1356cd0586ebbf12f623b1bd88be095561e7fc6a4b85f7f795d1fbd1142ce64eeb
+  checksum: 10c0/9129a3e667300f833e69ad23be004903fc2d128545238c32a70a3397aef319e6679574486dcec16c18dc3c260afdd0b4a3defa9b50935f615d72a28f71a5f2c9
   languageName: node
   linkType: hard
 
@@ -5822,6 +5823,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"globals@npm:^16.2.0":
+  version: 16.2.0
+  resolution: "globals@npm:16.2.0"
+  checksum: 10c0/c2b3ea163faa6f8a38076b471b12f4bda891f7df7f7d2e8294fb4801d735a51a73431bf4c1696c5bf5dbca5e0a0db894698acfcbd3068730c6b12eef185dea25
+  languageName: node
+  linkType: hard
+
 "globalyzer@npm:0.1.0":
   version: 0.1.0
   resolution: "globalyzer@npm:0.1.0"
@@ -8841,7 +8849,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "root-workspace-0b6124@workspace:."
   dependencies:
-    "@alauda/doom": "npm:^1.4.1"
+    "@alauda/doom": "npm:^1.5.1"
     typescript: "npm:^5.8.3"
   languageName: unknown
   linkType: soft
