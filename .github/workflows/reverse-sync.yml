@@ -2,8 +2,10 @@ name: Reverse Sync
 
 env:
   TARGET_REPO: alaudadevops/tektoncd-operator
+  # Ignoring the files or folders in this prefex (uses comma to split)
   IGNORE_PATHS: .github/,README.md
-  SYNCED_PATHS: docs/ theme/ .yarn/ doom.config.yml yarn.lock tsconfig.json package.json sites.yaml
+  # will check these files change to create a new patch
+  SYNCED_PATHS: "docs/ theme/ .yarn/ doom.config.yml yarn.lock tsconfig.json package.json sites.yaml"
 
 on:
   pull_request:
@@ -23,7 +25,7 @@ jobs:
       id: check_sync_bot
       run: |
         pr_author="${{ github.event.pull_request.user.login }}"
-        pr_title="${{ github.event.pull_request.title }}"
+        pr_title='${{ github.event.pull_request.title }}'
         pr_base_ref="${{ github.event.pull_request.base.ref }}"
         pr_head_ref="${{ github.event.pull_request.head.ref }}"
 
