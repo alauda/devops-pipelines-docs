@@ -2,6 +2,8 @@ name: Reverse Sync
 
 env:
   TARGET_REPO: alaudadevops/tektoncd-operator
+  IGNORE_PATHS: .github/,README.md
+  SYNCED_PATHS: docs/ theme/ .yarn/ doom.config.yml yarn.lock tsconfig.json package.json sites.yaml
 
 on:
   pull_request:
@@ -9,9 +11,6 @@ on:
     branches:
       - main
       - release-*
-    paths:
-      - '*'
-      - '!README.md'
 
 
 jobs:
@@ -77,13 +76,17 @@ jobs:
         echo "base_commit=$base_commit" >> $GITHUB_OUTPUT
 
         # Get list of changed files in the PR
-        git diff --name-only $base_commit $merge_commit > ../changed_files.txt
+        ignore_pattern=$(echo "$IGNORE_PATHS" | sed 's/,/|/g' | sed 's|/$||g')
+        echo "🙈 Ignored paths: $ignore_pattern"
+
+        git diff --name-only $base_commit $merge_commit | grep -v -E "^($ignore_pattern)" > ../changed_files.txt
 
         echo "📋 Changed files in PR:"
         cat ../changed_files.txt
 
+        IFS=',' read -ra PATHS <<< "$SYNCED_PATHS"
         # Check if any documentation files were changed
-        if grep -E "(^docs/|^README\.md$)" ../changed_files.txt; then
+        if [ -s ../changed_files.txt ]; then
           echo "has_doc_changes=true" >> $GITHUB_OUTPUT
           echo "✅ Documentation changes detected"
         else
@@ -117,7 +120,9 @@ jobs:
         base_commit="${{ steps.get_changes.outputs.base_commit }}"
 
         # Create a patch with only the documentation changes
-        git format-patch $base_commit..$merge_commit --stdout -- docs/ README.md > ../changes.patch
+        ignore_pattern=$(echo "$IGNORE_PATHS" | sed 's/,/|/g' | sed 's|/$||g')
+        echo "📑 Will only sync these paths: $SYNCED_PATHS"
+        git format-patch $base_commit..$merge_commit --stdout -- $SYNCED_PATHS > ../changes.patch
 
         cd ../target-docs
 
@@ -129,12 +134,10 @@ jobs:
 
             # Fallback: manual copy of changed files
             while IFS= read -r file; do
-              if [[ "$file" == docs/* ]] || [[ "$file" == "README.md" ]]; then
-                if [ -f "../devops-pipelines-docs/$file" ]; then
-                  mkdir -p "$(dirname "$file")"
-                  cp "../devops-pipelines-docs/$file" "$file"
-                  echo "✅ Copied: $file"
-                fi
+              if [ -f "../devops-pipelines-docs/$file" ]; then
+                mkdir -p "$(dirname "$file")"
+                cp "../devops-pipelines-docs/$file" "$file"
+                echo "✅ Copied: $file"
               fi
             done < ../changed_files.txt
           }
@@ -143,12 +146,10 @@ jobs:
 
           # Manual copy approach
           while IFS= read -r file; do
-            if [[ "$file" == docs/* ]] || [[ "$file" == "README.md" ]]; then
-              if [ -f "../devops-pipelines-docs/$file" ]; then
-                mkdir -p "$(dirname "$file")"
-                cp "../devops-pipelines-docs/$file" "$file"
-                echo "✅ Copied: $file"
-              fi
+            if [ -f "../devops-pipelines-docs/$file" ]; then
+              mkdir -p "$(dirname "$file")"
+              cp "../devops-pipelines-docs/$file" "$file"
+              echo "✅ Copied: $file"
             fi
           done < ../changed_files.txt
         fi

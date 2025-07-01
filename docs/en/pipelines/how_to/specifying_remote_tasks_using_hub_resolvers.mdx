@@ -1,0 +1,110 @@
+---
+weight: 10
+i18n:
+  title:
+    en: Specifying remote tasks using hub resolvers
+    zh: 使用 hub 解析器指定远程任务
+title: Specifying remote tasks using hub resolvers
+---
+
+# Specifying remote tasks using hub resolvers
+
+## Feature Overview
+
+Tasks are reusable blocks for your CI/CD processes.
+When creating a pipeline run or task run, you can specify a remote task from the Catalog available on Hub.
+A default Hub instance is provided, you can use it directly.
+
+## Steps
+
+### 1. Select a Task Using the Web Console
+
+1. Go to Container Platform.
+2. In the left navigation bar, click Pipelines > Pipelines.
+3. Create a Pipeline, then you can select a remote Task from the Catalog.
+
+### 2. Specifying the remote task using the hub resolver
+
+To specify a remote task, use the following reference format in the `taskRef`:
+
+```yaml
+# ...
+  taskRef:
+    resolver: hub
+    params:
+    - name: catalog
+      value: catalog
+    - name: kind
+      value: task
+    - name: name
+      value: <resource_name>
+    - name: version
+      value: "<resource_version>"
+# ...
+```
+
+| Parameter | Description                                                                                           | Example value |
+|-----------|-------------------------------------------------------------------------------------------------------|---------------|
+| `catalog` | The catalog for pulling the resource.                                                                 | `catalog`     |
+| `kind`    | Either task or pipeline.                                                                              | `task`        |
+| `name`    | The name of the task or pipeline to fetch from the hub.                                               | `git-cli`     |
+| `version` | The version of the task or pipeline to fetch from the hub. You must use quotes (") around the number. | `"0.4"`       |
+
+If the task requires additional parameters, specify values for these parameters in the params section of the specification of the pipeline, or task run.
+The params section of the `taskRef` specification must contain only the parameters that the resolver supports.
+
+Examples:
+
+The following example pipeline references a remote task from the catalog:
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: pipeline-with-hub-task-reference-demo
+spec:
+  tasks:
+  - name: "cluster-task-reference-demo"
+    taskRef:
+      resolver: hub
+      params:
+      - name: catalog
+        value: catalog
+      - name: kind
+        value: task
+      - name: name
+        value: git-cli
+      - name: version
+        value: "0.4"
+    params:
+    - name: sample-task-parameter
+      value: "foo"
+```
+
+The following example task run references a remote task from the catalog:
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: hub-task-reference-demo
+spec:
+  taskRef:
+    resolver: hub
+    params:
+    - name: catalog
+      value: catalog
+    - name: kind
+      value: task
+    - name: name
+      value: git-cli
+    - name: version
+      value: "0.4"
+  params:
+  - name: sample-task-parameter
+    value: "foo"
+```
+
+## Learn More
+
+- [Tekton Hub Resolver](https://tekton.dev/docs/pipelines/hub-resolver/)
