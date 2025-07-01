@@ -2,7 +2,7 @@ name: Reverse Sync
 
 env:
   TARGET_REPO: alaudadevops/tektoncd-operator
-  # Ignoring the files or folders in this prefex (uses comma to split)
+  # Ignoring the files or folders in this prefix (uses comma to split)
   IGNORE_PATHS: .github/,README.md
   # will check these files change to create a new patch
   SYNCED_PATHS: "docs/ theme/ .yarn/ doom.config.yml yarn.lock tsconfig.json package.json sites.yaml"
