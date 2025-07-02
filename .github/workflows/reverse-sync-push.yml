@@ -1,0 +1,331 @@
+name: Reverse Sync on Push
+
+env:
+  TARGET_REPO: alaudadevops/tektoncd-operator
+  # Ignoring the files or folders in this prefix (uses comma to split)
+  IGNORE_PATHS: .github/,README.md
+  # will check these files change to create a new patch
+  SYNCED_PATHS: "docs/ theme/ .yarn/ doom.config.yml yarn.lock tsconfig.json package.json sites.yaml"
+
+on:
+  push:
+    branches:
+      - main
+      - release-*
+
+# Limit token capabilities to what the job really needs
+permissions:
+  contents: read          # checkout / git diff
+  pull-requests: write    # create PR in target repo
+
+# (Optional) Prevent multiple syncs of the same ref running in parallel
+concurrency:
+  group: reverse-sync-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  reverse-sync:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout devops-pipelines-docs repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GH_TOKEN }}
+        fetch-depth: 0
+
+    - name: Check if commit is from merged PR
+      id: check_pr_commit
+      run: |
+        # Get the latest commit
+        commit_sha="${{ github.sha }}"
+        echo "commit_sha=$commit_sha" >> $GITHUB_OUTPUT
+
+        # Get commit message
+        commit_message=$(git log -1 --pretty=format:"%s" $commit_sha)
+        echo "commit_message=$commit_message" >> $GITHUB_OUTPUT
+
+        # Get commit author
+        commit_author=$(git log -1 --pretty=format:"%an" $commit_sha)
+        commit_author_email=$(git log -1 --pretty=format:"%ae" $commit_sha)
+        echo "commit_author=$commit_author" >> $GITHUB_OUTPUT
+        echo "commit_author_email=$commit_author_email" >> $GITHUB_OUTPUT
+
+        echo "=> Commit: $commit_sha"
+        echo "=> Message: $commit_message"
+        echo "=> Author: $commit_author <$commit_author_email>"
+
+        # Check if this is a merge commit from GitHub (squash merge creates a single commit)
+        # Look for PR number in commit message (GitHub automatically adds this)
+        if [[ "$commit_message" =~ \(#([0-9]+)\)$ ]]; then
+          pr_number="${BASH_REMATCH[1]}"
+          echo "pr_number=$pr_number" >> $GITHUB_OUTPUT
+          echo "is_pr_commit=true" >> $GITHUB_OUTPUT
+          echo "✅ Detected commit from PR #$pr_number"
+        else
+          echo "is_pr_commit=false" >> $GITHUB_OUTPUT
+          echo "ℹ️ Not a PR commit - skipping reverse sync"
+        fi
+
+        # Skip if the commit is from our sync bot
+        if [[ "$commit_author_email" == "noreply@github.com" ]] && [[ "$commit_message" == *"[reverse-sync]"* ]]; then
+          echo "skip_sync=true" >> $GITHUB_OUTPUT
+          echo "🤖 Commit is from sync bot - skipping reverse sync"
+        elif [[ "$commit_message" == *"Sync documentation"* ]] || [[ "$commit_message" == *"sync-docs"* ]]; then
+          echo "skip_sync=true" >> $GITHUB_OUTPUT
+          echo "🤖 Commit appears to be from sync process - skipping reverse sync"
+        else
+          echo "skip_sync=false" >> $GITHUB_OUTPUT
+          echo "👥 Commit is from external contributor - proceeding with reverse sync"
+        fi
+
+    - name: Get PR information
+      if: steps.check_pr_commit.outputs.is_pr_commit == 'true' && steps.check_pr_commit.outputs.skip_sync == 'false'
+      id: get_pr_info
+      run: |
+        pr_number="${{ steps.check_pr_commit.outputs.pr_number }}"
+
+        # Get PR information using GitHub API
+        pr_info=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+          "https://api.github.com/repos/${{ github.repository }}/pulls/$pr_number")
+
+        pr_title=$(echo "$pr_info" | jq -r '.title')
+        pr_author=$(echo "$pr_info" | jq -r '.user.login')
+        pr_url=$(echo "$pr_info" | jq -r '.html_url')
+        pr_base_ref=$(echo "$pr_info" | jq -r '.base.ref')
+
+        echo "pr_title=$pr_title" >> $GITHUB_OUTPUT
+        echo "pr_author=$pr_author" >> $GITHUB_OUTPUT
+        echo "pr_url=$pr_url" >> $GITHUB_OUTPUT
+        echo "pr_base_ref=$pr_base_ref" >> $GITHUB_OUTPUT
+
+        echo "=> PR #$pr_number: $pr_title"
+        echo "=> Author: $pr_author"
+        echo "=> URL: $pr_url"
+
+    - name: Get commit changes
+      if: steps.check_pr_commit.outputs.is_pr_commit == 'true' && steps.check_pr_commit.outputs.skip_sync == 'false'
+      id: get_changes
+      run: |
+        commit_sha="${{ steps.check_pr_commit.outputs.commit_sha }}"
+
+        # Get the parent commit (previous commit before this one)
+        parent_commit=$(git rev-parse ${commit_sha}^)
+        echo "parent_commit=$parent_commit" >> $GITHUB_OUTPUT
+
+        # Get list of changed files in the commit, excluding ignored paths
+        ignore_pattern=$(echo "$IGNORE_PATHS" | sed 's/,/|/g' | sed 's|/$||g')
+        echo "🙈 Ignored paths: $ignore_pattern"
+
+        git diff --name-only $parent_commit $commit_sha | grep -v -E "^($ignore_pattern)" > changed_files.txt || true
+
+        echo "📋 Changed files in commit:"
+        cat changed_files.txt
+
+        # Check if any relevant files were changed
+        if [ -s changed_files.txt ]; then
+          echo "has_doc_changes=true" >> $GITHUB_OUTPUT
+          echo "✅ Documentation changes detected"
+        else
+          echo "has_doc_changes=false" >> $GITHUB_OUTPUT
+          echo "ℹ️ No documentation changes detected"
+        fi
+
+    - name: Checkout target repository
+      if: steps.check_pr_commit.outputs.is_pr_commit == 'true' && steps.check_pr_commit.outputs.skip_sync == 'false' && steps.get_changes.outputs.has_doc_changes == 'true'
+      uses: actions/checkout@v4
+      with:
+        repository: ${{env.TARGET_REPO}}
+        token: ${{ secrets.GH_TOKEN }}
+        path: target-docs
+        fetch-depth: 0
+        ref: ${{ steps.get_pr_info.outputs.pr_base_ref }}
+
+    - name: Create reverse sync branch
+      if: steps.check_pr_commit.outputs.is_pr_commit == 'true' && steps.check_pr_commit.outputs.skip_sync == 'false' && steps.get_changes.outputs.has_doc_changes == 'true'
+      id: create_branch
+      run: |
+        cd target-docs
+
+        # Create a unique branch name
+        pr_number="${{ steps.check_pr_commit.outputs.pr_number }}"
+        branch_name="reverse-sync/pr-$pr_number-$(date +%s)"
+        echo "branch_name=$branch_name" >> $GITHUB_OUTPUT
+
+        git checkout -b "$branch_name"
+
+        # Configure git
+        git config user.name "Documentation Sync Bot"
+        git config user.email "noreply@github.com"
+
+        echo "📝 Created branch: $branch_name"
+
+    - name: Apply changes from devops-pipelines-docs
+      if: steps.check_pr_commit.outputs.is_pr_commit == 'true' && steps.check_pr_commit.outputs.skip_sync == 'false' && steps.get_changes.outputs.has_doc_changes == 'true'
+      run: |
+        commit_sha="${{ steps.check_pr_commit.outputs.commit_sha }}"
+        parent_commit="${{ steps.get_changes.outputs.parent_commit }}"
+
+        # Create a patch with only the synced paths
+        echo "📑 Will only sync these paths: $SYNCED_PATHS"
+        git format-patch $parent_commit..$commit_sha --stdout -- $SYNCED_PATHS > changes.patch
+
+        cd target-docs
+
+        # Apply the patch
+        if [ -s ../changes.patch ]; then
+          echo "📦 Applying changes from devops-pipelines-docs..."
+          git apply ../changes.patch || {
+            echo "⚠️ Patch application failed, trying manual copy..."
+
+            # Fallback: manual copy of changed files
+            while IFS= read -r file; do
+              if [ -f "../$file" ]; then
+                mkdir -p "$(dirname "$file")"
+                cp "../$file" "$file"
+                echo "✅ Copied: $file"
+              fi
+            done < ../changed_files.txt
+          }
+        else
+          echo "⚠️ No patch generated, using manual copy..."
+
+          # Manual copy approach
+          while IFS= read -r file; do
+            if [ -f "../$file" ]; then
+              mkdir -p "$(dirname "$file")"
+              cp "../$file" "$file"
+              echo "✅ Copied: $file"
+            fi
+          done < ../changed_files.txt
+        fi
+
+    - name: Commit changes
+      if: steps.check_pr_commit.outputs.is_pr_commit == 'true' && steps.check_pr_commit.outputs.skip_sync == 'false' && steps.get_changes.outputs.has_doc_changes == 'true'
+      id: commit_changes
+      run: |
+        cd target-docs
+
+        git add .
+
+        if git diff --staged --quiet; then
+          echo "has_changes=false" >> $GITHUB_OUTPUT
+          echo "ℹ️ No changes to commit"
+        else
+          echo "has_changes=true" >> $GITHUB_OUTPUT
+
+          pr_number="${{ steps.check_pr_commit.outputs.pr_number }}"
+          pr_title="${{ steps.get_pr_info.outputs.pr_title }}"
+          pr_author="${{ steps.get_pr_info.outputs.pr_author }}"
+          pr_url="${{ steps.get_pr_info.outputs.pr_url }}"
+          commit_sha="${{ steps.check_pr_commit.outputs.commit_sha }}"
+
+          # Create commit message with reverse sync marker
+          cat > commit_message.txt << EOF
+          [reverse-sync] Sync documentation changes from devops-pipelines-docs PR #$pr_number
+
+          This commit incorporates changes from external contributors to the devops-pipelines-docs repository.
+
+          📋 Original PR Details:
+          - Title: $pr_title
+          - Author: $pr_author
+          - URL: $pr_url
+          - Commit: $commit_sha
+
+          🔄 This is a reverse sync commit - it should not trigger forward sync.
+          EOF
+
+          git commit -F commit_message.txt
+          rm commit_message.txt
+
+          echo "✅ Changes committed successfully"
+        fi
+
+    - name: Push branch and create PR
+      if: steps.check_pr_commit.outputs.is_pr_commit == 'true' && steps.check_pr_commit.outputs.skip_sync == 'false' && steps.get_changes.outputs.has_doc_changes == 'true' && steps.commit_changes.outputs.has_changes == 'true'
+      run: |
+        cd target-docs
+        branch_name="${{ steps.create_branch.outputs.branch_name }}"
+        pr_base_ref="${{ steps.get_pr_info.outputs.pr_base_ref }}"
+        pr_number="${{ steps.check_pr_commit.outputs.pr_number }}"
+        pr_title="${{ steps.get_pr_info.outputs.pr_title }}"
+        pr_author="${{ steps.get_pr_info.outputs.pr_author }}"
+        pr_url="${{ steps.get_pr_info.outputs.pr_url }}"
+
+        # Push the branch
+        git push origin "$branch_name"
+
+        # Create PR body with proper JSON escaping
+        pr_body=$(cat << 'EOF'
+        ### 🔄 Reverse Sync from devops-pipelines-docs
+
+        This PR incorporates documentation changes from external contributors to the devops-pipelines-docs repository.
+
+        #### Original PR Details
+        - **Repository**: danielfbm/devops-pipelines-docs
+        - **PR**: #%PR_NUMBER% - %PR_TITLE%
+        - **Author**: @%PR_AUTHOR%
+        - **URL**: %PR_URL%
+
+        #### Changes
+        This PR includes changes to documentation files that were contributed by external contributors to the public devops-pipelines-docs repository.
+
+        #### Important Notes
+        - ⚠️ This PR contains the `[reverse-sync]` marker to prevent infinite sync loops
+        - ✅ Once merged, this will NOT trigger a forward sync back to devops-pipelines-docs
+        - 🔍 Please review the changes to ensure they align with internal documentation standards
+
+        ---
+        *This PR was automatically created by the reverse sync workflow.*
+        EOF)
+
+        # Replace placeholders in the PR body
+        pr_body=$(echo "$pr_body" | sed "s/%PR_NUMBER%/$pr_number/g")
+        pr_body=$(echo "$pr_body" | sed "s/%PR_TITLE%/$pr_title/g")
+        pr_body=$(echo "$pr_body" | sed "s/%PR_AUTHOR%/$pr_author/g")
+        pr_body=$(echo "$pr_body" | sed "s|%PR_URL%|$pr_url|g")
+
+        # Create JSON payload with proper escaping
+        json_payload=$(jq -n \
+          --arg title "[reverse-sync] Documentation changes from devops-pipelines-docs PR #$pr_number" \
+          --arg head "$branch_name" \
+          --arg base "$pr_base_ref" \
+          --arg body "$pr_body" \
+          '{title: $title, head: $head, base: $base, body: $body}')
+
+        # Create the PR using GitHub API
+        curl -X POST \
+          -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
+          -H "Accept: application/vnd.github.v3+json" \
+          -H "Content-Type: application/json" \
+          https://api.github.com/repos/${{env.TARGET_REPO}}/pulls \
+          -d "$json_payload"
+
+    - name: Create workflow summary
+      run: |
+        if [ "${{ steps.check_pr_commit.outputs.is_pr_commit }}" == "false" ]; then
+          echo "## ℹ️ Not a PR Commit" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "This commit was not created from a merged PR, so no reverse sync was performed." >> $GITHUB_STEP_SUMMARY
+        elif [ "${{ steps.check_pr_commit.outputs.skip_sync }}" == "true" ]; then
+          echo "## 🤖 Sync Bot Commit - Reverse Sync Skipped" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "This commit was created by the sync bot, so reverse sync was skipped to prevent loops." >> $GITHUB_STEP_SUMMARY
+        elif [ "${{ steps.get_changes.outputs.has_doc_changes }}" == "false" ]; then
+          echo "## ℹ️ No Documentation Changes" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "This commit didn't contain any documentation changes, so no reverse sync was needed." >> $GITHUB_STEP_SUMMARY
+        elif [ "${{ steps.commit_changes.outputs.has_changes }}" == "false" ]; then
+          echo "## ℹ️ No Changes to Sync" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The documentation changes were already present in target-docs." >> $GITHUB_STEP_SUMMARY
+        else
+          echo "## 🎉 Reverse Sync Completed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Successfully created a PR in target-docs with the documentation changes." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Details:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Source PR**: #${{ steps.check_pr_commit.outputs.pr_number }} by @${{ steps.get_pr_info.outputs.pr_author }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch**: ${{ steps.create_branch.outputs.branch_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Base ref**: ${{ steps.get_pr_info.outputs.pr_base_ref }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Target repository**: ${{env.TARGET_REPO}}" >> $GITHUB_STEP_SUMMARY
+        fi
