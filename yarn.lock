@@ -5,9 +5,9 @@ __metadata:
   version: 8
   cacheKey: 10c0
 
-"@alauda/doom@npm:^1.5.1":
-  version: 1.5.1
-  resolution: "@alauda/doom@npm:1.5.1"
+"@alauda/doom@npm:^1.7.1":
+  version: 1.7.1
+  resolution: "@alauda/doom@npm:1.7.1"
   dependencies:
     "@cspell/eslint-plugin": "npm:^8.19.4 || ^9.1.1"
     "@eslint-react/eslint-plugin": "npm:^1.52.2"
@@ -33,6 +33,7 @@ __metadata:
     eslint-plugin-mdx: "npm:^3.5.0"
     globals: "npm:^16.2.0"
     html-tag-names: "npm:^2.1.0"
+    md-attr-parser: "npm:^1.3.0"
     mdast-util-mdx: "npm:^3.0.0"
     mdast-util-mdx-jsx: "npm:^3.2.0"
     mermaid: "npm:^11.6.0"
@@ -58,12 +59,13 @@ __metadata:
     type-fest: "npm:^4.41.0"
     typescript: "npm:^5.8.3"
     typescript-eslint: "npm:^8.34.1"
+    unified: "npm:^11.0.5"
     x-fetch: "npm:^0.2.6"
     yaml: "npm:^2.8.0"
     yoctocolors: "npm:^2.1.1"
   bin:
     doom: lib/cli/index.js
-  checksum: 10c0/9129a3e667300f833e69ad23be004903fc2d128545238c32a70a3397aef319e6679574486dcec16c18dc3c260afdd0b4a3defa9b50935f615d72a28f71a5f2c9
+  checksum: 10c0/d62196dbdcf489c60f70b54934d0ed1992a6eeff66f550e625df36222cb119118ae75c7c5bcca2d720040cde5b7d922823566b7bff59c4e807396b8a8338fb38
   languageName: node
   linkType: hard
 
@@ -6822,6 +6824,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"md-attr-parser@npm:^1.3.0":
+  version: 1.3.0
+  resolution: "md-attr-parser@npm:1.3.0"
+  checksum: 10c0/97284ba2c937287f2c568291dd6ead1b570ba096274c5fde985a17d1e197cc13d7a4ca8293ecf9a5db9007383fdbfeba97e17cf5f7d46ca5222c36a6c519e37b
+  languageName: node
+  linkType: hard
+
 "mdast-util-directive@npm:^3.0.0":
   version: 3.1.0
   resolution: "mdast-util-directive@npm:3.1.0"
@@ -8849,7 +8858,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "root-workspace-0b6124@workspace:."
   dependencies:
-    "@alauda/doom": "npm:^1.5.1"
+    "@alauda/doom": "npm:^1.7.1"
     typescript: "npm:^5.8.3"
   languageName: unknown
   linkType: soft
