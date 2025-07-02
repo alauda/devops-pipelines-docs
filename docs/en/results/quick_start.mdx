@@ -11,8 +11,6 @@ This document explains how to install Tekton Results using an **existing databas
 
 :::note
 Currently, the built-in PostgreSQL database is not supported, please use an external database.
-
-About external database please refer to [Using PostgreSQL from Data Services](./configure/database_configuration.mdx#using-postgresql-from-data-services)
 :::
 
 ### Prerequisites
@@ -59,10 +57,6 @@ About external database please refer to [Using PostgreSQL from Data Services](./
      -subj "/CN=tekton-results-api-service.tekton-pipelines.svc.cluster.local" \
      -addext "subjectAltName = DNS:tekton-results-api-service.tekton-pipelines.svc.cluster.local"
    ```
-
-   :::tip
-   If your `openssl` version is too low and does not support some parameters, please upgrade your `openssl` version from [openssl binaries](https://github.com/openssl/openssl/wiki/Binaries) .
-   :::
 
    - Create a new TLS Secret from the certificate.
 

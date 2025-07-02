@@ -84,8 +84,6 @@ Tekton Chains is deployed as a Kubernetes controller within a cluster:
 - **Deployment**: A single deployment manages the controller pods
 - **Service Account**: The controller uses a dedicated service account with appropriate permissions
 - **Configuration**: Configuration is managed through a ConfigMap called `chains-config`
-    - By default, Tekton Chains is deployed automatically through the `TektonConfig` resource. You can modify the `TektonConfig` resource to configure Chains.
-    - Essentially, Tekton Operator will synchronize the Chains configuration from the `TektonConfig` resource to the `TektonChains` resource, and finally reflect in the `chains-config` ConfigMap.
 - **Secrets**: Signing keys and credentials are stored as Kubernetes secrets
 
 ### High Availability Considerations

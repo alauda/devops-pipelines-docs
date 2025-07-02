@@ -59,37 +59,13 @@ After installing the Tekton Operator, you should verify that it's running proper
 1. Check that the Operator pods are running:
 
   ```bash
-  $ kubectl get pods -n tekton-operator
-  ```
-
-  The results should be similar to the following:
-
-  ```bash
-  NAME                                       READY   STATUS    RESTARTS   AGE
-  tekton-operator-57cfd5bb79-dnxzt           2/2     Running   0          10m
-  tekton-operator-webhook-6fb66bfd65-ppfz8   1/1     Running   0          10m
+  kubectl get pods -n tekton-operator
   ```
 
 2. Verify the Operator CRDs (Custom Resource Definitions) are installed:
 
   ```bash
-  $ kubectl get crds | grep operator.tekton.dev
-  ```
-
-  The results should be similar to the following:
-
-  ```bash
-  tektonaddons.operator.tekton.dev                2025-06-20T09:47:38Z
-  tektonchains.operator.tekton.dev                2025-06-20T09:47:38Z
-  tektonconfigs.operator.tekton.dev               2025-06-20T09:47:38Z
-  tektondashboards.operator.tekton.dev            2025-06-20T09:47:38Z
-  tektonhubs.operator.tekton.dev                  2025-06-20T09:47:38Z
-  tektoninstallersets.operator.tekton.dev         2025-06-20T09:47:38Z
-  tektonpipelines.operator.tekton.dev             2025-06-20T09:47:39Z
-  tektonresults.operator.tekton.dev               2025-06-20T09:47:39Z
-  tektontriggers.operator.tekton.dev              2025-06-20T09:47:39Z
-  manualapprovalgates.operator.tekton.dev         2025-06-20T09:47:38Z
-  openshiftpipelinesascodes.operator.tekton.dev   2025-06-20T09:47:38Z
+  kubectl get crds | grep tekton
   ```
 
 ### Install Tekton Components
@@ -106,7 +82,7 @@ After installing the Tekton components, you should verify that they are running 
 1. Check the TektonConfig resource:
 
   ```bash
-  $ kubectl get tektonconfig config
+  kubectl get tektonconfig config
   ```
 
   The results should be similar to the following:
@@ -144,10 +120,10 @@ After installing the Tekton components, you should verify that they are running 
 
 ### Expected Results
 
-After completing all steps, the `TektonConfig` and `TektonInstallerSet` resources should be ready, you should have:
+After completing all steps, you should have:
 
 - A running Tekton Operator in the `tekton-operator` namespace
-- One or more installed Tekton components (Pipeline, Triggers, Hub, Chains) in the `tekton-pipelines` namespace
+- One or more installed Tekton components (Pipeline, Triggers, Hub) in the `tekton-pipelines` namespace
 - Custom Resource Definitions (CRDs) for managing Tekton resources
 
 ## Next Steps

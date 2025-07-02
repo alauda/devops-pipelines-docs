@@ -65,9 +65,3 @@ The main application scenarios of Tekton Chains are as follows:
 - Some features may require additional configuration of external services like OCI registries or KMS systems.
 
 - Tekton Chains observes TaskRuns and PipelineRuns after they complete, so there may be a slight delay between when a pipeline finishes and when the attestations are available.
-
-- Tekton Chains only generates Attestation, but does not verify the Attestation.
-  - You need to use other tools to verify the Attestation. For example, you can use the following tools:
-    - [Cosign](https://github.com/sigstore/cosign)
-    - [Kyverno](https://kyverno.io/)
-    - [Rekor](https://github.com/sigstore/rekor)

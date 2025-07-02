@@ -10,21 +10,12 @@ Tekton Chains is a powerful security component within the Tekton ecosystem that 
 
 | Term | Description |
 |------|-------------|
+| Provenance | Metadata that describes how an artifact was produced, including the build process, inputs, and environment |
 | SLSA | Supply-chain Levels for Software Artifacts - a security framework for software supply chain integrity |
-| Signature | Cryptographic proof that verifies the authenticity and integrity of provenance data |
 | Attestation | Authenticated metadata about software artifacts, following the in-toto attestation format |
-| Verification | The process of checking the authenticity and integrity of attestation data |
+| Signature | Cryptographic proof that verifies the authenticity and integrity of provenance data |
 | Type Hinting | Specially named results/params that help Tekton Chains understand inputs and outputs |
 | Storage Backend | System where Tekton Chains stores provenance and signatures |
-
-Attestation has multiple types of predicates.
-
-| Predicate Type | Description |
-|----------------|-------------|
-| SLSA Provenance | Metadata that describes how an artifact was produced, including the build process, inputs, and environment |
-| SBOM | A document that lists all the components of a software product and their relationships |
-| Vulnerability Scan Results | A report that lists all the vulnerabilities found in a software product |
-| Custom Metadata | Custom metadata about a software product |
 
 ## Why Tekton Chains is Needed
 
@@ -47,12 +38,7 @@ Tekton Chains addresses these challenges by:
 2. **Cryptographic Signing**: Ensuring the integrity and authenticity of provenance data
 3. **Standardized Formats**: Supporting industry-standard formats like SLSA provenance
 4. **Flexible Storage**: Providing multiple options for storing and retrieving provenance
-5. **Integration with Existing Tools**: Working with tools like Cosign, Syft, Trivy, Kyverno, Rekor, and cloud KMS services
-    - [Cosign](https://github.com/sigstore/cosign): A tool for signing, verifying, and managing signatures for container images
-    - [Syft](https://github.com/anchore/syft): A tool for generating SBOMs for container images
-    - [Trivy](https://github.com/aquasecurity/trivy): A tool for generating SBOMs and vulnerability scan results for container images, and scanning vulnerabilities
-    - [Kyverno](https://kyverno.io/): Is a policy engine for Kubernetes that can be used to enforce security policies on container images
-    - [Rekor](https://github.com/sigstore/rekor): Is a public transparency log for signed artifacts
+5. **Integration with Existing Tools**: Working with tools like Sigstore, Cosign, and cloud KMS services
 
 By implementing Tekton Chains, organizations can achieve higher levels of supply chain security and meet SLSA compliance requirements.
 
@@ -67,33 +53,17 @@ By implementing Tekton Chains, organizations can achieve higher levels of supply
 
 ## Scenarios
 
-### Scenario 1: Image Signature Verification
+### Scenario 1: Securing Container Image Builds
 
-A development team wants to ensure the integrity of their container images by implementing cryptographic signatures. By using Tekton Chains, they can automatically sign their built images and verify these signatures throughout their deployment process. This helps prevent unauthorized modifications and ensures that only trusted images are deployed.
+A development team uses Tekton Pipelines to build container images. By implementing Tekton Chains, they can automatically generate signed provenance for each image, which includes details about the source code, build environment, and build steps. This provenance is stored alongside the image in their container registry, allowing downstream consumers to verify the image's authenticity and build process.
 
-### Scenario 2: Build System Provenance Verification
+### Scenario 2: Compliance with Security Requirements
 
-An organization needs to verify the authenticity of their build process and ensure it follows their security requirements. By implementing Tekton Chains, they can generate SLSA Provenance for their container images, providing detailed information about how each image was built. This helps them maintain a secure and auditable build process.
+An organization needs to comply with security requirements that mandate traceability and integrity verification for all deployed software. By using Tekton Chains, they can generate SLSA provenance for all artifacts, providing cryptographic proof of how each artifact was built and from what sources. This helps them meet audit requirements and demonstrate due diligence in securing their supply chain.
 
-### Scenario 3: Source Code Repository Verification
+### Scenario 3: Detecting Supply Chain Attacks
 
-A team wants to ensure that their container images are built from trusted source code repositories. By using Tekton Chains, they can automatically generate provenance that includes source code repository information and commit details. This helps them verify that images are built from the correct source code and specific commits.
-
-### Scenario 4: Vulnerability Scanning and Verification
-
-A security team needs to ensure that their container images are free from known vulnerabilities before deployment. By implementing Tekton Chains with vulnerability scanning tools, they can automatically scan images for security issues and verify the scan results. This helps them maintain a secure container image registry and prevent vulnerable images from being deployed.
-
-### Scenario 5: Base Image and SBOM Verification
-
-An organization wants to maintain a complete inventory of their container image components and ensure they're using trusted base images. By using Tekton Chains with SBOM generation tools, they can automatically generate and verify software bill of materials for their images. This helps them track dependencies and ensure compliance with their security policies.
-
-### Scenario 6: License Compliance Verification
-
-A legal team needs to ensure that all software components in their container images comply with their license requirements. By implementing Tekton Chains with SBOM verification, they can automatically check the licenses of all components in their images. This helps them maintain compliance with software licensing requirements and avoid potential legal issues.
-
-### Scenario 7: Keyless Signing Verification
-
-A development team wants to implement a zero-trust signing approach without managing signing keys. By using Tekton Chains with keyless signing capabilities, they can automatically sign their artifacts using ephemeral keys and transparency logs. This helps eliminate key management overhead while maintaining strong security guarantees.
+A security team wants to ensure that no unauthorized changes occur in their build process. With Tekton Chains, any attempt to tamper with the build process would result in provenance that doesn't match the expected values. By implementing verification steps in their deployment process, they can automatically detect and prevent the deployment of artifacts with suspicious provenance.
 
 ## Constraints and Limitations
 
@@ -146,247 +116,38 @@ metadata:
   name: chains-config
   namespace: tekton-chains
 data:
-  artifacts.taskrun.format: "slsa/v1"
-  artifacts.taskrun.storage: "oci"
+  artifacts.taskrun.format: "slsa/v2alpha3"
+  artifacts.taskrun.storage: "tekton,oci"
   artifacts.taskrun.signer: "x509"
-  artifacts.pipelinerun.format: "slsa/v1"
-  artifacts.pipelinerun.storage: "oci"
+  artifacts.pipelinerun.format: "slsa/v2alpha3"
+  artifacts.pipelinerun.storage: "tekton"
   artifacts.pipelinerun.signer: "x509"
   artifacts.oci.format: "simplesigning"
   artifacts.oci.storage: "oci"
   artifacts.oci.signer: "x509"
 ```
 
-### Type Hinting
+### Type Hinting Example for Git Source
 
-:::tip
-More details about type hinting can be found in the [Tekton Chains Type Hinting](https://tekton.dev/docs/chains/slsa-provenance/#type-hinting) documentation.
-:::
-
-Type Hinting is a special mechanism in Tekton Chains that helps Chains understand input artifacts and output artifacts in PipelineRun/TaskRun through specific naming conventions.
-
-**Purpose**
-- Helps Chains correctly identify and record input and output artifacts in the build process
-- Generates accurate SLSA Provenance attestations
-- Ensures traceability and integrity of the build process
-
-There are several ways to specify input and output artifacts:
-
-#### 1. **CHAINS-GIT_URL and CHAINS-GIT_COMMIT combination**
-
-- Special type hints for Git repository information
-- Used to track source code repository details
-- Helps in provenance generation for source code
-
-```yaml
-results:
-  - name: CHAINS-GIT_URL
-    type: string
-  - name: CHAINS-GIT_COMMIT
-    type: string
-```
-
-:::details{title="Example TaskRun"}
 ```yaml
 apiVersion: tekton.dev/v1
 kind: TaskRun
 metadata:
-  name: git-clone
+  name: build-from-source
 spec:
   taskSpec:
-    params:
-      - name: url
-        description: Repository URL to clone from.
-        type: string
-        default: "https://github.com/tektoncd/pipeline"
-      - name: revision
-        description: Revision to checkout. (branch, tag, sha, ref, etc...)
-        type: string
-        default: "main"
     results:
       - name: CHAINS-GIT_URL
-        type: string
-        description: The precise URL that was fetched by this Task.
+        description: The Git repository URL
       - name: CHAINS-GIT_COMMIT
-        type: string
-        description: The precise commit SHA that was fetched by this Task.
+        description: The Git commit SHA
+      - name: IMAGE_URL
+        description: The URL of the built image
+      - name: IMAGE_DIGEST
+        description: The digest of the built image
     steps:
-      - name: dummy-clone
-        image: bash:latest
-        script: |
-          #!/usr/bin/env bash
-          echo -n "https://github.com/tektoncd/pipeline" | tee $(results.CHAINS-GIT_URL.path)
-          echo -n "7f2f46e1b97df36b2b82d1b1d87c81b8b3d21601" | tee $(results.CHAINS-GIT_COMMIT.path)
+      # Task implementation
 ```
-:::
-
-#### 2. **\*ARTIFACT_INPUTS**
-
-> **Note:**
-> - `*` indicates any expression
-
-- Used to specify input artifacts that influenced the build process
-- Helps track dependencies and source materials
-
-```yaml
-results:
-  - name: first-ARTIFACT_INPUTS
-    type: object
-    properties:
-      uri: {}
-      digest: {}
-```
-
-:::details{title="Example TaskRun"}
-```yaml
-apiVersion: tekton.dev/v1
-kind: TaskRun
-metadata:
-  name: git-clone
-spec:
-  taskSpec:
-    params:
-      - name: url
-        description: Repository URL to clone from.
-        type: string
-        default: "https://github.com/tektoncd/pipeline"
-      - name: revision
-        description: Revision to checkout. (branch, tag, sha, ref, etc...)
-        type: string
-        default: "main"
-    results:
-      - name: source_repo_ARTIFACT_INPUTS
-        description: The source code repo artifact
-        type: object
-        properties:
-          uri: {}
-          digest: {}
-    steps:
-      - name: dummy-clone
-        image: bash:latest
-        script: |
-          #!/usr/bin/env bash
-          echo -n "{\"uri\":\"https://github.com/tektoncd/pipeline\", \"digest\":\"sha1:7f2f46e1b97df36b2b82d1b1d87c81b8b3d21601\"}" > $(results.source_repo_ARTIFACT_INPUTS.path)
-```
-:::
-
-#### 3. **\*IMAGE_URL and \*IMAGE_DIGEST combination**
-
-```yaml
-results:
-  - name: first-image-IMAGE_URL
-    type: string
-  - name: first-image-IMAGE_DIGEST
-    type: string
-```
-
-:::details{title="Example TaskRun"}
-```yaml
-apiVersion: tekton.dev/v1
-kind: TaskRun
-metadata:
-  name: image-build
-spec:
-  taskSpec:
-    results:
-      - name: first-image-IMAGE_URL
-        type: string
-        description: The precise URL of the OCI image built.
-      - name: first-image-IMAGE_DIGEST
-        type: string
-        description: The algorithm and digest of the OCI image built.
-    steps:
-      - name: dummy-build
-        image: bash:latest
-        script: |
-          #!/usr/bin/env bash
-          echo -n "gcr.io/foo/bar" | tee $(results.first-image-IMAGE_URL.path)
-          echo -n "sha256:586789aa031fafc7d78a5393cdc772e0b55107ea54bb8bcf3f2cdac6c6da51ee" | tee $(results.first-image-IMAGE_DIGEST.path)
-```
-:::
-
-#### 4. **IMAGES**
-
-- Can specify multiple images, separated by commas or newlines
-- Each image must include the complete digest
-
-```yaml
-results:
-  - name: IMAGES
-    type: string
-```
-
-:::details{title="Example TaskRun"}
-```yaml
-apiVersion: tekton.dev/v1
-kind: TaskRun
-metadata:
-  name: image-build
-spec:
-  taskSpec:
-    results:
-      - name: IMAGES
-        description: The multiple image artifacts
-        type: string
-    steps:
-      - name: dummy-build
-        image: bash:latest
-        script: |
-          #!/usr/bin/env bash
-          echo -n "img1@sha256:digest1, img2@sha256:digest2" | tee $(results.IMAGES.path)
-```
-:::
-
-#### 5. **\*ARTIFACT_URI / \*ARTIFACT_DIGEST combination**
-
-- Similar to IMAGE_URL/IMAGE_DIGEST but with different naming convention
-- Used for specifying artifact location and its digest
-
-```yaml
-results:
-  - name: first-ARTIFACT_URI
-    type: string
-  - name: first-ARTIFACT_DIGEST
-    type: string
-```
-
-#### 6. **\*ARTIFACT_OUTPUTS**
-
-- Uses object type results
-- Must include uri and digest fields
-
-```yaml
-results:
-  - name: first-ARTIFACT_OUTPUTS
-    type: object
-    properties:
-      uri: {}
-      digest: {}
-```
-
-:::details{title="Example TaskRun"}
-```yaml
-apiVersion: tekton.dev/v1
-kind: TaskRun
-metadata:
-  name: image-build
-spec:
-  taskSpec:
-    results:
-      - name: first-ARTIFACT_OUTPUTS
-        description: The first artifact built
-        type: object
-        properties:
-          uri: {}
-          digest: {}
-    steps:
-      - name: dummy-build
-        image: bash:latest
-        script: |
-          #!/usr/bin/env bash
-          echo -n "{\"uri\":\"gcr.io/foo/bar\", \"digest\":\"sha256:586789aa031fafc7d78a5393cdc772e0b55107ea54bb8bcf3f2cdac6c6da51ee\"}" > $(results.first-ARTIFACT_OUTPUTS.path)
-```
-:::
 
 ## Important Parameters
 
@@ -432,5 +193,3 @@ artifacts.oci.signer: "x509"
 - [SLSA Framework](https://slsa.dev/)
 - [In-toto Attestation](https://github.com/in-toto/attestation)
 - [Sigstore Project](https://www.sigstore.dev/)
-- [SBOM](https://www.ntia.gov/page/software-bill-materials)
-- [Cosign Vulnerability Scan results](https://github.com/sigstore/cosign/blob/main/specs/COSIGN_VULN_ATTESTATION_SPEC.md)
