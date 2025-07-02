@@ -84,9 +84,15 @@ jobs:
       run: |
         pr_number="${{ steps.check_pr_commit.outputs.pr_number }}"
 
+        echo "👀 Looking for PR $pr_number ..."
+
+
         # Get PR information using GitHub API
         pr_info=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
           "https://api.github.com/repos/${{ github.repository }}/pulls/$pr_number")
+
+
+        echo "👀 PR data $pr_info ..."
 
         pr_title=$(echo "$pr_info" | jq -r '.title')
         pr_author=$(echo "$pr_info" | jq -r '.user.login')
@@ -169,6 +175,9 @@ jobs:
         echo "📑 Will only sync these paths: $SYNCED_PATHS"
         git format-patch $parent_commit..$commit_sha --stdout -- $SYNCED_PATHS > changes.patch
 
+        echo "📋 Generated Patch: "
+        cat changes.patch
+
         cd target-docs
 
         # Apply the patch
@@ -205,12 +214,20 @@ jobs:
       run: |
         cd target-docs
 
+        echo "🔍 Checking for changes..."
+
+        git status
+
+        echo "=> Adding changes..."
+
         git add .
 
+        echo "==> Checking if there are staged changes..."
         if git diff --staged --quiet; then
           echo "has_changes=false" >> $GITHUB_OUTPUT
           echo "ℹ️ No changes to commit"
         else
+          echo "=> Changes detected..."
           echo "has_changes=true" >> $GITHUB_OUTPUT
 
           pr_number="${{ steps.check_pr_commit.outputs.pr_number }}"
@@ -219,20 +236,26 @@ jobs:
           pr_url="${{ steps.get_pr_info.outputs.pr_url }}"
           commit_sha="${{ steps.check_pr_commit.outputs.commit_sha }}"
 
+          echo "=> Creating commit message..."
+          echo "  - PR Number: $pr_number"
+          echo "  - PR Title: $pr_title"
+          echo "  - PR Author: $pr_author"
+          echo "  - PR URL: $pr_url"
+          echo "  - Commit SHA: $commit_sha"
+
           # Create commit message with reverse sync marker
-          cat > commit_message.txt << EOF
-          [reverse-sync] Sync documentation changes from devops-pipelines-docs PR #$pr_number
 
-          This commit incorporates changes from external contributors to the devops-pipelines-docs repository.
+          echo "[reverse-sync] Sync documentation changes from devops-pipelines-docs PR #$pr_number" > commit_message.txt
+          echo "" >> commit_message.txt
+          echo "- Title: $pr_title" >> commit_message.txt
+          echo "- Author: $pr_author" >> commit_message.txt
+          echo "- URL: $pr_url" >> commit_message.txt
+          echo "- Commit: $commit_sha" >> commit_message.txt
 
-          📋 Original PR Details:
-          - Title: $pr_title
-          - Author: $pr_author
-          - URL: $pr_url
-          - Commit: $commit_sha
+          echo "=> Commit message:"
+          cat commit_message.txt
 
-          🔄 This is a reverse sync commit - it should not trigger forward sync.
-          EOF
+          echo "=> Committing changes..."
 
           git commit -F commit_message.txt
           rm commit_message.txt
