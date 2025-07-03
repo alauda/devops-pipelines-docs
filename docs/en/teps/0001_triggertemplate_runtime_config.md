@@ -478,11 +478,11 @@ spec:
 
 - **env merged by `name` field**: Environment variables are merged by name, same names are overridden
 - **volumes merged by `name` field**: Volumes are merged by name, same names are overridden
-- **Other fields use standard merge**: `nodeSelector`, `securityContext` and other fields use standard merge logic (later values override earlier ones)
+- **Other fields use standard merge**: `nodeSelector`, `securityContext` and other fields use standard merge logic. If the field is an object, it will be recursively merged.
 - **Example**:
   - `BUILD_ENV` is overridden from `"development"` to `"production"`
   - `shared-config` volume is overridden from `configMap` to `secret`
-  - `securityContext` is completely merged
+  - `securityContext` fields are recursively merged (same fields overridden, different fields preserved)
 
 This merge mechanism ensures configuration flexibility and composability, allowing users to create complex runtime configurations by combining multiple templates.
 
