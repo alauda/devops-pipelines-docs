@@ -41,7 +41,7 @@ The specific steps are as follows:
   ![](./assets/commit-comment.png)
 
   ```shell
-  /test to-build-bundle-image branch:main overwrite_artifacts=".global.images.ui.tag=v1.0.0-rc.1"
+  /test to-all-in-one branch:main overwrite_artifacts=".global.images.ui.tag=v1.0.0-rc.1"
   ```
 
   Where:
