@@ -118,7 +118,7 @@ spec:
 - **build-extra-args**
   - **type**: string
   - **default**: ""
-  - **description**: Extra parameters passed for the build command when building images. WARNING - must be sanitized to avoid command injection. e.g., --build-arg key=value --label key=value
+  - **description**: Extra parameters passed for the build command when building images. WARNING - must be sanitized to avoid command injection (e.g. --build-arg key=value --label key=value).
 
 - **build-args**
   - **type**: array
@@ -133,7 +133,7 @@ spec:
 - **push-extra-args**
   - **type**: string
   - **default**: ""
-  - **description**: Extra parameters passed for the push command when pushing images. WARNING - must be sanitized to avoid command injection. e.g., --creds=username:password
+  - **description**: Extra parameters passed for the push command when pushing images. WARNING - must be sanitized to avoid command injection (e.g. --creds=username:password).
 
 ### Trivy Scanner
 
@@ -145,34 +145,39 @@ spec:
 - **trivy-extra-args**
   - **type**: string
   - **default**: ""
-  - **description**: Extra parameters passed for the trivy command when scanning images. WARNING - must be sanitized to avoid command injection. e.g., --insecure. You can use `--skip-db-update` `--skip-java-db-update` to skip updating vulnerability database.
+  - **description**: Extra parameters passed for the trivy command when scanning images. WARNING - must be sanitized to avoid command injection (e.g. --insecure). You can use `--skip-db-update` `--skip-java-db-update` to skip updating vulnerability database.
 
-### Update Workload
+### Deploy or upgrade workload
 
 - **workload-name**
   - **type**: string
   - **default**: ""
-  - **description**: The name of the workload to update.
+  - **description**: The name of the workload to deploy or upgrade. If it is not specified, `deploy-or-upgrade` task will be skipped.
 
 - **workload-kind**
   - **type**: string
   - **default**: Deployment
-  - **description**: The kind of workload to update, such as Deployment, StatefulSet, etc.
+  - **description**: The kind of workload to deploy or upgrade, such as Deployment, StatefulSet, etc.
 
 - **workload-namespace**
   - **type**: string
   - **default**: ""
-  - **description**: The namespace of the workload to update. If not specified, will use the namespace of the current TaskRun.
+  - **description**: The namespace of the workload to deploy or upgrade. If not specified, will use the namespace of the current TaskRun.
 
 - **workload-container**
   - **type**: string
-  - **default**: "*"
-  - **description**: This parameter is used to specify the container within the workload whose image needs to be updated. By default, the images of all containers in the workload will be updated.
+  - **default**: []
+  - **description**: This parameter is used to specify the containers within the workload whose image needs to be updated. By default, all of the container's image in the workload will be updated.
 
 - **workload-rollout-timeout**
   - **type**: string
   - **default**: "0"
-  - **description**: The timeout for the rollout to complete. If it is not specified or set to 0, it will never timeout.
+  - **description**: The length of time to wait before ending waiting workload ready, `0` means never. Any other values should contain a corresponding time unit (e.g. 1s, 2m, 3h).
+
+- **workload-manifests-dir**
+  - **type**: string
+  - **default**: ""
+  - **description**: The manifest of the workload to deploy. If it is not specified, will only update the image of the workload which is already in cluster. You can use the relative path to the manifest directory in the `source` workspace. For example: "manifests".
 
 ## Workspaces
 
@@ -196,7 +201,7 @@ The Task can be run on `linux/amd64` and `linux/arm64` platforms.
 
 ### Minimal Setup: Run End-to-End With Minimal Parameters
 
-Optional tasks (sonarqube-scanner, update-workload, etc.) will be gracefully skipped when unset or omitted.
+Optional tasks (`sonarqube-scanner`, `deploy-or-upgrade`, etc.) will be gracefully skipped when unset or omitted.
 
 ```yaml
 apiVersion: tekton.dev/v1
@@ -289,6 +294,49 @@ Here is some of the properties you can set:
 | sonar.sources                  | Comma-separated paths to directories containing main source files                                                                                                                                                      |
 | sonar.organization             | The organization in SonarQube where the project exists                                                                                                                                                                 |
 
+### Deploy or upgrade a workload
+
+You can deploy or upgrade a workload using the image built by the `build-image` task in this pipeline.
+
+By setting the `workload-manifests-dir` param, you can apply Kubernetes manifests from the specified directory to create or update the workload.
+
+Both JSON and YAML formats are supported. All manifests within the specified directory will be processed using `kubectl apply`. Note that `kubectl apply` does not traverse subdirectories.
+
+If the directory contains a Kustomize configuration file (e.g. `kustomization.yaml`, `kustomization.yml`, or `Kustomization`), it will be processed using `kubectl kustomize`.
+
+Here is an example structure of the `workload-manifests-dir`:
+
+```
+manifests
+├── deployment.yaml
+├── kustomization.yaml
+└── service.yaml
+```
+
+You can configure the following parameters:
+
+```yaml
+spec:
+  params:
+    # ...
+    - name: images
+      value:
+        - foo/bar:latest
+    - name: workload-name
+      value: bar
+    - name: workload-namespace
+      value: default
+    - name: workload-kind
+      value: Deployment
+    - name: workload-manifests-dir
+      value: manifests
+    # ...
+```
+
+If you prefer not to deploy the workload using manifests. Simply leave the `workload-manifests-dir` param empty. In that case, the task will only update the image of an existing workload in the cluster.
+
+You need to manage image pull secrets for the workload. If the new image is hosted in a different registry, make sure to create and configure the appropriate pull secret for your workload.
+
 ### Skip tasks with Params
 
 The pipeline supports skipping tasks using params:
@@ -298,7 +346,7 @@ The pipeline supports skipping tasks using params:
 | git-clone         | `skip-git-clone`  | `"false"` | If code already exists in `source` workspace, you can set this to `"true"` to skip cloning. |
 | sonarqube-scanner | `sonar-url`       | `""`      | Scan will be skipped if `sonar-url` is not set.                                             |
 | trivy-scanner     | `skip-trivy-scan` | `"false"` | Scan will be skipped if `skip-trivy-scan` is set to `"true"`.                               |
-| update-workload   | `workload-name`   | `""`      | If you don't want to update the workload, you can left `workload-name` empty.               |
+| deploy-or-upgrade | `workload-name`   | `""`      | If you don't want to deploy or upgrade the workload, you can left `workload-name` empty.    |
 
 ### Full Example with All Tasks
 
@@ -309,7 +357,7 @@ This example demonstrates how to use all tasks in the pipeline. It includes foll
 * Building the image and pushing the image to the registry.
 * Scanning the image with Trivy
 * Scanning the code with SonarQube
-* Updating the workload
+* Deploying or Upgrading the workload
 
 ```yaml
 apiVersion: tekton.dev/v1

@@ -1,0 +1,77 @@
+---
+weight: 10
+i18n:
+  title:
+    en: Unable to Use Multiple PVC Workspaces in Tekton
+    zh: 在 Tekton 中遇到无法使用多个基于 PVC 的工作区的问题
+title:
+---
+
+# Unable to Use Multiple PVC Workspaces in Tekton
+
+## Problem Description
+
+When running a `PipelineRun` or `TaskRun` in Tekton with **multiple `PersistentVolumeClaim` (PVC)**-based `workspaces`, the execution fails with an error similar to "more than one PersistentVolumeClaim is bound".
+
+This occurs even if all PVCs are valid and correctly declared.
+
+### Error Manifestation
+
+1. TaskRun execution fails with a status of `False`, and the reason is `TaskRunValidationFailed`:
+   ```bash
+   $ kubectl get taskruns -n ${namespace} ${taskrun_name}
+   NAME                     SUCCEEDED   REASON                       STARTTIME   COMPLETIONTIME
+   demo-hbfhd-foo           False       TaskRunValidationFailed      59s         59s
+   ```
+
+2. The TaskRun event displays an error message:
+   ```
+   [User error] more than one PersistentVolumeClaim is bound
+   ```
+
+## Root Cause Analysis
+
+By default, Tekton enables the **Affinity Assistant** feature to help co-locate TaskRun pods with their PVCs on the same node. This is especially useful for volumes with `ReadWriteOnce` access mode.
+
+However, when the Affinity Assistant is enabled:
+- Each `TaskRun` is limited to a **single PVC-based workspace**.
+- Binding more than one PVC triggers a **validation error**, preventing the TaskRun from running.
+
+This restriction is enforced to avoid complex scheduling issues and node affinity conflicts.
+
+## Troubleshooting
+
+To allow a `TaskRun` or `PipelineRun` to use **multiple PVC-based workspaces**, you must **disable the Affinity Assistant** by updating the Tekton feature flags.
+
+It is recommended to troubleshoot as follows:
+
+1. Edit the TektonConfig resource by setting `spec.pipeline.disable-affinity-assistant` as shown below:
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+spec:
+  pipeline:
+    disable-affinity-assistant: true
+```
+
+tips: the `disable-affinity-assistant` feature flag will be removed soon and the Affinity Assistant Modes will be only controlled by the `coschedule` feature flag.
+
+2. The `feature-flags` ConfigMap will be updated automatically.
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: feature-flags
+  namespace: tekton-pipelines
+data:
+  disable-affinity-assistant: "true"
+```
+
+3. No manual component restarts are required, changes will take effect automatically.
+
+## Related Content
+
+- [Tekton Affinity Assistant](https://tekton.dev/docs/pipelines/affinityassistants/)
+- [Tekton Workspaces](https://tekton.dev/docs/pipelines/workspaces/)
