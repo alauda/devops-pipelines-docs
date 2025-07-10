@@ -1,5 +1,5 @@
 ---
-weight: 30
+weight: 35
 ---
 
 # Lifecycle Policy
@@ -8,17 +8,24 @@ weight: 30
 
 Below is the lifecycle schedule for released versions of the `Alauda DevOps Pipelines` operator:
 
-| Alauda DevOps Pipelines Version | Tekton Component Versions | Release Date | End of Support  |
-| :----: | ------------------------ | :----------: | :--------------: |
-| v4.1.z | Pipelines: v0.65.z<br />Chains: v0.23.z<br />Pipelines-as-Code: v0.32.z<br />Results: v0.13.z<br />Triggers: v0.30.z<br />Tekton Hub: v1.19.z | 2025-?-? | 2026-?-? |
+| Alauda DevOps Pipelines Version | Release Date | End of Support  |
+| :----: | :----------: | :--------------: |
+| v4.1.x | 2025-07-14 | 2025-11-14 |
+| v4.0.x (LTS) | 2025-04-08 | 2026-04-08 |
+
+> For detailed component versions, see the [Compatibility and support matrix](./release_notes.mdx#compatibility-and-support-matrix)
 
 ## Release Policy
 
-The `Alauda DevOps Pipelines` operator releases a new version every four to six months, updating the operator to the latest or second latest [LTS](https://github.com/tektoncd/community/blob/main/releases.md#support-policy) version officially released by Tekton.
+A new minor version of the `Alauda DevOps Pipelines` operator is released every month.
+
+Within every 4-month period, the last minor version will be selected as a Long Term Support (LTS) version. LTS versions are supported for 12 months, while non-LTS versions are supported four months.
+
+During these four months, we will update to the latest or second [LTS](https://github.com/tektoncd/community/blob/main/releases.md#support-policy) version officially released by Tekton.
 
 ## Maintenance Policy
 
-Alauda provides 12 months of maintenance support for each released version of the Tekton operator.
+Alauda provides maintenance support for 12 months for LTS versions and 4 months for non-LTS versions of the Tekton operator.
 
 During the maintenance period, Alauda will provide the following services to customers:
 

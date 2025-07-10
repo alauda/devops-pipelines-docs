@@ -1,0 +1,141 @@
+---
+weight: 10
+---
+
+# Upgrade `Alauda DevOps Pipelines` Operator
+
+This document provides instructions for upgrading the `Alauda DevOps Pipelines` Operator to a newer version using the `Marketplace`/`OperatorHub` interface in your cluster. The upgrade process is designed to be straightforward while ensuring minimal disruption to existing Tekton resources.
+
+## Upgrade Overview
+
+Upgrading the `Alauda DevOps Pipelines` Operator allows you to access new features, bug fixes, and improvements to the Tekton ecosystem. The `Alauda DevOps Pipelines` Operator handles the upgrade of all Tekton components (Pipelines, Triggers, Hub, etc.) according to your configuration.
+
+## Before You Begin
+
+Before upgrading the `Alauda DevOps Pipelines` Operator, ensure you:
+
+- Have administrative access to your cluster
+- Review the release notes for the new version to understand any breaking changes
+- Verify that your existing Tekton component configurations are compatible with the new version
+- Confirm that all Tekton components are in a ready state
+
+## Upgrade Process
+
+### Using `Marketplace`/`OperatorHub`
+
+1. **Access the `Marketplace`/`OperatorHub`**
+   - Log in to your cluster's management console
+   - Navigate to the `Marketplace` or `OperatorHub` section
+
+2. **Locate the `Alauda DevOps Pipelines` Operator**
+   - Search for `Alauda DevOps Pipelines` in the search bar
+   - Click on the `Alauda DevOps Pipelines` card
+
+3. **View Available Versions**
+   - On the `Alauda DevOps Pipelines` Operator details page, you'll see information about the currently installed version
+   - The interface will indicate if a newer version is available
+   - You can click different `Channels` to view all available versions
+
+4. **Initiate the Upgrade**
+   - If the target version is in a different `Channel`, switch to the corresponding `Channel` in the `Subscription` first
+   - If the current `Channel` has a newer version available, you will see a prompt:
+     - **New Version Detected**
+       - To upgrade only the current Operator, click `Confirm` to upgrade.
+
+5. **Configure Upgrade Settings (if applicable)**
+   - Some upgrades may present configuration options
+   - In most cases, the default settings will preserve your existing configuration
+
+6. **Confirm and Start the Upgrade**
+   - Click `Confirm` to begin the process
+   - Review the upgrade details and confirm your selection
+   - The system will update the `Alauda DevOps Pipelines` Operator while maintaining your custom resources
+
+7. **Monitor the Upgrade**
+   - The upgrade progress will be displayed in the `OperatorHub` interface
+   - You can also check the status in the `tekton-operator` namespace:
+     ```bash
+     $ kubectl get pods -n tekton-operator
+     ```
+     When all pods are in `Running` state, the operator upgrade is complete.
+     The operator will then automatically upgrade components such as `Pipelines`, `Triggers`, `Hub`, `Chains`, etc.
+   - Check the components upgrade status:
+     ```bash
+     $ kubectl get tektoninstallerset -A
+     $ kubectl get pods -n tekton-pipelines
+     ```
+     When all components and pods are in `Ready` state, the components upgrade is complete.
+
+8. **Verify the Upgrade**
+   - Check that the `Alauda DevOps Pipelines` Operator version has been updated:
+     ```bash
+     $ kubectl get csv -n tekton-operator
+
+     NAME                        DISPLAY                   VERSION   REPLACES   PHASE
+     tektoncd-operator.v4.x.x    Alauda DevOps Pipelines   4.x.x     x          Succeeded
+     ```
+     When the `VERSION` matches the new version, the upgrade is complete.
+   - Verify that your Tekton components are functioning correctly
+     - Test that your pipelines can run successfully
+
+## Post-Upgrade Steps
+
+After the upgrade completes successfully:
+
+1. **Verify Component Status**
+   - Check that all Tekton components have been updated:
+     ```bash
+     kubectl get tektonconfig,tektonpipeline,tektontrigger -A
+     kubectl get tektoninstallerset -A
+     ```
+
+2. **Test Functionality**
+   - Run a simple pipeline to verify that the system is working correctly
+   - Ensure that all existing integrations continue to function
+
+3. **Update Custom Resources if Needed**
+   - If the new version introduces changes to CRDs, you may need to update your custom resources
+   - Refer to the release notes for specific migration steps
+
+## Rollback Procedure
+
+If you encounter issues with the new version, you can roll back to the previous version:
+
+1. Return to the `Marketplace`/`OperatorHub` interface
+2. Select the `Alauda DevOps Pipelines` Operator
+3. `Uninstall` the current version
+4. Choose the previous version from the version list
+5. Follow the installation process for that version
+
+:::note
+Downgrading may require additional steps to ensure compatibility of your resources with the older version.
+
+This depends on the differences between the version you upgraded from and the version you upgraded to. If the differences are large, you may need to manually migrate resources.
+:::
+
+## Troubleshooting
+
+If you encounter issues during or after the upgrade:
+
+- Check the `Alauda DevOps Pipelines` Operator pod logs:
+  ```bash
+  $ kubectl logs -l name=tekton-operator -n tekton-operator
+  ```
+
+- Verify the status of your Tekton resources:
+  ```bash
+  $ kubectl get tektonconfig config -o yaml
+  ```
+
+- Ensure that all components have the expected status:
+  ```bash
+  $ kubectl get tektoninstallerset
+  ```
+
+## Next Steps
+
+After successfully upgrading the `Alauda DevOps Pipelines` Operator:
+
+- Explore new features introduced in the latest version
+- Update your CI/CD pipelines to leverage new capabilities
+- Consider enabling additional components that may be available in the new version
