@@ -1,0 +1,423 @@
+---
+title: Run TektonCD Operator E2E Tests
+weight: 14
+---
+
+# TektonCD Operator E2E Testing Guide
+
+This document will guide you through using TektonCD Operator's E2E test image to connect to a Kubernetes cluster and perform end-to-end testing in your local environment.
+
+## Prerequisites
+
+Before starting, please ensure your environment meets the following requirements:
+
+### 1. System Requirements
+- Linux or macOS operating system
+- Docker installed and running
+- At least 4GB available memory
+- At least 10GB available disk space
+
+### 2. Kubernetes Cluster Access
+- Valid `kubeconfig` file
+- Cluster administrator privileges (for installing and configuring TektonCD Operator)
+- Cluster version: Kubernetes 1.19+
+
+### 3. Tool Requirements
+- `docker` command-line tool
+- `allure` optional test report reading tool
+
+## Quick Start
+
+### Step 1: Prepare Test Environment
+
+```bash
+# Check Docker version
+docker version
+
+# Pull the E2E test image
+docker pull registry.alauda.cn:60070/devops/tektoncd/e2e/operator/operator-e2e:latest
+```
+
+> **Note**: The test image is built from the Dockerfile located at `.tekton/dockerfiles/operator-e2e.Dockerfile`.
+
+
+### Step 2: Prepare config.yaml
+
+#### **Create config.yaml**
+
+This configuration file provides external dependency connection information for E2E tests. When E2E tests require external services (such as GitLab, Harbor, databases, etc.), this file contains the connection details for these services.
+
+Below is a complete E2E test configuration example that includes various toolchain configurations. Please note that sensitive information in the example has been anonymized.
+
+```yaml
+registry:
+  # Test image registry address
+  test: registry.example.io:5000
+
+toolchains:
+  gitlab:
+    # Server endpoint address
+    endpoint: https://gitlab.example.io
+    # Server hostname or IP address
+    host: gitlab.example.io
+    # Server port number
+    port: 443
+    # Protocol type (http or https)
+    scheme: https
+    # Login username
+    username: admin
+    # Login password
+    password: <PASSWORD>
+    testGroup:
+      # Default test group
+      default: e2e-test-group
+    # Admin user access token
+    token: <GITLAB_TOKEN>
+
+  harbor:
+    # Server endpoint address
+    endpoint: https://harbor.example.io
+    # Server hostname or IP address
+    host: harbor.example.io
+    # Server port number
+    port: 443
+    # Protocol type (http or https)
+    scheme: https
+    # Login username
+    username: admin
+    # Login password
+    password: <PASSWORD>
+    testGroup:
+      # Default test group
+      default: e2e-automation
+    # Base64 encoded Docker configuration file
+    dockerConfig: <BASE64_ENCODED_DOCKER_CONFIG>
+
+  nexus:
+    # Server endpoint address
+    endpoint: https://nexus.example.io
+    # Server hostname or IP address
+    host: nexus.example.io
+    # Server port number
+    port: 443
+    # Protocol type (http or https)
+    scheme: https
+    # Login username
+    username: admin
+    # Login password
+    password: <PASSWORD>
+    testGroup:
+      # Default test group
+      default: e2e-automation
+
+  nexus_mirror:
+    # Server endpoint address
+    endpoint: http://nexus-mirror.example.io:8081
+    # Server hostname or IP address
+    host: nexus-mirror.example.io
+    # Server port number
+    port: 8081
+    # Protocol type (http or https)
+    scheme: http
+    testGroup:
+      # Maven repository name
+      maven_repo: maven-central
+
+  sonarqube:
+    # Server endpoint address
+    endpoint: https://sonarqube.example.io
+    # Server hostname or IP address
+    host: sonarqube.example.io
+    # Server port number
+    port: 443
+    # Protocol type (http or https)
+    scheme: https
+    # Login username
+    username: admin
+    # Login password
+    password: <PASSWORD>
+    # Admin user access token
+    token: <SONARQUBE_TOKEN>
+
+  minio:
+    # Server endpoint address
+    endpoint: http://minio.example.io:9000
+    # Server hostname or IP address
+    host: minio.example.io
+    # Server port number
+    port: 9000
+    # Protocol type (http or https)
+    scheme: http
+    # Login username
+    username: minioadmin
+    # Login password
+    password: <PASSWORD>
+    testGroup:
+      # Default test group
+      default: e2e-test-bucket
+    # Access key
+    accessKey: <ACCESS_KEY>
+    # Secret key
+    secretKey: <SECRET_KEY>
+
+  nfs:
+    # Server endpoint address
+    endpoint: 10.0.1.100
+    # Server hostname or IP address
+    host: 10.0.1.100
+    testGroup:
+      # Default test group
+      default: /nfs_data/e2e-test
+
+  mysql:
+    # Server endpoint address
+    endpoint: mysql://root:<PASSWORD>@10.0.1.101:3306/e2e_test_db
+    # Server hostname or IP address
+    host: 10.0.1.101
+    # Server port number
+    port: 3306
+    # Login username
+    username: root
+    # Login password
+    password: <PASSWORD>
+    testGroup:
+      # Default test group
+      default: e2e_test_db
+
+  postgresql:
+    # Server endpoint address
+    endpoint: postgresql://postgres:<PASSWORD>@10.0.1.102:5432/e2e_test_db
+    # Server hostname or IP address
+    host: 10.0.1.102
+    # Server port number
+    port: 5432
+    # Login username
+    username: postgres
+    # Login password
+    password: <PASSWORD>
+    testGroup:
+      # Default test group
+      default: e2e_test_db
+
+  postgresql_ipv6:
+    # Server endpoint address
+    endpoint: postgresql://postgres:<PASSWORD>@[2001:db8::1]:5432/e2e_test_db
+    # Server hostname or IP address
+    host: 2001:db8::1
+    # Server port number
+    port: 5432
+    # Login username
+    username: postgres
+    # Login password
+    password: <PASSWORD>
+    testGroup:
+      # Default test group
+      default: e2e_test_db
+```
+
+### Configuration Description
+
+1. Registry Configuration
+- `test`: Test image registry address
+
+2. Toolchains Configuration
+Each toolchain contains the following common configuration items:
+
+- **endpoint**: Server endpoint address
+- **host**: Server hostname or IP address
+- **port**: Server port number
+- **scheme**: Protocol type (http or https)
+- **username**: Login username
+- **password**: Login password
+- **testGroup**: Test group configuration
+  - `default`: Default test group
+
+3. Special Configuration Items
+
+**GitLab**:
+- `token`: Admin user access token
+
+**Harbor**:
+- `dockerConfig`: Base64 encoded Docker configuration file
+
+**SonarQube**:
+- `token`: Admin user access token
+
+**MinIO**:
+- `accessKey`: Access key
+- `secretKey`: Secret key
+
+#### **Prepare workspace directory**
+
+   ```bash
+   # Create workspace directory
+   mkdir -p workspace
+   
+   # Copy your kubeconfig to workspace directory
+   cp /path/to/your/kubeconfig.yaml workspace/config
+   
+   # Copy your config.yaml to workspace directory
+   cp config.yaml workspace/config.yaml
+   
+   # Set the correct permissions for the workspace directory
+   # The container runs as nonroot user (UID 65532), so we need to give write permissions
+   chmod -R 777 workspace
+   ```
+
+### Step 3: Run E2E Tests
+
+```bash
+docker run --entrypoint /bin/bash -it \
+  -e TESTING_CONFIG=/tmp/workspace/config.yaml \
+  -e KUBECONFIG=/tmp/workspace/config \
+  -v ${PWD}/workspace:/tmp/workspace \
+  --rm \
+  registry.alauda.cn:60070/devops/tektoncd/e2e/operator/operator-e2e:latest \
+  -c "cd testing; \
+      tektoncd-operator.e2e.test \
+        --test.timeout=0 \
+        --test.v \
+        --godog.concurrency=2 \
+        --godog.format=allure \
+        --godog.tags='~@automatable && ~@manual'; \
+      cp -r allure-results /tmp/workspace"
+```
+
+### Step 4: View Test Results
+
+After test completion, the E2E tests will generate an Allure report and automatically copy the results to your local config directory. The results will be available in the following locations:
+
+```bash
+# View test logs
+cat test-results.log
+
+# View Allure report (copied to local workspace directory)
+ls -la workspace/allure-results/
+
+# Generate and view Allure HTML report
+allure generate workspace/allure-results --clean
+allure open allure-report/
+```
+
+> **Note**: The tests generate Allure reports which provide detailed test execution information, including test steps, screenshots, and performance metrics. The results are automatically exported to your local machine for easy access.
+
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Insufficient Permissions**
+
+   ```bash
+   # Check cluster permissions
+   kubectl auth can-i create pods --all-namespaces
+   
+   # If permissions are insufficient, contact cluster administrator
+   ```
+
+2. **Container Permission Issues**
+
+   If you encounter "Permission denied" errors when the container tries to write to the workspace directory:
+
+   ```bash
+   # Ensure workspace directory has write permissions for all users
+   chmod -R 777 workspace
+   
+   # Or set ownership to match the container user (UID 65532)
+   sudo chown -R 65532:65532 workspace
+   ```
+
+3. **Image Pull Failure**
+
+   ```bash
+   # Check network connectivity
+   curl -I registry.alauda.cn:60070
+   
+   # Configure image registry authentication
+   docker login registry.alauda.cn:60070
+   ```
+
+4. **Test Timeout**
+
+   ```bash
+   # Check cluster resources
+   kubectl top nodes
+   kubectl top pods --all-namespaces
+   ```
+
+5. **Configuration File Error**
+
+   ```bash
+   # Check YAML syntax
+   yamllint config.yaml
+   ```
+
+### Debug Mode
+
+Enable debug mode to get more detailed logs:
+
+```bash
+# Run tests with debug mode
+docker run --entrypoint /bin/bash -it \
+  -e TESTING_CONFIG=/tmp/workspace/config.yaml \
+  -e KUBECONFIG=/tmp/workspace/config \
+  -e DEBUG=true \
+  -e TEST_VERBOSE=true \
+  -v ${PWD}/workspace:/tmp/workspace \
+  --rm \
+  registry.alauda.cn:60070/devops/tektoncd/e2e/operator/operator-e2e:latest \
+  -c "cd testing; \
+      tektoncd-operator.e2e.test \
+        --test.timeout=0 \
+        --test.v \
+        --godog.concurrency=2 \
+        --godog.format=allure \
+        --godog.tags='~@automatable && ~@manual'"
+```
+
+## Test Result Analysis
+
+### Success Metrics
+
+- All test cases pass
+- No resource leaks
+- Performance metrics within expected range
+
+### Failure Handling
+
+1. **Collect Diagnostic Information**
+
+   ```bash
+   # Collect cluster status
+   kubectl get all --all-namespaces
+   kubectl describe pods --all-namespaces
+   
+   # Collect logs
+   kubectl logs -l app=tektoncd-operator -n tektoncd-operator
+   ```
+
+2. **Analyze Test Reports**
+
+   ```bash
+   # View test results (copied to local workspace directory)
+   ls -la workspace/allure-results/
+   ```
+
+## Support and Feedback
+
+If you encounter issues during use, please:
+
+1. Check the troubleshooting section of this document
+2. Check the project's GitHub Issues
+3. Contact technical support team
+
+### Useful Links
+
+- [TektonCD Operator Official Documentation](https://tekton.dev/docs/operator/)
+- [Kubernetes Testing Best Practices](https://kubernetes.io/docs/concepts/testing/)
+- [E2E Testing Guide](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-testing/e2e-tests.md)
+
+---
+
+**Note**: Please ensure that all configurations and processes are fully validated in a test environment before using in production environments.
+
