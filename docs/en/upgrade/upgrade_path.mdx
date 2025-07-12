@@ -1,0 +1,105 @@
+---
+weight: 10
+---
+
+# Upgrade Path
+
+:::note
+**Important**
+
+This document provides the upgrade path principles and supported version compatibility for `Alauda DevOps Pipelines` Operator.
+For detailed upgrade instructions, please refer to the [Upgrade `Alauda DevOps Pipelines` Operator](./upgrade.mdx).
+:::
+
+## Overview
+
+The `Alauda DevOps Pipelines` Operator follows specific upgrade path principles to ensure compatibility and stability during version transitions.
+
+### Version Types
+
+- **LTS (Long-Term Support) versions**: `4.0.x`, `4.2.x`, `4.6.x`, `4.10.x` - Recommended for production environments
+- **Non-LTS (Short-term) versions**: `4.1.x`, `4.3.x`, `4.5.x`, `4.7.x`, `4.9.x` - For early feature access
+
+### Upgrade Principles
+
+- Upgrades are supported between LTS versions, with the longest supported upgrade path skipping up to two intermediate LTS versions. For example:
+  - A direct LTS upgrade: `4.0.x (LTS)` → `4.2.x (LTS)`
+  - Longest supported upgrade range: `4.0.x (LTS)` → `4.10.x (LTS)` (skipping `4.2.x (LTS)` and `4.6.x (LTS)`)
+- Upgrades from non-LTS versions are only supported to the next immediate LTS version. For example:
+  - `4.3.x` → `4.6.x (LTS)` is supported
+  - `4.3.x` → `4.10.x (LTS)` is not supported
+- **Version Compatibility**: Patch versions within the same minor version are fully compatible
+- **Component Cohesion**: All Tekton components are upgraded together to maintain compatibility
+
+## Upgrade Paths
+
+### `Alauda DevOps Pipelines` v4.1.0
+
+This upgrade path has been tested with `Alauda DevOps Pipelines` Operator version v4.1.0 and ACP version 4.0.3 (the latest LTS patch version available during testing)
+
+| Channel version | ACP version | Kubernetes version |
+|:---------------:|:-----------:|:------------------:|
+| release-4.0 | 4.0.3 | 1.31.6 |
+
+## Prerequisites
+
+Before initiating an upgrade, please ensure the following:
+
+1. **Version Compatibility**: Your current version falls within a supported upgrade path.
+2. **Component Health**: All Tekton components are in a `Ready` state.
+3. **Resource Availability**: The cluster has sufficient resources to support the upgrade process.
+
+## Upgrade Path Guidelines
+
+### LTS-to-LTS Upgrade Paths
+
+Upgrading between Long-Term Support (LTS) versions is recommended for production environments. We support both standard and extended upgrade paths as described below:
+
+- **Primary Path**: **Previous LTS → Current LTS**
+  - *Description*: A direct upgrade from the immediately preceding LTS version.
+  - *Testing Status*: All patch versions tested; latest patch versions receive comprehensive regression testing.
+  - *Example*: `4.0.x (LTS)` → `4.2.x (LTS)`
+
+- **Extended Path**: **Up to two LTS versions back → Current LTS**
+  - *Description*: A direct upgrade path skipping up to two intermediate LTS versions.
+  - *Testing Status*: All patch versions tested; latest patch versions validated through extended testing.
+  - *Example*: `4.0.x (LTS)` → `4.10.x (LTS)` (skipping `4.2.x (LTS)` and `4.6.x (LTS)`)
+
+- **Maintenance Path**: **Non-LTS (still in maintenance) → Current LTS**
+  - *Description*: Direct upgrade from a non-LTS version still under active maintenance.
+  - *Testing Status*: Limited testing scope; theoretically supported.
+  - *Use Case*: For teams looking to upgrade directly from non-LTS environments while staying within support boundaries.
+
+### Upgrades to Non-LTS Versions
+
+When upgrading to a non-LTS release, the following paths are available for environments that need faster access to new features:
+
+- **Primary Path**: **Previous LTS → Current non-LTS**
+  - *Description*: A direct upgrade from the latest LTS version.
+  - *Testing Status*: All patch versions tested; latest patch versions receive comprehensive regression testing.
+  - *Example*: `4.0.x (LTS)` → `4.1.x (non-LTS)`
+
+- **Extended Path**: **Two LTS versions back → Current non-LTS**
+  - *Description*: A direct upgrade path skipping up to two intermediate LTS versions.
+  - *Testing Status*: All patch versions tested; latest patch versions receive comprehensive regression testing.
+  - *Use Case*: For users aiming to minimize the number of upgrade hops.
+  - *Example*: `4.0.x (LTS)` → `4.7.x (non-LTS)` (skipping `4.2.x (LTS)` and `4.6.x (LTS)`)
+
+- **Maintenance Path**: **Non-LTS (still in maintenance) → Current non-LTS**
+  - *Description*: Upgrade path for non-LTS versions still under support.
+  - *Testing Status*: Limited testing scope; theoretically supported.
+  - *Use Case*: For teams rapidly adopting new features from non-LTS releases.
+
+### Patch-Level Compatibility
+
+- **Within the Same Minor Version**: Patch upgrades (e.g., `4.0.1` → `4.0.3`) are completely compatible.
+- **Testing Strategy**: All patch versions within the same minor version are supported for upgrades. The latest patch version undergoes comprehensive regression testing, while earlier patch versions receive limited testing.
+- **Recommendation**: For production stability, we recommend upgrading to the latest patch release before initiating any major or minor version upgrade.
+- **Example**: While `4.0.1`, `4.0.2`, and `4.0.3` may all be eligible for upgrade to `4.1.x`, only the latest (`4.0.3`) is fully tested and validated.
+
+## Upgrade Process Reference
+
+For complete upgrade instructions, including step-by-step procedures, backup guidance, and troubleshooting:
+
+- 📘 **[General Upgrade Guide](./upgrade.mdx)**: Comprehensive documentation for the upgrade process.
+- 📝 **[Release Notes](../overview/release_notes.mdx)**: Version-specific updates, breaking changes, and new features.
