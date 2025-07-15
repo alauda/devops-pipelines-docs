@@ -1,5 +1,5 @@
 ---
-weight: 30
+weight: 35
 ---
 
 # Lifecycle Policy
@@ -8,22 +8,34 @@ weight: 30
 
 Below is the lifecycle schedule for released versions of the `Alauda DevOps Pipelines` operator:
 
-| Alauda DevOps Pipelines Version | Tekton Component Versions | Release Date | End of Support  |
-| :----: | ------------------------ | :----------: | :--------------: |
-| v4.1.z | Pipelines: v0.65.z<br />Chains: v0.23.z<br />Pipelines-as-Code: v0.32.z<br />Results: v0.13.z<br />Triggers: v0.30.z<br />Tekton Hub: v1.19.z | 2025-?-? | 2026-?-? |
+| Alauda DevOps Pipelines Version | Release Date | End of Support | Version Type |
+| :----: | :----------: | :--------------: | :----: |
+| v4.2.x | 2025-08-? | 2026-08-? | LTS |
+| v4.1.x | 2025-07-14 | 2025-11-14 | Non-LTS |
+| v4.0.x | 2025-04-08 | 2026-04-08 | LTS |
+
+> For detailed component versions in each version, see the [Compatibility and support matrix](./release_notes.mdx#compatibility-and-support-matrix)
 
 ## Release Policy
 
-The `Alauda DevOps Pipelines` operator releases a new version every four to six months, updating the operator to the latest or second latest [LTS](https://github.com/tektoncd/community/blob/main/releases.md#support-policy) version officially released by Tekton.
+A new minor version of the `Alauda DevOps Pipelines` operator is released every month.
+
+Within every 4-month period, the last minor version will be selected as a Long Term Support (LTS) version. LTS versions are supported for 12 months, while non-LTS versions are supported four months.
+
+During these four months, we will update to the latest or second [LTS](https://github.com/tektoncd/community/blob/main/releases.md#support-policy) version officially released by Tekton.
 
 ## Maintenance Policy
 
-Alauda provides 12 months of maintenance support for each released version of the Tekton operator.
+Alauda provides comprehensive maintenance support for the `Alauda DevOps Pipelines` operator with different support durations based on version type.
 
-During the maintenance period, Alauda will provide the following services to customers:
+| Version Type | Support Duration | Examples |
+|:------------:|:----------------:|:--------:|
+| LTS (Long Term Support) | 12 months | 4.0.x |
+| Non-LTS | 4 months | 4.1.x |
 
-1. Track the patch versions released by Tekton and promptly provide patches containing bug fixes and security updates.
-2. Provide security updates that comply with Alauda's security standards.
-3. Assist customers in smoothly upgrading the Tekton operator to new versions.
+During the maintenance period, Alauda provides the following services:
 
-Additionally, Alauda will release a security update every two months during the maintenance period to ensure the security and stability of the operator.
+1. **Security Updates**: Regular security patches and updates that comply with Alauda's security standards
+2. **Bug Fixes**: Prompt delivery of bug fixes from upstream Tekton releases
+3. **Upgrade Assistance**: Support for smooth operator upgrades to newer versions
+4. **Regular Maintenance**: Security updates released every two months to ensure stability
