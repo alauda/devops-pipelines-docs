@@ -109,6 +109,7 @@ spec:
   db_host: your-postgres-host.example.com
   db_port: 5432
   db_name: tekton_results
+  db_sslmode: allow
   secret_name: tekton-results-postgres
 ```
 
@@ -255,6 +256,14 @@ kubectl get pods -n tekton-pipelines -l app.kubernetes.io/name=tekton-results-ap
 kubectl get pods -n tekton-pipelines -l app.kubernetes.io/name=tekton-results-retention-policy-agent
 ```
 
+:::warning
+If you update the `db_sslmode` field, you may need to recreate the `TektonResult` resource for the changes to take effect.
+
+```bash
+kubectl get tektonresults.operator.tekton.dev result -o yaml | kubectl replace --force -f -
+```
+:::
+
 ### Troubleshooting
 
 #### Common Issues
@@ -301,7 +310,9 @@ kubectl get secret -n <ns-of-postgresql-instance> -l middleware.instance/type=Po
 
 :::info
 
-This Secret contains `host`, `port`, `username`, `password` information. You need to supplement `database` and `sslmode` (set to `allow` or `prefer`) information based on this Secret, and create a new secret in the namespace where the Tekton Results instance is located.
+This Secret contains `host`, `port`, `username`, `password` information. You need to supplement `database` information based on this Secret, and create a new secret in the namespace where the Tekton Results instance is located.
+
+If you need to set `sslmode`, please set `db_sslmode` in `TektonResult` to `allow` or `prefer` etc.
 
 For more PostgreSQL deployment parameters and requirements, please refer to <ExternalSiteLink name="postgresql" href="/installation.html" children="PostgreSQL Deployment Documentation" />.
 :::
