@@ -58,7 +58,7 @@ Tekton Results supports using external PostgreSQL databases. The configuration i
 | `db_name` | Database name | `tekton-results` | Yes |
 | `db_sslmode` | SSL connection mode | `disable` | No |
 | `db_sslrootcert` | SSL root certificate path | Empty | No (required when using SSL) |
-| `db_secret_name` | Secret name for database credentials | Empty  | Yes |
+| `secret_name` | Secret name for database credentials | Empty  | Yes |
 
 > The valid options for `db_sslmode` are explained here https://www.postgresql.org/docs/current/libpq-ssl.html#LIBPQ-SSL-PROTECTION.
 
@@ -109,8 +109,13 @@ spec:
   db_host: your-postgres-host.example.com
   db_port: 5432
   db_name: tekton_results
-  db_secret_name: tekton-results-postgres
+  db_sslmode: allow
+  secret_name: tekton-results-postgres
 ```
+
+:::tip
+This document only lists the database-related configuration fields. For the complete list of fields, please refer to [Quick Start](../quick_start.mdx#installing-using-operator-crd).
+:::
 
 ### 3. Verify Configuration
 
@@ -184,7 +189,7 @@ spec:
   db_sslmode: verify-full
   db_sslrootcert: /etc/tls/db/ca.crt
   # Secret configuration
-  db_secret_name: tekton-results-postgres
+  secret_name: tekton-results-postgres
   # Options for mounting CA certificate
   options:
     deployments:
@@ -251,6 +256,14 @@ kubectl get pods -n tekton-pipelines -l app.kubernetes.io/name=tekton-results-ap
 kubectl get pods -n tekton-pipelines -l app.kubernetes.io/name=tekton-results-retention-policy-agent
 ```
 
+:::warning
+If you update the `db_sslmode` field, you may need to recreate the `TektonResult` resource for the changes to take effect.
+
+```bash
+kubectl get tektonresults.operator.tekton.dev result -o yaml | kubectl replace --force -f -
+```
+:::
+
 ### Troubleshooting
 
 #### Common Issues
@@ -297,7 +310,9 @@ kubectl get secret -n <ns-of-postgresql-instance> -l middleware.instance/type=Po
 
 :::info
 
-This Secret contains `host`, `port`, `username`, `password` information. You need to supplement `database` and `sslmode` (set to `allow` or `prefer`) information based on this Secret, and create a new secret in the namespace where the Tekton Results instance is located.
+This Secret contains `host`, `port`, `username`, `password` information. You need to supplement `database` information based on this Secret, and create a new secret in the namespace where the Tekton Results instance is located.
+
+If you need to set `sslmode`, please set `db_sslmode` in `TektonResult` to `allow` or `prefer` etc.
 
 For more PostgreSQL deployment parameters and requirements, please refer to <ExternalSiteLink name="postgresql" href="/installation.html" children="PostgreSQL Deployment Documentation" />.
 :::
