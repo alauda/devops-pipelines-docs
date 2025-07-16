@@ -58,7 +58,7 @@ Tekton Results supports using external PostgreSQL databases. The configuration i
 | `db_name` | Database name | `tekton-results` | Yes |
 | `db_sslmode` | SSL connection mode | `disable` | No |
 | `db_sslrootcert` | SSL root certificate path | Empty | No (required when using SSL) |
-| `db_secret_name` | Secret name for database credentials | Empty  | Yes |
+| `secret_name` | Secret name for database credentials | Empty  | Yes |
 
 > The valid options for `db_sslmode` are explained here https://www.postgresql.org/docs/current/libpq-ssl.html#LIBPQ-SSL-PROTECTION.
 
@@ -109,8 +109,12 @@ spec:
   db_host: your-postgres-host.example.com
   db_port: 5432
   db_name: tekton_results
-  db_secret_name: tekton-results-postgres
+  secret_name: tekton-results-postgres
 ```
+
+:::tip
+This document only lists the database-related configuration fields. For the complete list of fields, please refer to [Quick Start](../quick_start.mdx#installing-using-operator-crd).
+:::
 
 ### 3. Verify Configuration
 
@@ -184,7 +188,7 @@ spec:
   db_sslmode: verify-full
   db_sslrootcert: /etc/tls/db/ca.crt
   # Secret configuration
-  db_secret_name: tekton-results-postgres
+  secret_name: tekton-results-postgres
   # Options for mounting CA certificate
   options:
     deployments:
