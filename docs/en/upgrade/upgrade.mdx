@@ -78,6 +78,88 @@ Before upgrading the `Alauda DevOps Pipelines` Operator, ensure you:
    - Verify that your Tekton components are functioning correctly
      - Test that your pipelines can run successfully
 
+### Using `kubectl` CLI
+
+You can also upgrade the `Alauda DevOps Pipelines` Operator using the command line interface. This method is useful for automation or when you prefer CLI-based operations.
+
+1. **Check Current Subscription**
+   - First, identify the current subscription and its channel:
+     ```bash
+     $ kubectl get subscriptions.operators.coreos.com -A | grep tektoncd-operator
+
+     NAMESPACE               NAME                    PACKAGE                 SOURCE     CHANNEL
+     tekton-operator         tektoncd-operator       tektoncd-operator       platform   latest
+     ```
+
+2. **Switch to Target Channel**
+   - If you need to upgrade to a version in a different channel, patch the subscription:
+     ```bash
+     $ kubectl patch subscriptions.operators.coreos.com tektoncd-operator --type merge -p '{"spec":{"channel": "<target-channel>"}}' -n tekton-operator
+     ```
+     Replace `<target-channel>` with the desired channel (e.g., `pipelines-4.1`, `latest`).
+
+3. **Wait for UpgradePending State**
+   - Monitor the subscription status until it shows `UpgradePending`:
+     ```bash
+     $ kubectl get subscriptions.operators.coreos.com tektoncd-operator -n tekton-operator -o yaml
+
+     status:
+       installplan:
+         apiVersion: operators.coreos.com/v1alpha1
+         kind: InstallPlan
+         name: install-abc123
+       state: UpgradePending
+     ```
+     Look for the `state: UpgradePending` in the output.
+
+4. **Approve the InstallPlan**
+   - When the subscription is in `UpgradePending` state, find the corresponding InstallPlan:
+     ```bash
+     $ kubectl get installplan -n tekton-operator
+
+     NAME            CSV                        APPROVAL   APPROVED
+     install-abc123  tektoncd-operator.v4.x.x  Manual     false
+     ```
+
+   - Approve the InstallPlan by setting the `approved` field to `true`:
+     ```bash
+     $ kubectl patch installplans.operators.coreos.com <installplan-name> --type merge -p '{"spec":{"approved":true}}' -n tekton-operator
+     ```
+     Replace `<installplan-name>` with the actual InstallPlan name from the previous step.
+
+5. **Monitor the Upgrade Progress**
+   - Watch the subscription status until it becomes ready:
+     ```bash
+     $ kubectl get subscriptions.operators.coreos.com tektoncd-operator -n tekton-operator -o yaml -w
+     ```
+
+   - Check the operator pods status:
+     ```bash
+     $ kubectl get pods -n tekton-operator
+     ```
+     Wait until all pods are in `Running` state.
+
+6. **Verify the Upgrade**
+   - Confirm the operator version has been updated:
+     ```bash
+     $ kubectl get csv -n tekton-operator
+
+     NAME                        DISPLAY                   VERSION   REPLACES   PHASE
+     tektoncd-operator.v4.x.x    Alauda DevOps Pipelines   4.x.x     x          Succeeded
+     ```
+
+7. **Monitor Component Upgrades**
+   - The operator will automatically upgrade Tekton components. Monitor their progress:
+     ```bash
+     $ kubectl get tektoninstallerset -A
+     $ kubectl get pods -n tekton-pipelines
+     ```
+     Ensure all components and pods reach `Ready` state.
+
+:::note
+The CLI upgrade process follows the same underlying mechanism as the GUI method. The main difference is that you manually control the channel switching and InstallPlan approval steps.
+:::
+
 ## Post-Upgrade Steps
 
 After the upgrade completes successfully:
