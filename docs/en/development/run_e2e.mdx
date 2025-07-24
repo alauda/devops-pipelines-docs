@@ -1,6 +1,6 @@
 ---
 title: Run TektonCD Operator E2E Tests
-weight: 14
+weight: 40
 ---
 
 # TektonCD Operator E2E Testing Guide
@@ -252,13 +252,13 @@ Each toolchain contains the following common configuration items:
    ```bash
    # Create workspace directory
    mkdir -p workspace
-   
+
    # Copy your kubeconfig to workspace directory
    cp /path/to/your/kubeconfig.yaml workspace/config
-   
+
    # Copy your config.yaml to workspace directory
    cp config.yaml workspace/config.yaml
-   
+
    # Set the correct permissions for the workspace directory
    # The container runs as nonroot user (UID 65532), so we need to give write permissions
    chmod -R 777 workspace
@@ -311,7 +311,7 @@ allure open allure-report/
    ```bash
    # Check cluster permissions
    kubectl auth can-i create pods --all-namespaces
-   
+
    # If permissions are insufficient, contact cluster administrator
    ```
 
@@ -322,7 +322,7 @@ allure open allure-report/
    ```bash
    # Ensure workspace directory has write permissions for all users
    chmod -R 777 workspace
-   
+
    # Or set ownership to match the container user (UID 65532)
    sudo chown -R 65532:65532 workspace
    ```
@@ -332,7 +332,7 @@ allure open allure-report/
    ```bash
    # Check network connectivity
    curl -I registry.alauda.cn:60070
-   
+
    # Configure image registry authentication
    docker login registry.alauda.cn:60070
    ```
@@ -391,7 +391,7 @@ docker run --entrypoint /bin/bash -it \
    # Collect cluster status
    kubectl get all --all-namespaces
    kubectl describe pods --all-namespaces
-   
+
    # Collect logs
    kubectl logs -l app=tektoncd-operator -n tektoncd-operator
    ```

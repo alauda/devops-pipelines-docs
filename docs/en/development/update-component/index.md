@@ -1,3 +1,9 @@
+---
+created: '2025-07-07'
+updated: '2025-07-13'
+weight: 20
+---
+
 # Component Update Guide
 
 This document describes how to update components in the TektonCD Operator project using the automated update system. The project now uses an automated script to download and process component releases, eliminating the need for manual updates.
@@ -22,13 +28,13 @@ All component configurations are managed in the `components.yaml` file at the pr
 ```yaml
 tektoncd-pipeline:
   revision: main
-  releases: 
+  releases:
     - remote_path: pipeline
       local_path: tekton-pipeline
 
 tektoncd-hub:
   revision: main
-  releases: 
+  releases:
     - remote_path: api
       local_path: tekton-hub/api
     - remote_path: hub-info
@@ -36,7 +42,7 @@ tektoncd-hub:
 
 tektoncd-trigger:
   revision: main
-  releases: 
+  releases:
     - remote_path: trigger
       local_path: tekton-triggers
     - remote_path: bindings
@@ -79,7 +85,7 @@ To use releases from your own branch or specific commit:
 ```yaml
 tektoncd-hub:
   revision: your-feature-branch  # or specific commit hash
-  releases: 
+  releases:
     - remote_path: api
       local_path: tekton-hub/api
     - remote_path: hub-info
@@ -112,7 +118,7 @@ To add a new component to the automated update process:
 ```yaml
 your-new-component:
   revision: main  # or your target branch
-  releases: 
+  releases:
     - remote_path: main
       local_path: your-component/main
     - remote_path: sidecar
@@ -146,7 +152,7 @@ For a component to work with the automated system, it must:
 ```yaml
 tektoncd-new-component:
   revision: v0.1.0
-  releases: 
+  releases:
     - remote_path: controller
       local_path: tekton-new-component/controller
     - remote_path: webhook
@@ -276,6 +282,5 @@ If you were previously updating components manually:
 
 ## Related Documentation
 
-- [Component Configuration Reference](../configure/components.yaml.md)
-- [Build System Architecture](../architecture/build-system.md)
+- [Build System Architecture](../../overview/architecture.mdx)
 - [Development Environment Setup](../component-quickstart/index.md)
