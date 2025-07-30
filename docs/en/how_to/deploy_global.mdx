@@ -37,12 +37,33 @@ kind: TektonConfig
 spec:
   pipeline:
     options:
+      disabled: false
       ingress:
-        tektoncd-hubs-api:
+        hubs-wrapper: # support for version 4.2 and later
+          spec:
+            ingressClassName: global-alb2
+        tektoncd-hubs-api: # ensure compatibility with version 4.1 and earlier
           spec:
             ingressClassName: global-alb2
       deployments:
-        tektoncd-hubs-api:
+        hubs-wrapper: # support for version 4.2 and later
+          spec:
+            template:
+              spec:
+                containers:
+                  - env:
+                      - name: KUBERNETES_PORT_443_TCP
+                        value: tcp://erebus.cpaas-system:443
+                      - name: KUBERNETES_PORT_443_TCP_ADDR
+                        value: erebus.cpaas-system
+                      - name: KUBERNETES_PORT
+                        value: tcp://erebus.cpaas-system:443
+                      - name: EREBUS
+                        value: https://erebus.cpaas-system:443
+                      - name: KUBERNETES_SERVICE_HOST
+                        value: erebus.cpaas-system
+                    name: hubs-wrapper
+        tektoncd-hubs-api: # ensure compatibility with version 4.1 and earlier
           spec:
             template:
               spec:
@@ -59,8 +80,9 @@ spec:
                       - name: KUBERNETES_SERVICE_HOST
                         value: erebus.cpaas-system
                     name: tektoncd-hubs-api
-      disabled: false
 ```
+
+> If both `hubs-wrapper` and `tektoncd-hubs-api` are configured simultaneously, versions 4.0 and 4.2 can be supported at the same time.
 
 ## Optional: Deploying tekton-results in a global cluster
 
