@@ -28,10 +28,38 @@ The following table shows the compatibility and support matrix between the `Alau
 
 ### New and Optimized Features
 
+**Task and Pipeline Management **
+
+- Added Task lifecycle management capabilities in the Task view, facilitating centralized control over the full lifecycle of Tasks.
+- Expanded Task type support with new Python Task and Pytest Task.
+- Provided a generic Python Pipeline template to simplify the creation process of Python-related Pipelines.
+- Added cache mounting capability to the `run-script` Task, supporting cache storage configuration via Workspace.
+- Improved UI interaction experience: When creating Tasks or Pipelines via the UI, there is no need to explicitly specify the Namespace in the YAML; the system will automatically handle namespace configuration.
+- Pipelines now supports the use of parameter substitution syntax (e.g., `$(params.strategy)`) in the `onError` field, enabling users to dynamically define error-handling strategies through Pipeline parameters, execution context, or Task results.
+
+**Results**
+
+- Added support for configuring custom database credentials in TektonConfig, eliminating dependency on the default username and password from the default PostgreSQL secret.
+- New response field filtering and partial response features in the Results API: Allows specifying fields to be included in API responses, reducing data transfer volume, optimizing response latency and I/O performance for List operations, and improving network efficiency.
+- Extended log integration capabilities: Results can now retrieve data from Splunk.
+
+**Trigger**
+
+- Allowed users to configure custom `securityContext` in the EventListener resource specification to meet personalized security requirements.
+- Added support for including the `imagePullSecrets` field in EventListener objects, simplifying the configuration of credentials for pulling images from private repositories.
+
+**CLI**
+
+- In this release, support for the ClusterTask object has been removed from the CLI.
+
+### Breaking Changes
+
+- Support for the ClusterTask object has been removed in this release.
+
 ### Fixed Issues
 
-{/* release-notes-for-bugs?template=fixed&project=DEVOPS&version=v4.2(next) */}
+{/* release-notes-for-bugs?template=fixed&project=DEVOPS&version=v4.2.0 */}
 
 ### Known Issues
 
-{/* release-notes-for-bugs?template=unfixed&project=DEVOPS&version=v4.2(next) */}
+{/* release-notes-for-bugs?template=unfixed&project=DEVOPS&version=v4.2.0 */}
