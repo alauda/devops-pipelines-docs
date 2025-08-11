@@ -70,6 +70,8 @@ TriggerTemplates are essential in the following scenarios:
 
 5. **Parameterized Testing**: Create test pipelines with different parameters based on the type of event.
 
+6. **As Runtime Configuration Templates**: Provide standardized runtime configurations (such as parameters, workspaces, security contexts, etc.) for repeatedly executed Pipelines. Users can select matching templates through the frontend UI to quickly generate pipelinerun instances that meet scenario requirements.
+
 ## Constraints and Limitations
 
 - Parameters in TriggerTemplates can only be string values
@@ -139,6 +141,28 @@ When an event is detected and processed:
 Each created resource receives labels to track its origin:
 - `tekton.dev/eventlistener: <EventListenerName>`
 - `tekton.dev/triggers-eventid: <EventID>`
+
+### Runtime Configuration Templates
+
+1. Label Conventions
+
+- `triggertemplate.triggers.tekton.dev/usage: runtime-config`
+
+  Must be set to `runtime-config` to identify the purpose of the template.
+
+- `tekton.dev/pipeline: <pipeline-name>`
+
+  Associates the template with a specific pipeline.
+
+- `triggertemplate.triggers.tekton.dev/runtime-config-default: "true"`
+
+  Optional, marks the template as the default configuration for the pipeline. If multiple default templates exist, the one with the latest creation timestamp will be selected.
+
+2. Resource Template Conventions
+
+- Only one `PipelineRun` resource can be defined in `spec.resourcetemplates`.
+- Must include `pipelineRef` to reference the target pipeline.
+- Supports all runtime configuration fields of `PipelineRun`, such as `params`, `workspaces`, `podTemplate`, etc.
 
 ## Configuration Examples
 
@@ -241,6 +265,39 @@ spec:
           - name: revision
             value: $(tt.params.git-revision)
 ```
+
+### Runtime Configuration Template
+
+```yaml
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: deploy-pipeline-staging-config
+  labels:
+    triggertemplate.triggers.tekton.dev/usage: runtime-config
+    tekton.dev/pipeline: deploy-pipeline
+    triggertemplate.triggers.tekton.dev/runtime-config-default: true
+spec:
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        generateName: deploy-pipeline-staging-
+      spec:
+        pipelineRef:
+          name: deploy-pipeline
+        params:
+          - name: environment
+            value: "staging"
+          - name: replicas
+            value: "2"
+        workspaces:
+          - name: config
+            configMap:
+              name: staging-config
+```
+
+
 
 ## Important Parameter Explanations Related to TriggerTemplate
 
