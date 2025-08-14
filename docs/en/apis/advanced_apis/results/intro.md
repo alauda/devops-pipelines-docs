@@ -448,7 +448,7 @@ CEL expressions typically correspond one-to-one with JSON/protobuf fields. In Te
 
 #### Using Operators
 
-Now that we can access fields, you can create filters using operators. Here’s a list of operators that can be used in CEL expressions:
+Now that we can access fields, you can create filters using operators. Here's a list of operators that can be used in CEL expressions:
 
 | Operator                | Description                | Example                                      |
 | ----------------------- | -------------------------- | -------------------------------------------- |
@@ -463,7 +463,7 @@ Now that we can access fields, you can create filters using operators. Here’s 
 
 #### Using Functions
 
-Many functions can be used in CEL expressions. Here’s a list of functions that can be used in CEL expressions. The strings in function parameters represent the expected type of the arguments:
+Many functions can be used in CEL expressions. Here's a list of functions that can be used in CEL expressions. The strings in function parameters represent the expected type of the arguments:
 
 | Function                                             | Description                 | Example                                      |
 | ----------------------------------------------------| ----------------------------| -------------------------------------------- |
@@ -482,7 +482,7 @@ You can also nest function calls and mix operators to create complex filtering e
 
 ### Using CEL Filtering Expressions with gRPC
 
-You can pass a filter to gRPC requests by specifying `filter=<cel-expression>`. Be sure to use the correct quoting in your queries or escape if necessary. Here’s an example:
+You can pass a filter to gRPC requests by specifying `filter=<cel-expression>`. Be sure to use the correct quoting in your queries or escape if necessary. Here's an example:
 
 ```bash
 grpc_cli call --channel_creds_type=ssl \
@@ -494,7 +494,7 @@ grpc_cli call --channel_creds_type=ssl \
 
 ### Using CEL Filtering Expressions with REST
 
-You can pass a filter to REST requests by specifying `filter=<cel-expression>` in your query. Here’s an example:
+You can pass a filter to REST requests by specifying `filter=<cel-expression>` in your query. Here's an example:
 
 ```bash
 curl --insecure \
@@ -505,7 +505,7 @@ curl --insecure \
 
 ### Using CEL Filtering Expressions with `tkn-results`
 
-If you have installed `tkn-results` CLI independently or as a plugin to `tkn`, you can filter Results using the `--filter=<cel-expression>` flag. Here’s an example:
+If you have installed `tkn-results` CLI independently or as a plugin to `tkn`, you can filter Results using the `--filter=<cel-expression>` flag. Here's an example:
 
 ```bash
 tkn results records list default/results/- --filter="data.metadata.annotations.contains('bar')"
@@ -543,6 +543,8 @@ To request a list of objects in a specific order, include the `order_by` query p
 - `create_time desc, update_time asc`
 
 Fields supported in `order_by`:
+
+<!-- lint ignore table-size -->
 
 | Field Name       |
 | ---------------- |

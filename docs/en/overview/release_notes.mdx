@@ -10,55 +10,156 @@ title: Release Notes
 # Release Notes
 
 ::: tip
-The maintenance period for version **v4.2.x** is from ? ?, 2025 to ? ?, 2026.
+The maintenance period for version **`v4.2.x`** is from 15 Aug, 2025 to 15 Aug, 2026.
 :::
 
 ## Compatibility and support matrix
 
-The following table shows the compatibility and support matrix between the `Alauda DevOps Pipelines` operator and ACP versions.
+The following table shows the compatibility and support matrix between the `Alauda DevOps Pipelines` operator and `ACP` versions.
 
 | Alauda DevOps Pipelines Version | Component Version | | | | | | ACP Version |
 |:------:|:------:|:------:|:------:|:------:|:------:|:------:|:------:|
 | **Operator** | **Pipelines** | **Triggers** | **CLI** | **Chains** | **Hub** | **Results** | |
-| 4.2.x (LTS) | 1.0.x | 0.32.x | 0.41.x | 0.25.x | 1.22.x | 0.15.x | 4.0 |
-| 4.1.x | 0.65.x | 0.30.x | 0.39.x | 0.23.x | 1.19.x | 0.14.x | 4.0 |
-| 4.0.x (LTS) | 0.65.x | 0.30.x | 0.39.x | 0.23.x | 1.19.x | 0.13.x | 4.0 |
+| 4.2.x (LTS) | 1.0.x | 0.32.x | 0.41.x | 0.25.x | 1.22.x | 0.15.x | 4.0, 4.1 |
+| 4.1.x | 0.65.x | 0.30.x | 0.39.x | 0.23.x | 1.19.x | 0.14.x | 4.0, 4.1 |
+| 4.0.x (LTS) | 0.65.x | 0.30.x | 0.39.x | 0.23.x | 1.19.x | 0.13.x | 4.0, 4.1 |
 
 ## v4.2.0
 
+With this update, `Alauda DevOps Pipelines` `v4.2` is available on `Alauda Container Platform` `v4.0` and later versions.
+
 ### New and Optimized Features
 
-**Task and Pipeline Management **
+**Task and Pipeline Management**
 
-- Added Task lifecycle management capabilities in the Task view, facilitating centralized control over the full lifecycle of Tasks.
-- Expanded Task type support with new Python Task and Pytest Task.
-- Provided a generic Python Pipeline template to simplify the creation process of Python-related Pipelines.
-- Added cache mounting capability to the `run-script` Task, supporting cache storage configuration via Workspace.
-- Improved UI interaction experience: When creating Tasks or Pipelines via the UI, there is no need to explicitly specify the Namespace in the YAML; the system will automatically handle namespace configuration.
-- Pipelines now supports the use of parameter substitution syntax (e.g., `$(params.strategy)`) in the `onError` field, enabling users to dynamically define error-handling strategies through Pipeline parameters, execution context, or Task results.
+- Added `Task` lifecycle management capabilities in the `Task` view, facilitating centralized control over the full lifecycle of `Tasks`.
+- Expanded `Task` type support with new `Python Task` and `Pytest Task`.
+- Provided a generic `Python Pipeline` template to simplify the creation process of Python-related `Pipelines`.
+- Added cache mounting capability to the `run-script` `Task`, supporting cache storage configuration via `Workspace`.
+- Improved UI interaction experience: When creating `Tasks` or `Pipelines` via the UI, there is no need to explicitly specify the `Namespace` in the YAML; the system will automatically handle namespace configuration.
 
-**Results**
+**Pipeline**
 
-- Added support for configuring custom database credentials in TektonConfig, eliminating dependency on the default username and password from the default PostgreSQL secret.
-- New response field filtering and partial response features in the Results API: Allows specifying fields to be included in API responses, reducing data transfer volume, optimizing response latency and I/O performance for List operations, and improving network efficiency.
-- Extended log integration capabilities: Results can now retrieve data from Splunk.
+- `Tekton Pipelines` now supports the use of parameter substitution syntax (e.g., `$(params.strategy)`) in the `onError` field, enabling users to dynamically define error-handling strategies through `Pipeline` parameters, execution context, or `Task` results.
+- With this update, the `Git` resolver included in the remote resolution feature now uses the native `git` binary instead of the pure Go `go-git` library. This change reduces memory consumption and improves clone performance, especially for large repositories. This enhancement uses shallow-clone flags, for example `--depth 1`, to reduce resource usage. No changes to `Pipeline` manifests are required.
+- With this release, `StepAction` definitions are updated from `alpha` to `stable` and are now enabled by default. The `enable-step-actions` flag used in the earlier versions is no longer used and will be removed in a future release.
+- With this update, the `Pipeline` scheduler now correctly evaluates result references in fan-out/fan-in patterns. Previously, such `Pipelines` could fail unpredictably when matrix `Tasks` relied on result refs.
 
 **Trigger**
 
-- Allowed users to configure custom `securityContext` in the EventListener resource specification to meet personalized security requirements.
-- Added support for including the `imagePullSecrets` field in EventListener objects, simplifying the configuration of credentials for pulling images from private repositories.
+- Allowed users to configure custom `securityContext` in the `EventListener` resource specification to meet personalized security requirements.
+    - Example of using `securityContext` in `EventListener`:
+      ```yaml
+      apiVersion: triggers.tekton.dev/v1beta1
+      kind: EventListener
+      metadata:
+        name: securitycontext-example
+      spec:
+        serviceAccountName: triggers-example
+        triggers:
+          - name: foo-trig
+        resources:
+          kubernetesResource:
+            spec:
+              template:
+                spec:
+                  securityContext:
+                    runAsNonRoot: true
+                  containers:
+                    - securityContext:
+                        readOnlyRootFilesystem: true
+      ```
+- Added support for including the `imagePullSecrets` field in `EventListener` objects, simplifying the configuration of credentials for pulling images from private repositories.
+    - Example of using `imagePullSecrets` in `EventListener`:
+      ```yaml
+      apiVersion: triggers.tekton.dev/v1beta1
+      kind: EventListener
+      metadata:
+        name: imagepullsecrets-example
+      spec:
+        serviceAccountName: triggers-example
+        resources:
+          kubernetesResource:
+            spec:
+              template:
+                spec:
+                  imagePullSecrets:
+                    - name: docker-login
+      ```
 
-**CLI**
+**Chains**
 
-- In this release, support for the ClusterTask object has been removed from the CLI.
+- With this update, the `Tekton Chains` controller uses `StatefulSet` ordinals to improve high availability and workload distribution as an alternative to the leader election mechanism.
+    - Example of using `StatefulSet` ordinals in `Tekton Chains`:
+      ```yaml
+      apiVersion: operator.tekton.dev/v1alpha1
+      kind: TektonConfig
+      metadata:
+        name: config
+      spec:
+        chains:
+          performance:
+            disable-ha: false
+            buckets: 4
+            replicas: 4
+            statefulset-ordinals: true
+      ```
+    - > **Note:** The `StatefulSet` ordinals feature is an `alpha` feature and is not enabled by default.
+
+**Results**
+
+- Added support for configuring custom database credentials in `TektonConfig`.
+- New response field filtering and partial response features in the `Results API`: Allows specifying fields to be included in API responses, reducing data transfer volume, optimizing response latency and I/O performance for `List` operations, and improving network efficiency.
+- With this update, the `Tekton Results` watcher uses `StatefulSet` ordinals to improve high availability and workload distribution as an alternative to the leader election mechanism.
+    - Example of using `StatefulSet` ordinals in `Tekton Results` watcher:
+      ```yaml
+      apiVersion: operator.tekton.dev/v1alpha1
+      kind: TektonConfig
+      metadata:
+        name: config
+      spec:
+        result:
+          performance:
+            disable-ha: false
+            buckets: 4
+            replicas: 4
+            statefulset-ordinals: true
+      ```
+    - > **Note:** The `StatefulSet` ordinals feature is an `alpha` feature and is not enabled by default.
 
 ### Breaking Changes
 
-- Support for the ClusterTask object has been removed in this release.
+- **ClusterTask Deprecation**: Support for `ClusterTask` objects has been removed in this release.
+    - **Environment Impact**:
+        - **New Deployments**: `ClusterTask` resources cannot be created in newly deployed environments.
+        - **Upgraded Environments**: While existing `ClusterTask` resources may still be created in upgraded environments, they will not be executed or used by the system.
+        - **Migration Required**: Pipelines currently using `ClusterTask` resources must migrate to use `Task` resources instead to ensure continued functionality.
+    - **Additional Changes**:
+        - The `ClusterTask` functionality is no longer available on `Tekton Hub`.
+        - The `tkn clustertask` and `tkn task create` commands are no longer available.
 
 ### Fixed Issues
 
+#### Product Issues
+
 {/* release-notes-for-bugs?template=fixed&project=DEVOPS&version=v4.2.0 */}
+
+#### Community Issues
+
+The following upstream issues from the Tekton community have been resolved in this release:
+
+**Tekton Pipelines**
+- Before this update, the cluster resolver lacked RBAC permissions to access StepAction resources, causing authorization failures when resolving remote StepActions. With this update, missing RBAC permissions have been added to allow the cluster resolver to get and list StepActions, enabling proper remote resolution functionality.
+- Before this update, parameter references in default values and chained references in StepActions were not properly supported, leading to parameter resolution failures. With this update, the parameter resolution logic has been improved to support parameter references in default values and allow chained references in StepActions.
+- Before this update, validating enum parameters with special matrix tasks could cause the pipeline controller to panic. With this update, the validation logic has been improved to avoid panic conditions when processing enum parameters in matrix task configurations.
+- Before this update, parsing logic for empty results could cause unexpected failures in pipeline execution. With this update, the parsing logic has been improved to handle empty results gracefully, preventing pipeline failures due to empty result processing.
+- Before this update, when conditions had lower priority than other execution conditions, leading to unexpected task execution behavior. With this update, when conditions have been moved to higher priority to ensure proper conditional execution logic.
+- Before this update, CustomRun resources could cause panic issues in the pipeline controller, leading to controller instability. With this update, the panic issue in the pipeline controller caused by CustomRun has been resolved, improving controller stability.
+- Before this update, remote task parameters with default-value substitution were not working correctly, causing parameter resolution failures. With this update, remote task parameter default-value substitution has been fixed to ensure proper parameter handling in remote tasks.
+- Before this update, StepAction resources were not configured to use the conversion webhook, causing compatibility issues with different API versions. With this update, StepAction has been configured to use the conversion webhook, ensuring proper API version compatibility.
+- Before this update, the hub resolver did not recognize StepAction as a valid resource kind, preventing resolution of remote StepActions from Tekton Hub. With this update, StepAction has been added as a valid kind in the hub resolver, enabling StepAction resolution from Tekton Hub.
+- Before this update, fan-out matrix tasks could fail due to result reference issues, causing pipeline execution failures. With this update, the result reference handling has been improved to avoid fan-out matrix task failures due to result reference problems.
+- Before this update, subPath directory creation errors could cause immediate PipelineRun failures without allowing time for recovery. With this update, subPath directory creation errors are handled gracefully with retry mechanisms, allowing Alauda Container Platform time to resolve directory creation issues automatically.
 
 ### Known Issues
 

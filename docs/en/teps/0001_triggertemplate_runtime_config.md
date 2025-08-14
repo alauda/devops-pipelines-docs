@@ -462,17 +462,23 @@ spec:
 
 ##### Merge Rules Summary
 
+<!-- lint ignore no-deep-heading -->
+
 ###### 1. params Merge Rules
 
 - **Merged by `name` field**: If two templates have parameters with the same name, the later template overrides the earlier one
 - **Preserve different names**: Parameters with different names are preserved
 - **Example**: `environment` parameter is overridden from `"development"` to `"production"`, while `image-tag` and `registry` remain unchanged
 
+<!-- lint ignore no-deep-heading -->
+
 ###### 2. workspaces Merge Rules
 
 - **Merged by `name` field**: If two templates have workspaces with the same name, the later template overrides the earlier one
 - **Preserve different names**: Workspaces with different names are preserved
 - **Example**: `source` workspace is overridden from `emptyDir` to `persistentVolumeClaim`, while `cache` and `config` remain unchanged
+
+<!-- lint ignore no-deep-heading -->
 
 ###### 3. podTemplate Merge Rules
 

@@ -82,21 +82,21 @@ To use releases from your own branch or specific commit:
 
 1. **Edit components.yaml**: Update the `revision` field for the component you want to update:
 
-```yaml
-tektoncd-hub:
-  revision: your-feature-branch  # or specific commit hash
-  releases:
-    - remote_path: api
-      local_path: tekton-hub/api
-    - remote_path: hub-info
-      local_path: tekton-hub/hub-info
-```
+    ```yaml
+    tektoncd-hub:
+      revision: your-feature-branch  # or specific commit hash
+      releases:
+        - remote_path: api
+          local_path: tekton-hub/api
+        - remote_path: hub-info
+          local_path: tekton-hub/hub-info
+    ```
 
 2. **Run the update process**:
 
-```bash
-make update-components
-```
+    ```bash
+    make update-components
+    ```
 
 ### 2.3 Update Process Details
 
@@ -115,22 +115,22 @@ To add a new component to the automated update process:
 
 1. **Add component configuration** to `components.yaml`:
 
-```yaml
-your-new-component:
-  revision: main  # or your target branch
-  releases:
-    - remote_path: main
-      local_path: your-component/main
-    - remote_path: sidecar
-      local_path: your-component/sidecar
-      local_name: sidecar.yaml
-```
+    ```yaml
+    your-new-component:
+      revision: main  # or your target branch
+      releases:
+        - remote_path: main
+          local_path: your-component/main
+        - remote_path: sidecar
+          local_path: your-component/sidecar
+          local_name: sidecar.yaml
+    ```
 
 2. **Run the update process**:
 
-```bash
-make update-components
-```
+    ```bash
+    make update-components
+    ```
 
 ### 3.2 Component Structure Requirements
 
