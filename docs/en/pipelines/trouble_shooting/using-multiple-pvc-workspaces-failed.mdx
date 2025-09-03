@@ -47,27 +47,27 @@ It is recommended to troubleshoot as follows:
 
 1. Edit the TektonConfig resource by setting `spec.pipeline.disable-affinity-assistant` as shown below:
 
-```yaml
-apiVersion: operator.tekton.dev/v1alpha1
-kind: TektonConfig
-spec:
-  pipeline:
-    disable-affinity-assistant: true
-```
+    ```yaml
+    apiVersion: operator.tekton.dev/v1alpha1
+    kind: TektonConfig
+    spec:
+      pipeline:
+        disable-affinity-assistant: true
+    ```
 
-tips: the `disable-affinity-assistant` feature flag will be removed soon and the Affinity Assistant Modes will be only controlled by the `coschedule` feature flag.
+    tips: the `disable-affinity-assistant` feature flag will be removed soon and the Affinity Assistant Modes will be only controlled by the `coschedule` feature flag.
 
 2. The `feature-flags` ConfigMap will be updated automatically.
 
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: feature-flags
-  namespace: tekton-pipelines
-data:
-  disable-affinity-assistant: "true"
-```
+    ```yaml
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: feature-flags
+      namespace: tekton-pipelines
+    data:
+      disable-affinity-assistant: "true"
+    ```
 
 3. No manual component restarts are required, changes will take effect automatically.
 

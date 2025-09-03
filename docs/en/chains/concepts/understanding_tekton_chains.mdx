@@ -178,6 +178,8 @@ There are several ways to specify input and output artifacts:
 - Used to track source code repository details
 - Helps in provenance generation for source code
 
+{/* lint ignore code-block-split-list */}
+
 ```yaml
 results:
   - name: CHAINS-GIT_URL
@@ -186,7 +188,7 @@ results:
     type: string
 ```
 
-:::details{title="Example TaskRun"}
+:::details \{title="Example TaskRun"}
 ```yaml
 apiVersion: tekton.dev/v1
 kind: TaskRun
@@ -228,6 +230,8 @@ spec:
 - Used to specify input artifacts that influenced the build process
 - Helps track dependencies and source materials
 
+{/* lint ignore code-block-split-list */}
+
 ```yaml
 results:
   - name: first-ARTIFACT_INPUTS
@@ -237,7 +241,7 @@ results:
       digest: {}
 ```
 
-:::details{title="Example TaskRun"}
+:::details \{title="Example TaskRun"}
 ```yaml
 apiVersion: tekton.dev/v1
 kind: TaskRun
@@ -280,7 +284,7 @@ results:
     type: string
 ```
 
-:::details{title="Example TaskRun"}
+:::details \{title="Example TaskRun"}
 ```yaml
 apiVersion: tekton.dev/v1
 kind: TaskRun
@@ -310,13 +314,15 @@ spec:
 - Can specify multiple images, separated by commas or newlines
 - Each image must include the complete digest
 
+{/* lint ignore code-block-split-list */}
+
 ```yaml
 results:
   - name: IMAGES
     type: string
 ```
 
-:::details{title="Example TaskRun"}
+:::details \{title="Example TaskRun"}
 ```yaml
 apiVersion: tekton.dev/v1
 kind: TaskRun
@@ -342,6 +348,8 @@ spec:
 - Similar to IMAGE_URL/IMAGE_DIGEST but with different naming convention
 - Used for specifying artifact location and its digest
 
+{/* lint ignore code-block-split-list */}
+
 ```yaml
 results:
   - name: first-ARTIFACT_URI
@@ -355,6 +363,8 @@ results:
 - Uses object type results
 - Must include uri and digest fields
 
+{/* lint ignore code-block-split-list */}
+
 ```yaml
 results:
   - name: first-ARTIFACT_OUTPUTS
@@ -364,7 +374,7 @@ results:
       digest: {}
 ```
 
-:::details{title="Example TaskRun"}
+:::details \{title="Example TaskRun"}
 ```yaml
 apiVersion: tekton.dev/v1
 kind: TaskRun

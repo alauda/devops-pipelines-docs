@@ -4,20 +4,19 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.17.1
-  name: tektonresults.operator.tekton.dev
+  name: tektonpruners.operator.tekton.dev
 spec:
   group: operator.tekton.dev
   names:
-    kind: TektonResult
-    listKind: TektonResultList
-    plural: tektonresults
-    singular: tektonresult
-  scope: Namespaced
+    kind: TektonPruner
+    listKind: TektonPrunerList
+    plural: tektonpruners
+    singular: tektonpruner
+  scope: Cluster
   versions:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: TektonResult is the Schema for the tektonresults API
         properties:
           apiVersion:
             description: |-
@@ -37,15 +36,10 @@ spec:
           metadata:
             type: object
           spec:
-            description: TektonResultSpec defines the desired state of TektonResult
             properties:
-              auth_disable:
-                type: boolean
-              auth_impersonate:
-                type: boolean
               config:
                 description: Config holds the configuration for resources created
-                  by TektonResult
+                  by TektonPruner
                 properties:
                   nodeSelector:
                     additionalProperties:
@@ -94,77 +88,11 @@ spec:
                       type: object
                     type: array
                 type: object
-              db_enable_auto_migration:
-                type: boolean
-              db_host:
-                type: string
-              db_name:
-                type: string
-              db_port:
-                format: int64
-                type: integer
-              db_secret_name:
-                type: string
-              db_secret_password_key:
-                type: string
-              db_secret_user_key:
-                type: string
-              db_sslmode:
-                type: string
-              db_sslrootcert:
-                type: string
               disabled:
-                description: enable or disable Result Component
+                description: enable or disable TektonPruner Component
                 type: boolean
-              gcs_bucket_name:
-                type: string
-              gcs_creds_secret_key:
-                type: string
-              gcs_creds_secret_name:
-                type: string
-              is_external_db:
-                type: boolean
-              log_level:
-                type: string
-              logging_plugin_api_url:
-                type: string
-              logging_plugin_ca_cert:
-                type: string
-              logging_plugin_forwarder_delay_duration:
-                type: integer
-              logging_plugin_multipart_regex:
-                type: string
-              logging_plugin_namespace_key:
-                type: string
-              logging_plugin_proxy_path:
-                type: string
-              logging_plugin_query_limit:
-                type: integer
-              logging_plugin_query_params:
-                type: string
-              logging_plugin_static_labels:
-                type: string
-              logging_plugin_tls_verification_disable:
-                type: boolean
-              logging_plugin_token_path:
-                type: string
-              logging_pvc_name:
-                type: string
-              logs_api:
-                type: boolean
-              logs_buffer_size:
-                format: int64
-                type: integer
-              logs_path:
-                type: string
-              logs_type:
-                type: string
-              loki_stack_name:
-                type: string
-              loki_stack_namespace:
-                type: string
               options:
-                description: Options holds additions fields and these fields will
+                description: options holds additions fields and these fields will
                   be updated on the manifests
                 properties:
                   configMaps:
@@ -19067,65 +18995,15 @@ spec:
                       type: object
                     type: object
                 type: object
-              performance:
-                description: |-
-                  PerformanceProperties defines the fields which are configurable
-                  to tune the performance of component controller
-                properties:
-                  buckets:
-                    type: integer
-                  disable-ha:
-                    description: if it is true, disables the HA feature
-                    type: boolean
-                  kube-api-burst:
-                    type: integer
-                  kube-api-qps:
-                    description: |-
-                      queries per second (QPS) and burst to the master from rest API client
-                      actually the number multiplied by 2
-                      https://github.com/pierretasci/pipeline/blob/05d67e427c722a2a57e58328d7097e21429b7524/cmd/controller/main.go#L85-L87
-                      defaults: https://github.com/tektoncd/pipeline/blob/34618964300620dca44d10a595e4af84e9903a55/vendor/k8s.io/client-go/rest/config.go#L45-L46
-                    type: number
-                  replicas:
-                    format: int32
-                    type: integer
-                  statefulset-ordinals:
-                    description: if is true, enable StatefulsetOrdinals mode
-                    type: boolean
-                  threads-per-controller:
-                    description: The number of workers to use when processing the
-                      component controller's work queue
-                    type: integer
-                required:
-                - disable-ha
-                type: object
-              prometheus_histogram:
-                type: boolean
-              prometheus_port:
-                format: int64
-                type: integer
-              secret_name:
-                description: |-
-                  name of the secret used to get S3 credentials and
-                  pass it as environment variables to the "tekton-results-api" deployment under "api" container
-                type: string
-              server_port:
-                format: int64
-                type: integer
-              storage_emulator_host:
-                type: string
               targetNamespace:
                 description: TargetNamespace is where resources will be installed
                 type: string
-              tls_hostname_override:
-                type: string
             required:
             - disabled
-            - is_external_db
             - options
             type: object
           status:
-            description: TektonResultStatus defines the observed state of TektonResult
+            description: TektonPrunerStatus defines the observed state of TektonPruner
             properties:
               annotations:
                 additionalProperties:
@@ -19180,7 +19058,7 @@ spec:
                 format: int64
                 type: integer
               tektonInstallerSet:
-                description: The current installer set name for TektonResult
+                description: The current installer set name for TektonPruner
                 type: string
               version:
                 description: The version of the installed release

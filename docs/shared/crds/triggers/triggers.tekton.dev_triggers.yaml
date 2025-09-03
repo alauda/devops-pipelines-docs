@@ -207,11 +207,7 @@ spec:
                               name:
                                 type: string
                               value:
-                                description: |-
-                                  ParamValue is a type that can hold a single string or string array.
-                                  Used in JSON unmarshalling so that a single JSON field can accept
-                                  either an individual string or an array of strings.
-                                type: object
+                                x-kubernetes-preserve-unknown-fields: true
                             required:
                             - name
                             - value
@@ -441,11 +437,7 @@ spec:
                               name:
                                 type: string
                               value:
-                                description: |-
-                                  ParamValue is a type that can hold a single string or string array.
-                                  Used in JSON unmarshalling so that a single JSON field can accept
-                                  either an individual string or an array of strings.
-                                type: object
+                                x-kubernetes-preserve-unknown-fields: true
                             required:
                             - name
                             - value
@@ -562,4 +554,4 @@ spec:
             type: object
         type: object
     served: true
-    storage: false
+    storage: true

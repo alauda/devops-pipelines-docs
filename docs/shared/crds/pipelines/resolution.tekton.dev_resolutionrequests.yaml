@@ -119,26 +119,7 @@ spec:
                 description: |-
                   RefSource is the source reference of the remote data that records where the remote
                   file came from including the url, digest and the entrypoint.
-                properties:
-                  digest:
-                    additionalProperties:
-                      type: string
-                    description: |-
-                      Digest is a collection of cryptographic digests for the contents of the artifact specified by URI.
-                      Example: {"sha1": "f99d13e554ffcb696dee719fa85b695cb5b0f428"}
-                    type: object
-                  entryPoint:
-                    description: |-
-                      EntryPoint identifies the entry point into the build. This is often a path to a
-                      build definition file and/or a target label within that file.
-                      Example: "task/git-clone/0.8/git-clone.yaml"
-                    type: string
-                  uri:
-                    description: |-
-                      URI indicates the identity of the source of the build definition.
-                      Example: "https://github.com/tektoncd/catalog"
-                    type: string
-                type: object
+                x-kubernetes-preserve-unknown-fields: true
             required:
             - data
             - refSource
@@ -187,28 +168,7 @@ spec:
                     name:
                       type: string
                     value:
-                      description: |-
-                        ParamValue is a type that can hold a single string, string array, or string map.
-                        Used in JSON unmarshalling so that a single JSON field can accept
-                        either an individual string or an array of strings.
-                      properties:
-                        arrayVal:
-                          items:
-                            type: string
-                          type: array
-                          x-kubernetes-list-type: atomic
-                        objectVal:
-                          additionalProperties:
-                            type: string
-                          type: object
-                        stringVal:
-                          type: string
-                        type:
-                          description: |-
-                            ParamType indicates the type of an input parameter;
-                            Used to distinguish between a single string and an array of strings.
-                          type: string
-                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
                   required:
                   - name
                   - value
@@ -291,48 +251,10 @@ spec:
                 description: |-
                   RefSource is the source reference of the remote data that records the url, digest
                   and the entrypoint.
-                properties:
-                  digest:
-                    additionalProperties:
-                      type: string
-                    description: |-
-                      Digest is a collection of cryptographic digests for the contents of the artifact specified by URI.
-                      Example: {"sha1": "f99d13e554ffcb696dee719fa85b695cb5b0f428"}
-                    type: object
-                  entryPoint:
-                    description: |-
-                      EntryPoint identifies the entry point into the build. This is often a path to a
-                      build definition file and/or a target label within that file.
-                      Example: "task/git-clone/0.8/git-clone.yaml"
-                    type: string
-                  uri:
-                    description: |-
-                      URI indicates the identity of the source of the build definition.
-                      Example: "https://github.com/tektoncd/catalog"
-                    type: string
-                type: object
+                x-kubernetes-preserve-unknown-fields: true
               source:
                 description: 'Deprecated: Use RefSource instead'
-                properties:
-                  digest:
-                    additionalProperties:
-                      type: string
-                    description: |-
-                      Digest is a collection of cryptographic digests for the contents of the artifact specified by URI.
-                      Example: {"sha1": "f99d13e554ffcb696dee719fa85b695cb5b0f428"}
-                    type: object
-                  entryPoint:
-                    description: |-
-                      EntryPoint identifies the entry point into the build. This is often a path to a
-                      build definition file and/or a target label within that file.
-                      Example: "task/git-clone/0.8/git-clone.yaml"
-                    type: string
-                  uri:
-                    description: |-
-                      URI indicates the identity of the source of the build definition.
-                      Example: "https://github.com/tektoncd/catalog"
-                    type: string
-                type: object
+                x-kubernetes-preserve-unknown-fields: true
             required:
             - data
             - refSource
@@ -340,4 +262,4 @@ spec:
             type: object
         type: object
     served: true
-    storage: false
+    storage: true

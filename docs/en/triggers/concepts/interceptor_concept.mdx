@@ -189,57 +189,57 @@ triggers:
 
 1. Create a Deployment for your custom interceptor:
 
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: custom-interceptor
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: custom-interceptor
-  template:
+    ```yaml
+    apiVersion: apps/v1
+    kind: Deployment
     metadata:
-      labels:
-        app: custom-interceptor
+      name: custom-interceptor
     spec:
-      containers:
-        - name: custom-interceptor
-          image: custom-interceptor:latest
-          ports:
-            - containerPort: 8080
-```
+      replicas: 1
+      selector:
+        matchLabels:
+          app: custom-interceptor
+      template:
+        metadata:
+          labels:
+            app: custom-interceptor
+        spec:
+          containers:
+            - name: custom-interceptor
+              image: custom-interceptor:latest
+              ports:
+                - containerPort: 8080
+    ```
 
 2. Create a Service for your custom interceptor:
 
-```yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: custom-interceptor-svc
-spec:
-  selector:
-    app: custom-interceptor
-  ports:
-    - port: 80
-      targetPort: 8080
-```
+    ```yaml
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: custom-interceptor-svc
+    spec:
+      selector:
+        app: custom-interceptor
+      ports:
+        - port: 80
+          targetPort: 8080
+    ```
 
 3. Register your custom interceptor:
 
-```yaml
-apiVersion: triggers.tekton.dev/v1alpha1
-kind: ClusterInterceptor
-metadata:
-  name: custom-interceptor
-spec:
-  clientConfig:
-    service:
-      name: custom-interceptor-svc
-      namespace: default
-      port: 80
-```
+    ```yaml
+    apiVersion: triggers.tekton.dev/v1alpha1
+    kind: ClusterInterceptor
+    metadata:
+      name: custom-interceptor
+    spec:
+      clientConfig:
+        service:
+          name: custom-interceptor-svc
+          namespace: default
+          port: 80
+    ```
 
 ## Important Parameter Explanations Related to Interceptors
 

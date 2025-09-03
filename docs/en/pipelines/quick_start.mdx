@@ -48,24 +48,24 @@ A Task is the basic building block of a Tekton Pipeline. It consists of a series
 
 1. Create a file named `hello-task.yaml` with the following content:
 
-  ```yaml
-  apiVersion: tekton.dev/v1
-  kind: Task
-  metadata:
-    name: hello
-  spec:
-    steps:
-      - name: echo
-        image: ubuntu
-        command:
-          - echo
-        args:
-          - "Hello World!"
-  ```
+    ```yaml
+    apiVersion: tekton.dev/v1
+    kind: Task
+    metadata:
+      name: hello
+    spec:
+      steps:
+        - name: echo
+          image: ubuntu
+          command:
+            - echo
+          args:
+            - "Hello World!"
+    ```
 
-  :::tip
-  Please replace the `ubuntu` image with an actual accessible image, same below.
-  :::
+    :::tip
+    Please replace the `ubuntu` image with an actual accessible image, same below.
+    :::
 
 2. Apply the Task to your cluster:
 
@@ -75,15 +75,15 @@ A Task is the basic building block of a Tekton Pipeline. It consists of a series
 
 3. A `TaskRun` object instantiates and executes this Task. Create another file named `hello-world-run.yaml` with the following content:
 
-  ```yaml
-  apiVersion: tekton.dev/v1
-  kind: TaskRun
-  metadata:
-    name: hello-task-run
-  spec:
-    taskRef:
-      name: hello
-  ```
+    ```yaml
+    apiVersion: tekton.dev/v1
+    kind: TaskRun
+    metadata:
+      name: hello-task-run
+    spec:
+      taskRef:
+        name: hello
+    ```
 
 4. Apply the `TaskRun` to your cluster:
 
@@ -120,25 +120,25 @@ Now let's create a second Task that accepts parameters to make it more flexible.
 
 1. Create a file named `goodbye-task.yaml` with the following content:
 
-  ```yaml
-  apiVersion: tekton.dev/v1
-  kind: Task
-  metadata:
-    name: goodbye
-  spec:
-    params:
-      - name: username
-        type: string
-        description: The username to say goodbye to
-        default: "World"
-    steps:
-      - name: goodbye
-        image: ubuntu
-        command:
-          - echo
-        args:
-          - "Goodbye $(params.username)!"
-  ```
+    ```yaml
+    apiVersion: tekton.dev/v1
+    kind: Task
+    metadata:
+      name: goodbye
+    spec:
+      params:
+        - name: username
+          type: string
+          description: The username to say goodbye to
+          default: "World"
+      steps:
+        - name: goodbye
+          image: ubuntu
+          command:
+            - echo
+          args:
+            - "Goodbye $(params.username)!"
+    ```
 
 2. Apply the Task to your cluster:
 
@@ -152,36 +152,36 @@ A Pipeline defines an ordered series of Tasks arranged in a specific execution o
 
 1. Create a file named `hello-goodbye-pipeline.yaml` with the following content:
 
-  ```yaml
-  apiVersion: tekton.dev/v1
-  kind: Pipeline
-  metadata:
-    name: hello-goodbye
-  spec:
-    params:
-      - name: username
-        type: string
-        description: The username to say goodbye to
-        default: "World"
-    tasks:
-      - name: hello
-        taskRef:
-          name: hello
-      - name: goodbye
-        runAfter:
-          - hello
-        taskRef:
-          name: goodbye
-        params:
-          - name: username
-            value: "$(params.username)"
-  ```
+    ```yaml
+    apiVersion: tekton.dev/v1
+    kind: Pipeline
+    metadata:
+      name: hello-goodbye
+    spec:
+      params:
+        - name: username
+          type: string
+          description: The username to say goodbye to
+          default: "World"
+      tasks:
+        - name: hello
+          taskRef:
+            name: hello
+        - name: goodbye
+          runAfter:
+            - hello
+          taskRef:
+            name: goodbye
+          params:
+            - name: username
+              value: "$(params.username)"
+    ```
 
-   This Pipeline:
-   - Defines a parameter called `username`
-   - Includes two Tasks: `hello` and `goodbye`
-   - Specifies that `goodbye` should run after `hello` completes
-   - Passes the Pipeline parameter to the `goodbye` Task
+    This Pipeline:
+    - Defines a parameter called `username`
+    - Includes two Tasks: `hello` and `goodbye`
+    - Specifies that `goodbye` should run after `hello` completes
+    - Passes the Pipeline parameter to the `goodbye` Task
 
 2. Apply the Pipeline to your cluster:
 
@@ -195,18 +195,18 @@ A PipelineRun is used to execute a Pipeline and provide any required parameters.
 
 1. Create a file named `hello-goodbye-pipeline-run.yaml` with the following content:
 
-  ```yaml
-  apiVersion: tekton.dev/v1
-  kind: PipelineRun
-  metadata:
-    name: hello-goodbye-run
-  spec:
-    pipelineRef:
-      name: hello-goodbye
-    params:
-      - name: username
-        value: "Tekton"
-  ```
+    ```yaml
+    apiVersion: tekton.dev/v1
+    kind: PipelineRun
+    metadata:
+      name: hello-goodbye-run
+    spec:
+      pipelineRef:
+        name: hello-goodbye
+      params:
+        - name: username
+          value: "Tekton"
+    ```
 
 2. Apply the PipelineRun to your cluster to start the Pipeline:
 
@@ -216,15 +216,15 @@ A PipelineRun is used to execute a Pipeline and provide any required parameters.
 
 3. Monitor the Pipeline execution:
 
-  ```bash
-  tkn pipelinerun logs hello-goodbye-run -f
-  ```
+    ```bash
+    tkn pipelinerun logs hello-goodbye-run -f
+    ```
 
-  You should see output similar to:
-  ```
-  [hello : echo] Hello World!
-  [goodbye : goodbye] Goodbye Tekton!
-  ```
+    You should see output similar to:
+    ```
+    [hello : echo] Hello World!
+    [goodbye : goodbye] Goodbye Tekton!
+    ```
 
 ### Step 5: Clean Up
 
