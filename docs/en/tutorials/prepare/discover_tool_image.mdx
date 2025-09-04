@@ -1,0 +1,95 @@
+---
+weight: 50
+---
+
+# Discover Tool Image
+
+This guide shows you how to discover tool images that help you run your Tekton Tasks and Pipelines.
+If you don't find the image you need, you can always build your own image and use it to run your Tasks and Pipelines.
+
+## TL;DR
+
+- Replace `<tekton-namespace>` with your Tekton namespace before running. Such as `tekton-pipelines`.
+- Replace `<image-name>` with your target image name. Such as `helm`.
+
+Run the following command to get the image name:
+
+```shell
+REG=$(kubectl -n kube-public get cm global-info -o jsonpath='{.data.registryAddress}')
+IMG=$(kubectl -n <tekton-namespace> get cm -l operator.tekton.dev/tool-image=<image-name> -o jsonpath='{.items[0].data.repository}:{.items[0].data.tag}')
+echo "${REG%/}/$IMG"
+```
+
+- The second line selects array index 0 `(.items[0])`. If there are multiple matching ConfigMaps and index 0 isn't the one you want, change the index (e.g., `.items[1]`, `.items[2]`, …) or follow the step-by-step flow below to list and choose.
+- If `kube-public/global-info` doesn't exist (or lacks registryAddress), replace `REG` with your own registry, e.g.: `REG="registry.example.com"`.
+
+## Prerequisites
+
+- kubectl installed and configured to access the cluster.
+- Permissions to read ConfigMaps.
+
+## Step-by-Step Instructions
+
+### Step 1: Get the registry
+
+Try to read registryAddress from kube-public/global-info.
+
+```shell
+REG=$(kubectl -n kube-public get cm global-info -o jsonpath='{.data.registryAddress}')
+```
+
+If your cluster doesn't provide `kube-public/global-info`, you must replace REG with your registry (for example, `harbor.example.com`).
+
+```shell
+REG="<your-registry>"
+```
+
+### Step 2: List all candidate tool images in namespace
+
+Replace `<tekton-namespace>` with your Tekton namespace before running. Such as `tekton-pipelines`.
+
+```shell
+kubectl -n <tekton-namespace> get cm -l operator.tekton.dev/tool-image -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.data.repository}:{.data.tag}{"\n"}{end}'
+```
+
+This prints lines like:
+```
+tool-image-helm   devops/tektoncd/hub/helm:3.18.0
+tool-image-foo    devops/tektoncd/hub/foo:1.2.3
+tool-image-bar    devops/tektoncd/hub/bar:2.3.4
+```
+
+If you only want a specific type image, you can use the following command.
+Replace `<image-name>` with your target image name. Such as `helm`.
+
+```shell
+kubectl -n <tekton-namespace> get cm -l operator.tekton.dev/tool-image=<image-name> -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.data.repository}:{.data.tag}{"\n"}{end}'
+```
+
+This prints lines like:
+```
+tool-image-helm   devops/tektoncd/hub/helm:3.18.0
+```
+
+Select one of the images, and set `IMG` to the image name.
+
+```shell
+IMG=devops/tektoncd/hub/helm:3.18.0
+```
+
+### Step 3: Print the final image name
+
+```shell
+echo "${REG%/}/$IMG"
+```
+
+This prints like:
+```
+registry.example.com/devops/tektoncd/hub/helm:3.18.0
+```
+
+## Troubleshooting
+
+- **Empty output or errors**:
+    - Ensure you can read ConfigMaps in namespaces.
+    - Confirm `kube-public/global-info` exists and has a `registryAddress` key (or set `REG` manually as shown above).

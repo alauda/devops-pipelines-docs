@@ -1,0 +1,205 @@
+---
+weight: 52
+i18n:
+  title:
+    en: Deploy/Upgrade from an OCI-hosted Helm Chart
+    zh: 使用 OCI 仓库中的 Helm Chart 部署/升级
+title: Deploy/Upgrade from an OCI-hosted Helm Chart
+---
+
+# Deploy/Upgrade from an OCI-hosted Helm Chart
+
+This guide shows a practical CD path where your Helm chart is already pushed to an OCI registry (e.g., Harbor).
+
+You'll use a Tekton Pipeline to pull/install that chart into your Kubernetes cluster.
+
+You'll Build a reusable Pipeline named `helm-oci-deploy` that:
+
+1. Authenticates to your OCI registry
+2. Runs `helm upgrade --install` directly from the OCI chart reference
+3. Optionally applies extra values files and `--set` overrides
+4. Works with a Kubeconfig secret or a ServiceAccount
+
+## Prerequisites
+
+* A Kubernetes cluster (you can use minikube for local testing).
+* Tekton Pipelines installed on your cluster.
+* A Helm 3.8+ container image (Helm v3 with OCI support).
+* An OCI registry with the OCI chart reference and version you intend to deploy, e.g.:
+    * `oci://registry.example.com/charts/myapp`
+    * Version like `1.2.3` (must exist in the registry)
+* Registry credentials for your OCI registry as a Docker config JSON:
+    * Create a Kubernetes Secret of type `kubernetes.io/dockerconfigjson` (example below).
+* Cluster access for Helm (choose one):
+    * Mount a Kubeconfig Secret,
+    * Run the Task under a ServiceAccount with sufficient RBAC.
+
+## Step-by-Step Instructions
+
+### Step 1: Create the Registry Credential Secret
+
+You need a registry credential for your OCI registry as a Docker config JSON.
+
+You can refer to the [Prepare Registry Credential](../prepare/prepare_registry_credential.mdx).
+
+### Step 2: Create Cluster Access Credential
+
+You need a cluster access credential for Helm.
+
+You can refer to the [Prepare Cluster Access Credential](../prepare/prepare_cluster_access_credential.mdx).
+
+### Step 3: Prepare helm image
+
+You need a Helm 3.8+ container image (Helm v3 with OCI support) to run the `helm` command.
+
+You can refer to the [Discover Tool Image](../prepare/discover_tool_image.mdx).
+
+When searching by label, specify the image as `helm`, for example: `-l operator.tekton.dev/tool-image=helm`.
+
+### Step 4: Define the Pipeline
+
+This Pipeline installs/upgrades a release directly from an OCI chart reference using `helm upgrade --install`.
+
+Helm 3.8+ supports referencing charts via `oci://...` with `--version`. This keeps the step stateless and fast.
+If you prefer to pre-pull the chart, you can `helm pull` to a temp dir and install from the `.tgz` path instead.
+
+You can use `--wait` to blocks until Kubernetes reports the release's resources are ready (or until the operation times out).
+Pair it with `--timeout` to control how long Helm will wait.
+
+It's common to combine with `--atomic`, which rolls back automatically if the wait fails or times out—so you don't leave a half-upgraded release.
+
+**Please replace `<helm-image>` with your Helm image.**
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: helm-oci-deploy
+spec:
+  description: Clone repo, package Helm chart, and push to an OCI registry.
+  params:
+    - name: oci_chart
+      type: string
+      description: OCI chart ref, e.g. oci://registry.example.com/charts/myapp
+    - name: version
+      type: string
+      description: Chart version to install/upgrade to (must exist in the registry)
+    - name: release_name
+      type: string
+      description: Helm release name
+    - name: namespace
+      type: string
+      description: Target namespace
+      default: default
+    - name: extra_args
+      type: string
+      description: Extra helm args (e.g., "--atomic --timeout 5m --set key=val -f values.yaml")
+      default: ""
+  workspaces:
+    - name: registry-creds
+      description: Workspace with docker config at config.json (for OCI auth)
+      optional: true
+    - name: kubeconfig
+      description: Workspace containing kubeconfig file at ./kubeconfig
+      optional: true
+  tasks:
+    - name: helm
+      taskRef:
+        resolver: hub
+        params:
+          - name: catalog
+            value: catalog
+          - name: kind
+            value: task
+          - name: name
+            value: run-script
+          - name: version
+            value: "0.1"
+      workspaces:
+        - name: config
+          workspace: kubeconfig
+        - name: secret
+          workspace: registry-creds
+      params:
+        - name: image
+          ## Replace with your Helm image
+          value: <helm-image>
+        - name: script
+          value: |
+            if [ "$(workspaces.secret.bound)" = "true" ]; then
+              echo "Using registry credentials in $(workspaces.secret.path)"
+              export HELM_REGISTRY_CONFIG=$(workspaces.secret.path)/.dockerconfigjson
+            fi
+
+            if [ "$(workspaces.config.bound)" = "true" ]; then
+              echo "Using kubeconfig in $(workspaces.config.path)"
+              export KUBECONFIG=$(workspaces.config.path)/kubeconfig
+            fi
+
+            echo "Upgrading/Installing release..."
+            echo "  Release:   $(params.release_name)"
+            echo "  Namespace: $(params.namespace)"
+            echo "  Chart:     $(params.oci_chart):$(params.version)"
+
+            # Direct install from OCI (no need to helm pull first)
+            helm upgrade --install "$(params.release_name)" "$(params.oci_chart)" \
+              --version "$(params.version)" \
+              --namespace "$(params.namespace)" --create-namespace \
+              $(params.extra_args)
+
+            echo "Done."
+```
+
+### Step 5: Run It with a PipelineRun
+
+* Cluster access for Helm (choose one):
+    * Mount a Kubeconfig Secret,
+    * Run the Task under a ServiceAccount with sufficient RBAC.
+
+Please choose one of cluster access credentials.
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: helm-oci-deploy-
+spec:
+  workspaces:
+    - name: registry-creds
+      secret:
+        secretName: registry-creds
+
+    ## If you choose to use the kubeconfig Secret
+    # - name: kubeconfig
+    #   secret:
+    #     secretName: <kubeconfig-secret-name>
+
+  params:
+    - name: oci_chart
+      value: oci://registry.example.com/charts/myapp
+    - name: version
+      value: "1.1.0"
+    - name: release_name
+      value: myapp
+    - name: namespace
+      value: my-namespace
+  pipelineRef:
+    name: helm-oci-deploy
+
+  ## If you choose to use the ServiceAccount
+  # taskRunTemplate:
+  #   serviceAccountName: <service-account-name>
+```
+
+## Troubleshooting
+
+- **`helm: command not found`**: Ensure your `image` actually contains the Helm binary.
+- **`unauthorized: authentication required`**: Ensure the Secret is correct and mounted to registry-creds. Confirm `HELM_REGISTRY_CONFIG` is set to that path.
+- **`Error: chart "myapp" version "x.y.z" not found`**: The version doesn't exist in the OCI repo or the `oci_chart` path is wrong. Verify the pushed tag/version and path.
+- **`failed to create resource: (…RBAC…) forbidden`**: The kubeconfig/ServiceAccount lacks permissions. Grant the necessary roles to create/update the resources the chart manages.
+
+## Next Steps
+
+- [Specifying remote tasks using hub resolvers](../../pipelines/how_to/specifying_remote_tasks_using_hub_resolvers.mdx)
+- [Package & Push a Helm Chart to an OCI Registry](./package_and_push_helm_chart.mdx)
+- [Deploy/Upgrade from Helm Charts in Git Repo](./deploy_or_upgrade_by_helm_chart_in_git_repo.mdx)
