@@ -21,6 +21,14 @@ Configure resource quotas related to the [`Pipeline`](../apis/kubernetes_apis/op
 - TektonConfig resources must have been automatically created in the environment
 - The document on [Adjusting Optional Configuration Items for Subcomponents](./customize_options.mdx) should be read
 
+## Resource Configuration Guidelines
+
+Before configuring resource quotas:
+- Assess your cluster's available resources and capacity
+- Consider your workload characteristics and performance requirements  
+- Start with conservative values and adjust based on monitoring data
+- Test configurations in non-production environments first
+
 ## Steps
 
 <Steps>
@@ -54,116 +62,117 @@ spec:
         config-defaults:
           data:
             # Add default container resource quotas
+            # Adjust the values below according to your cluster's resource capacity and workload requirements
             default-container-resource-requirements: |
               place-scripts: # updates resource requirements of a 'place-scripts' container
                 requests:
-                  memory: "64Mi"
-                  cpu: "50m"
+                  memory: "<MEMORY_REQUEST>"  # e.g., "128Mi"
+                  cpu: "<CPU_REQUEST>"        # e.g., "250m"
                 limits:
-                  memory: "128Mi"
-                  cpu: "100m"
+                  memory: "<MEMORY_LIMIT>"    # e.g., "512Mi"
+                  cpu: "<CPU_LIMIT>"          # e.g., "500m"
 
               prepare: # updates resource requirements of a 'prepare' container
                 requests:
-                  memory: "64Mi"
-                  cpu: "50m"
+                  memory: "<MEMORY_REQUEST>"  # e.g., "128Mi"
+                  cpu: "<CPU_REQUEST>"        # e.g., "250m"
                 limits:
-                  memory: "256Mi"
-                  cpu: "100m"
+                  memory: "<MEMORY_LIMIT>"    # e.g., "256Mi"
+                  cpu: "<CPU_LIMIT>"          # e.g., "500m"
 
               working-dir-initializer: # updates resource requirements of a 'working-dir-initializer' container
                 requests:
-                  memory: "64Mi"
-                  cpu: "50m"
+                  memory: "<MEMORY_REQUEST>"  # e.g., "128Mi"
+                  cpu: "<CPU_REQUEST>"        # e.g., "250m"
                 limits:
-                  memory: "512Mi"
-                  cpu: "100m"
+                  memory: "<MEMORY_LIMIT>"    # e.g., "512Mi"
+                  cpu: "<CPU_LIMIT>"          # e.g., "500m"
 
               prefix-scripts: # updates resource requirements of containers which starts with 'scripts-'
                 requests:
-                  memory: "64Mi"
-                  cpu: "50m"
+                  memory: "<MEMORY_REQUEST>"  # e.g., "128Mi"
+                  cpu: "<CPU_REQUEST>"        # e.g., "250m"
                 limits:
-                  memory: "128Mi"
-                  cpu: "100m"
+                  memory: "<MEMORY_LIMIT>"    # e.g., "512Mi"
+                  cpu: "<CPU_LIMIT>"          # e.g., "500m"
 
               prefix-sidecar-scripts: # updates resource requirements of containers which starts with 'sidecar-scripts-'
                 requests:
-                  memory: "64Mi"
-                  cpu: "50m"
+                  memory: "<MEMORY_REQUEST>"  # e.g., "128Mi"
+                  cpu: "<CPU_REQUEST>"        # e.g., "250m"
                 limits:
-                  memory: "128Mi"
-                  cpu: "100m"
+                  memory: "<MEMORY_LIMIT>"    # e.g., "512Mi"
+                  cpu: "<CPU_LIMIT>"          # e.g., "500m"
 
-              sidecar-tekton-log-results: # updates resource requirements of a 'place-scripts' container
+              sidecar-tekton-log-results: # updates resource requirements of a 'sidecar-tekton-log-results' container
                 requests:
-                  memory: "64Mi"
-                  cpu: "50m"
+                  memory: "<MEMORY_REQUEST>"  # e.g., "128Mi"
+                  cpu: "<CPU_REQUEST>"        # e.g., "100m"
                 limits:
-                  memory: "128Mi"
-                  cpu: "100m"
+                  memory: "<MEMORY_LIMIT>"    # e.g., "256Mi"
+                  cpu: "<CPU_LIMIT>"          # e.g., "250m"
 
       deployments:
-
+        # Adjust the resource values below according to your cluster's capacity and performance requirements
         tekton-pipelines-controller:
           spec:
-            replicas: 1
+            replicas: <REPLICA_COUNT>  # e.g., 1
             template:
               spec:
                 containers:
                   - name: tekton-pipelines-controller
                     resources:
                       requests:
-                        cpu: 500m
-                        memory: 512Mi
+                        cpu: <CPU_REQUEST>        # e.g., "500m"
+                        memory: <MEMORY_REQUEST>  # e.g., "512Mi"
                       limits:
-                        cpu: "1"
-                        memory: 1Gi
+                        cpu: <CPU_LIMIT>          # e.g., "1"
+                        memory: <MEMORY_LIMIT>    # e.g., "1Gi"
 
         tekton-pipelines-remote-resolvers:
           spec:
-            replicas: 1
+            replicas: <REPLICA_COUNT>  # e.g., 1
             template:
               spec:
                 containers:
                   - name: controller
                     resources:
                       requests:
-                        cpu: 200m
-                        memory: 256Mi
+                        cpu: <CPU_REQUEST>        # e.g., "200m"
+                        memory: <MEMORY_REQUEST>  # e.g., "256Mi"
                       limits:
-                        cpu: 500m
-                        memory: 512Mi
+                        cpu: <CPU_LIMIT>          # e.g., "500m"
+                        memory: <MEMORY_LIMIT>    # e.g., "512Mi"
 
         tekton-pipelines-webhook:
           spec:
-            replicas: 1
+            replicas: <REPLICA_COUNT>  # e.g., 1
             template:
               spec:
                 containers:
                   - name: webhook
                     resources:
                       requests:
-                        cpu: "500m"
-                        memory: 256Mi
+                        cpu: <CPU_REQUEST>        # e.g., "500m"
+                        memory: <MEMORY_REQUEST>  # e.g., "256Mi"
                       limits:
-                        cpu: "1"
-                        memory: 500Mi
+                        cpu: <CPU_LIMIT>          # e.g., "1"
+                        memory: <MEMORY_LIMIT>    # e.g., "500Mi"
 
         tekton-events-controller:
           spec:
-            replicas: 1
+            replicas: <REPLICA_COUNT>  # e.g., 1
             template:
               spec:
                 containers:
                   - name: tekton-events-controller
                     resources:
                       requests:
-                        cpu: 100m
-                        memory: 100Mi
+                        cpu: <CPU_REQUEST>        # e.g., "100m"
+                        memory: <MEMORY_REQUEST>  # e.g., "100Mi"
                       limits:
-                        cpu: 200m
-                        memory: 256Mi
+                        cpu: <CPU_LIMIT>          # e.g., "200m"
+                        memory: <MEMORY_LIMIT>    # e.g., "256Mi"
 ```
 
 ### Step 3
