@@ -213,7 +213,7 @@ In production environments, you would typically:
 3. This approach ensures proper version control and maintains the separation between code and pipeline configuration
 :::
 
-:::details{title="Explanation of YAML fields"}
+:::details \{title="Explanation of YAML fields"}
 - The same as in [Step 4: Create a Sample Pipeline](../quick_start/signed_provenance.mdx#step-4-create-a-sample-pipeline), but adds the following content:
   - `workspaces`:
     - `signkey`: The workspace for private keys and passwords used for image signatures.
@@ -261,7 +261,7 @@ spec:
           storageClassName: <nfs>
 ```
 
-:::details{title="Explanation of YAML fields"}
+:::details \{title="Explanation of YAML fields"}
 - The same as in [Step 5: Run a Sample Pipeline](../quick_start/signed_provenance.mdx#step-5-run-a-sample-pipeline). Below only introduces the differences.
 - `workspaces`
   - `signkey`: the secret name of the signing key.
@@ -342,7 +342,7 @@ $ cosign verify-attestation --key cosign.pub --type cyclonedx $IMAGE | jq -r '.p
 
 The output will be similar to the following, which contains the components information of the image.
 
-:::details{title="cyclonedx SBOM attestation"}
+:::details \{title="cyclonedx SBOM attestation"}
 ```json
 {
   "_type": "https://in-toto.io/Statement/v0.1",
@@ -384,7 +384,8 @@ The output will be similar to the following, which contains the components infor
 ```
 :::
 
-:::details{title="Description of the fields"}
+:::details \{title="Description of the fields"}
+{/* lint ignore no-deep-list */}
 - `predicateType`: The type of the predicate.
 - `predicate`:
   - `components`: The components of the image.
@@ -485,7 +486,7 @@ spec:
                        PkgIDs: {{ scanner.result.Results[].Vulnerabilities[?CVSS.redhat.V3Score > `1.0`].PkgID[] }}.
 ```
 
-:::details{title="Explanation of YAML fields"}
+:::details \{title="Explanation of YAML fields"}
 - The policy is largely consistent with the one in [Image Signature Verification](../how_to/image_signature_verification.mdx#step-81-create-a-kyverno-policy-to-allow-only-signed-images-to-be-deployed)
 - `spec.rules[0].verifyImages[].attestations[0].conditions`
   - `type`: The cyclonedx SBOM attestation type is `https://cyclonedx.org/bom`
