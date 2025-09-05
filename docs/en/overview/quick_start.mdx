@@ -58,15 +58,15 @@ After installing the Tekton Operator, you should verify that it's running proper
 
 1. Check that the Operator pods are running:
 
-  ```bash
-  kubectl get pods -n tekton-operator
-  ```
+    ```bash
+    kubectl get pods -n tekton-operator
+    ```
 
 2. Verify the Operator CRDs (Custom Resource Definitions) are installed:
 
-  ```bash
-  kubectl get crds | grep tekton
-  ```
+    ```bash
+    kubectl get crds | grep tekton
+    ```
 
 ### Install Tekton Components
 
@@ -81,42 +81,42 @@ After installing the Tekton components, you should verify that they are running 
 
 1. Check the TektonConfig resource:
 
-  ```bash
-  kubectl get tektonconfig config
-  ```
+    ```bash
+    kubectl get tektonconfig config
+    ```
 
-  The results should be similar to the following:
+    The results should be similar to the following:
 
-  ```bash
-  NAME     VERSION           READY   REASON
-  config   v0.74.1-fb53414   True
-  ```
+    ```bash
+    NAME     VERSION           READY   REASON
+    config   v0.74.1-fb53414   True
+    ```
 
 2. If the TektonConfig resource is not ready, you can continue to check the TektonInstallerSet resource for details.
 
-  ```bash
-  kubectl get tektoninstallerset
-  ```
+    ```bash
+    kubectl get tektoninstallerset
+    ```
 
-  The results should be similar to the following:
+    The results should be similar to the following:
 
-  ```bash
-  NAME                                READY   REASON
-  chain-config-5scx2                  True
-  chain-secret-xrq7b                  True
-  chain-t6wb6                         True
-  pipeline-main-deployment-9d9cc      True
-  pipeline-main-static-c7zlz          True
-  result-j74p5                        True
-  tekton-hub-api-jl9xj                True
-  tekton-hub-db-5g89c                 True
-  tekton-hub-db-migration-q7m8l       True
-  tekton-hub-ui-jn6bw                 True
-  tektoncd-pruner-fgzfh               True
-  trigger-main-deployment-q8zkd       True
-  trigger-main-static-8x5w6           True
-  validating-mutating-webhook-ksz2k   True
-  ```
+    ```bash
+    NAME                                READY   REASON
+    chain-config-5scx2                  True
+    chain-secret-xrq7b                  True
+    chain-t6wb6                         True
+    pipeline-main-deployment-9d9cc      True
+    pipeline-main-static-c7zlz          True
+    result-j74p5                        True
+    tekton-hub-api-jl9xj                True
+    tekton-hub-db-5g89c                 True
+    tekton-hub-db-migration-q7m8l       True
+    tekton-hub-ui-jn6bw                 True
+    tektoncd-pruner-fgzfh               True
+    trigger-main-deployment-q8zkd       True
+    trigger-main-static-8x5w6           True
+    validating-mutating-webhook-ksz2k   True
+    ```
 
 ### Expected Results
 

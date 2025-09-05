@@ -47,24 +47,24 @@ Currently, the built-in PostgreSQL database is not supported, please use an exte
 
    - Generate a new self-signed certificate
 
-   ```sh
-   openssl req -x509 \
-     -newkey rsa:4096 \
-     -keyout key.pem \
-     -out cert.pem \
-     -days 365 \
-     -nodes \
-     -subj "/CN=tekton-results-api-service.tekton-pipelines.svc.cluster.local" \
-     -addext "subjectAltName = DNS:tekton-results-api-service.tekton-pipelines.svc.cluster.local"
-   ```
+      ```sh
+      openssl req -x509 \
+        -newkey rsa:4096 \
+        -keyout key.pem \
+        -out cert.pem \
+        -days 365 \
+        -nodes \
+        -subj "/CN=tekton-results-api-service.tekton-pipelines.svc.cluster.local" \
+        -addext "subjectAltName = DNS:tekton-results-api-service.tekton-pipelines.svc.cluster.local"
+      ```
 
    - Create a new TLS Secret from the certificate.
 
-   ```sh
-   kubectl create secret tls -n tekton-pipelines tekton-results-tls \
-     --cert=cert.pem \
-     --key=key.pem
-   ```
+      ```sh
+      kubectl create secret tls -n tekton-pipelines tekton-results-tls \
+        --cert=cert.pem \
+        --key=key.pem
+      ```
 
 4. Create a `PVC` if you are using `PVC` to store logs.
 
@@ -120,7 +120,7 @@ spec:
 EOF
 ```
 
-:::details{title="Explanation of YAML fields"}
+:::details \{title="Explanation of YAML fields"}
   - `db_host`: The host of the database.
   - `db_port`: The port of the database.
   - `db_name`: The name of the database.
