@@ -177,6 +177,8 @@ spec:
     - name: source
       volumeClaimTemplate:
         spec:
+          ## Specify StorageClassName (as needed)
+          # storageClassName: <storage-class-name>
           accessModes:
             - ReadWriteOnce
           resources:

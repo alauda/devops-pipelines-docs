@@ -4,3 +4,6 @@
 - name: postgresql
   base: /postgresql
   version: "4.0"
+- name: connectors
+  base: /alauda-devops-connectors
+  version: "1.2"
