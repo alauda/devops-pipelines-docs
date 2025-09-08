@@ -1,0 +1,207 @@
+---
+title: "Writing Tasks for Tekton Hub"
+weight: 20
+---
+
+# Writing `Tasks` for `Tekton Hub`
+
+## Overview
+
+This guide covers the specific requirements and best practices for creating `Tasks` that work with `Tekton Hub` catalogs. It focuses on `Hub`-specific metadata, validation, and standards.
+
+## `Tekton Hub` Requirements
+
+### `Task` vs `ClusterTask`
+
+> **⚠️ CRITICAL**: `ClusterTask` is **DEPRECATED and REMOVED** in `Tekton Pipelines` v1.0+. Do NOT use `ClusterTask`.
+
+- **`Task`**: The ONLY supported resource type for `Hub` catalogs
+- **`ClusterTask`**: ❌ **REMOVED** in `Tekton` v1.0+ - will not work
+
+#### Migration from `ClusterTask`
+
+```yaml
+# OLD - ClusterTask (NO LONGER WORKS)
+apiVersion: tekton.dev/v1beta1
+kind: ClusterTask
+metadata:
+  name: buildah
+
+# NEW - Task (Required for Hub)
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: buildah
+  namespace: tekton-pipelines
+```
+
+## `Hub`-Specific Metadata
+
+### Required Labels
+
+```yaml
+metadata:
+  name: my-custom-task
+  labels:
+    app.kubernetes.io/version: "0.1"  # Must match catalog version directory
+```
+
+### Required Annotations for `Hub`
+
+```yaml
+metadata:
+  annotations:
+    tekton.dev/pipelines.minVersion: "0.17.0"  # Minimum Tekton version
+    tekton.dev/categories: "Build Tools"       # Hub category
+    tekton.dev/tags: "build,docker,image"     # Hub search tags
+    tekton.dev/displayName: "Build Docker Image"  # Hub display name
+    tekton.dev/platforms: "linux/amd64,linux/arm64"  # Supported platforms
+```
+
+## `Hub` Parameter Standards
+
+### Parameter Types
+
+`Tekton Hub` supports three parameter types:
+
+- **string**: Single text value (default)
+- **array**: List of string values  
+- **object**: JSON object with key-value pairs
+
+### `Hub`-Specific Parameter Requirements
+
+- **Clear Descriptions**: All parameters must have meaningful descriptions for `Hub` UI
+- **Sensible Defaults**: Provide defaults where possible for better user experience
+- **Type Safety**: Use appropriate types to prevent runtime errors
+
+## Hub Best Practices
+
+### Container Image Requirements
+
+- Use official, trusted container images
+- Pin specific versions instead of `latest` tags
+- Ensure images work on supported platforms (`linux/amd64`, `linux/arm64`)
+- Regularly update base images for security
+
+### Results and Workspaces for Hub
+
+- **Results**: Must have clear descriptions for Hub documentation
+- **Workspaces**: Mark optional workspaces as `optional: true`
+- **Descriptions**: Required for all workspaces and results
+
+## Hub Categories and Tags
+
+### Standard Categories
+- Build Tools
+- Testing  
+- Deployment
+- Security
+- Integration & Delivery
+- Developer Tools
+- Code Quality
+
+### Effective Tagging
+- Use specific, searchable tags
+- Include technology names (`docker`, `kubernetes`, `npm`, etc.)
+- Add use case tags (ci, cd, build, test, deploy)
+
+## `Hub` Validation Requirements
+
+### Error Handling Standards
+- Use proper exit codes (0 for success, non-zero for failure)
+- Provide clear error messages for `Hub` users
+- Include structured logging for better debugging
+
+## Security for `Hub` `Tasks`
+
+### `Hub` Security Requirements
+- No hardcoded secrets in `Task` definitions
+- Use trusted, official container images
+- Pin specific image versions (no `latest` tags)
+- Follow minimal privilege principles
+- Document any special security requirements
+
+## Hub Testing Requirements
+
+### Required Test Files
+- Provide working `samples/` directory with TaskRun examples
+- Include `run.yaml` demonstrating typical usage
+- Test all parameter combinations
+- Validate error handling scenarios
+
+### Hub Validation Checklist
+- [ ] Required Hub metadata present
+- [ ] Sample TaskRun works correctly
+- [ ] All parameters documented with descriptions
+- [ ] Results and workspaces properly described
+- [ ] Security best practices followed
+- [ ] Platform compatibility verified
+
+## Hub Task Template
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: my-hub-task
+  labels:
+    app.kubernetes.io/version: "0.1"  # Match catalog version
+  annotations:
+    tekton.dev/pipelines.minVersion: "0.17.0"
+    tekton.dev/categories: "Build Tools"  # Hub category
+    tekton.dev/tags: "build,example"      # Hub search tags
+    tekton.dev/displayName: "My Hub Task" # Hub display name
+    tekton.dev/platforms: "linux/amd64,linux/arm64"  # Platforms
+spec:
+  description: >-
+    Task description for Hub documentation
+  params:
+  - name: required-param
+    description: Required parameter description
+  - name: optional-param
+    description: Optional parameter description
+    default: "default-value"
+  workspaces:
+  - name: source
+    description: Source workspace description
+  results:
+  - name: output
+    description: Result description
+  steps:
+  - name: main
+    image: alpine:3.18  # Pinned version
+    script: |
+      #!/bin/sh
+      set -e
+      echo "Hub task executed successfully"
+      echo "result" > $(results.output.path)
+```
+
+## Documentation Requirements
+
+### Hub Documentation Standards
+- Include comprehensive `README.md` in task directory
+- Document all parameters, workspaces, and results
+- Provide usage examples and common use cases
+- Include troubleshooting information
+
+## Hub Publishing Checklist
+
+### ✅ Hub Compliance
+- [ ] Required Hub metadata (labels and annotations) present
+- [ ] Task uses `Task` resource type (not ClusterTask)
+- [ ] Version label matches directory structure
+- [ ] All parameters and results have descriptions
+- [ ] Container images use pinned versions
+- [ ] Platform compatibility specified
+- [ ] Working sample TaskRun provided
+- [ ] Complete README with usage examples
+- [ ] Passes Hub validation requirements
+
+### ✅ Quality Standards
+- [ ] Task is idempotent and reusable
+- [ ] Error handling with proper exit codes
+- [ ] No hardcoded secrets or credentials
+- [ ] Security best practices followed
+- [ ] Cross-platform compatibility verified
+- [ ] Documentation is complete and accurate

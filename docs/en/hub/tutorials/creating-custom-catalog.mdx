@@ -1,0 +1,475 @@
+---
+title: "Creating a Custom Catalog"
+weight: 10
+---
+
+# Creating a Custom Catalog
+
+## Overview
+
+This tutorial guides you through **creating a catalog repository** with `Tekton` resources (`Tasks`, `Pipelines`). You'll learn the structure, metadata standards, and validation requirements that ensure your resources work properly with `Tekton Hub`.
+
+For configuring an existing catalog in `Tekton Hub`, see [Adding Custom Catalogs](../configure/custom-catalogs.mdx).
+
+## Catalog Directory Structure
+
+All `Tekton` catalogs must follow the **`Tekton Catalog Organization Standard`**. This standard ensures consistency and compatibility with `Tekton Hub`.
+
+### Required Repository Structure
+
+```
+catalog-repo/
+├── README.md              # Root catalog documentation
+├── OWNERS                 # Catalog maintainers
+├── task/                  # All Task resources
+│   ├── task-name/         # Task name directory
+│   │   ├── 0.1/           # Version directory
+│   │   │   ├── README.md  # Task documentation
+│   │   │   ├── task-name.yaml  # Task definition
+│   │   │   ├── OWNERS     # Task maintainers
+│   │   │   └── samples/   # Usage examples
+│   │   │       └── run.yaml
+│   │   └── 0.2/           # Next version
+│   └── another-task/
+└── pipeline/              # All Pipeline resources
+    └── pipeline-name/
+        └── 0.1/
+            ├── README.md
+            ├── pipeline-name.yaml
+            ├── OWNERS
+            └── samples/
+```
+
+### Key Structure Rules
+
+1. **Resource Types**: Only `task/` and `pipeline/` directories are supported
+2. **Versioning**: Each resource uses semantic versioning (`0.1`, `0.2`, `1.0`)
+3. **Multiple Versions**: Different versions coexist as separate directories
+4. **Required Files**: Each version must have `YAML` definition. `README` and `OWNERS` are optional but recommended.
+5. **Optional Samples**: `samples/` directory for usage examples
+
+## `Tekton Hub` Validation Requirements
+
+`Tekton Hub` has **strict validation rules** that determine whether your resources will be displayed. Resources that fail validation are **ignored completely**.
+
+### Critical Requirements (Resource Ignored if Missing)
+
+These fields are **absolutely mandatory** - missing any will cause your resource to be completely ignored:
+
+#### 1. Required Label
+```yaml
+metadata:
+  labels:
+    app.kubernetes.io/version: "0.1"  # MUST match directory version exactly
+```
+
+#### 2. Required Annotations
+```yaml
+metadata:
+  annotations:
+    # MANDATORY: Minimum Tekton Pipelines version
+    tekton.dev/pipelines.minVersion: "0.17.0"
+```
+
+#### 3. Required Spec Field
+```yaml
+spec:
+  description: "Your resource description here"  # MANDATORY: Cannot be empty
+```
+
+#### 4. File Naming Rule
+- **`YAML` filename MUST match resource name**
+- Example: `Task` named `build-image` → file must be `build-image.yaml`
+- Pattern enforced: `task/<name>/<version>/<name>.yaml` or `pipeline/<name>/<version>/<name>.yaml`
+
+### Recommended Annotations (Improves Discoverability)
+
+```yaml
+metadata:
+  annotations:
+    # Tekton Hub category (choose from standard list)
+    tekton.dev/categories: "Build Tools"
+
+    # Searchable tags (comma-separated, no spaces after commas)
+    tekton.dev/tags: "build,docker,container"
+
+    # Human-readable display name
+    tekton.dev/displayName: "Docker Build Task"
+
+    # Supported platforms (optional)
+    tekton.dev/platforms: "linux/amd64,linux/arm64"
+```
+
+### Standard Categories
+
+Choose from these **standard `Tekton Hub` categories**:
+- Automation, Build Tools, CLI, Cloud
+- Code Quality, Continuous Integration
+- Deployment, Developer Tools
+- Image Build, Integration & Delivery
+- Git, Kubernetes, Messaging
+- Monitoring, Networking, Publishing
+- Security, Storage, Testing
+
+**Important**: Resources with categories not configured in your `Tekton Hub` instance will not be displayed, even if they use valid category names.
+For instructions on adding custom categories to your `Hub` instance, see [Categories Configuration](../configure/tekton-hub-config#categories-configuration).
+
+## Complete `Task` Example
+
+Here's a complete `Task` showing **all required and recommended fields**:
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: echo-hello
+  # CRITICAL: Required label - MUST match directory version
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    # CRITICAL: Required minimum pipelines version
+    tekton.dev/pipelines.minVersion: "0.17.0"
+    # RECOMMENDED: For better discoverability
+    tekton.dev/categories: "CLI"
+    tekton.dev/tags: "echo,cli,demo"
+    tekton.dev/displayName: "Echo Hello"
+    tekton.dev/platforms: "linux/amd64,linux/arm64"
+spec:
+  # CRITICAL: Required description field
+  description: Simple demonstration Task that echoes a greeting message
+  params:
+  - name: message
+    description: Message to echo
+    default: "Hello World"
+  results:
+  - name: greeting
+    description: The echoed greeting
+  steps:
+  - name: echo-message
+    image: alpine:3.18
+    script: |
+      #!/bin/sh
+      echo "$(params.message)"
+      echo -n "$(params.message)" | tee $(results.greeting.path)
+```
+
+**Important**: This file must be saved as `task/echo-hello/0.1/echo-hello.yaml` (filename matches `task` name).
+
+## Complete `Pipeline` Example
+
+Here's a complete `Pipeline` showing **all required and recommended fields**:
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: hello-pipeline
+  # CRITICAL: Required label - MUST match directory version
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    # CRITICAL: Required minimum pipelines version
+    tekton.dev/pipelines.minVersion: "0.17.0"
+    # RECOMMENDED: For better discoverability
+    tekton.dev/categories: "Integration & Delivery"
+    tekton.dev/tags: "demo,pipeline,workflow"
+    tekton.dev/displayName: "Hello Pipeline"
+    tekton.dev/platforms: "linux/amd64,linux/arm64"
+spec:
+  # CRITICAL: Required description field
+  description: Simple demonstration Pipeline showing task orchestration
+  params:
+  - name: greeting
+    description: Greeting message
+    default: "Hello from Pipeline"
+  workspaces:
+  - name: shared-data
+    description: Workspace for sharing data between tasks
+  tasks:
+  - name: say-hello
+    taskRef:
+      name: echo-hello
+    params:
+    - name: message
+      value: "$(params.greeting)"
+  - name: say-goodbye
+    taskRef:
+      name: echo-hello
+    params:
+    - name: message
+      value: "Goodbye from $(tasks.say-hello.results.greeting)"
+    runAfter:
+    - say-hello
+```
+
+**Important**: This file must be saved as `pipeline/hello-pipeline/0.1/hello-pipeline.yaml` (filename matches `pipeline` name).
+
+## Setting Up Your Repository
+
+### Initialize Repository Structure
+
+```bash
+mkdir my-tekton-catalog
+cd my-tekton-catalog
+git init
+
+# Create basic structure
+mkdir -p task pipeline
+touch README.md OWNERS
+
+# Example: Create a task
+mkdir -p task/echo-hello/0.1/samples
+```
+
+### Root `OWNERS` File
+
+Define catalog maintainers:
+
+```yaml
+approvers:
+  - your-github-username
+reviewers:
+  - team-member-username
+```
+
+## Version Management
+
+### Semantic Versioning Rules
+
+- **0.1 → 0.2**: Bug fixes, improvements
+- **0.x → 1.0**: New features, stable release
+- **1.x → 2.0**: Breaking changes
+
+### Managing Versions
+
+- Each version gets its own directory
+- Multiple versions coexist
+- Document breaking changes in `README`
+
+## Using Resources from Catalogs
+
+Once your catalog is configured in `Tekton Hub`, users can reference your resources using the **`Hub resolver`**. Different catalogs have different resolver configurations.
+
+### Using `Hub Resolver` for `Tasks`
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: test-echo-hello
+spec:
+  taskRef:
+    resolver: hub
+    params:
+    - name: catalog
+      value: "my-custom-catalog"  # Your catalog name in Hub config
+    - name: type
+      value: tekton
+    - name: kind
+      value: task
+    - name: name
+      value: echo-hello  # Task name
+    - name: version
+      value: "0.1"       # Task version
+  params:
+  - name: message
+    value: "Hello from my catalog!"
+```
+
+### Using `Hub Resolver` for `Pipelines`
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: test-hello-pipeline
+spec:
+  pipelineRef:
+    resolver: hub
+    params:
+    - name: catalog
+      value: "my-custom-catalog"  # Your catalog name in Hub config
+    - name: type
+      value: tekton
+    - name: kind
+      value: pipeline
+    - name: name
+      value: hello-pipeline  # Pipeline name
+    - name: version
+      value: "0.1"           # Pipeline version
+  params:
+  - name: greeting
+    value: "Welcome to Tekton!"
+  workspaces:
+  - name: shared-data
+    emptyDir: {}
+```
+
+### Hub Resolver Parameters
+
+The Hub resolver supports these parameters:
+
+| Parameter | Required | Description | Default | Example Values |
+|-----------|----------|-------------|---------|----------------|
+| `name` | **Yes** | The name of the task or pipeline to fetch from the hub | - | `echo-hello`, `build-image` |
+| `catalog` | No | The catalog from where to pull the resource | `tekton-catalog-tasks` (tasks)<br/>`tekton-catalog-pipelines` (pipelines) | `tekton`, `my-catalog` |
+| `type` | No | The type of Hub from where to pull the resource | `artifact` | `artifact`, `tekton` |
+| `kind` | No | Resource kind | `task` | `task`, `pipeline` |
+| `version` | No | Version or constraint of the resource to pull | Latest | `"0.1"`, `">=0.5.0"` |
+
+**Note**: For custom catalogs, you typically need to specify `catalog` and `type: tekton` parameters explicitly.
+
+For Hub resolver configuration and setup, see [Hub Resolver Configuration](../configure/tekton-hub-config#hub-resolver-configuration).
+
+### Example: Different Catalogs
+
+```yaml
+# Using the official Tekton catalog
+taskRef:
+  resolver: hub
+  params:
+  - name: catalog
+    value: catalog        # Official catalog name
+  - name: type
+    value: tekton
+  - name: kind
+    value: task
+  - name: name
+    value: git-clone
+  - name: version
+    value: "0.9"
+```
+
+```yaml
+# Using a custom organization catalog
+taskRef:
+  resolver: hub
+  params:
+  - name: catalog
+    value: my-catalog     # Custom catalog name
+  - name: type
+    value: tekton
+  - name: kind
+    value: task
+  - name: name
+    value: custom-build
+  - name: version
+    value: "0.2"
+```
+
+### Using Hub Resolver in Pipelines
+
+You can mix tasks from different catalogs within the same Pipeline:
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: multi-catalog-pipeline
+spec:
+  description: Pipeline using tasks from multiple catalogs
+  workspaces:
+  - name: source
+    description: Source code workspace
+  tasks:
+  # Task from official Tekton catalog
+  - name: git-clone
+    taskRef:
+      resolver: hub
+      params:
+      - name: catalog
+        value: catalog
+      - name: type
+        value: tekton
+      - name: kind
+        value: task
+      - name: name
+        value: git-clone
+      - name: version
+        value: "0.9"
+    workspaces:
+    - name: output
+      workspace: source
+
+  # Task from your custom catalog
+  - name: custom-build
+    taskRef:
+      resolver: hub
+      params:
+      - name: catalog
+        value: my-custom-catalog
+      - name: type
+        value: tekton
+      - name: kind
+        value: task
+      - name: name
+        value: echo-hello
+      - name: version
+        value: "0.1"
+    runAfter:
+    - git-clone
+    params:
+    - name: message
+      value: "Build completed!"
+```
+
+### Next Steps: Adding to `Tekton Hub`
+
+Once your catalog repository is ready, it needs to be configured in `Tekton Hub` before users can access it via resolver.
+
+For complete instructions on:
+- Adding your catalog to `Tekton Hub` configuration
+- `SSH` authentication for private repositories
+- Testing and troubleshooting catalog integration
+
+See **[Adding Custom Catalogs](../configure/custom-catalogs.mdx)**.
+
+## Validation Checklist
+
+Before publishing your catalog, verify each resource meets **all `Tekton Hub` requirements**:
+
+### Critical Validation (Must Pass)
+
+- [ ] **File naming**: `task/<name>/<version>/<name>.yaml` pattern followed exactly
+- [ ] **Version label**: `app.kubernetes.io/version: "0.1"` matches directory version
+- [ ] **MinVersion annotation**: `tekton.dev/pipelines.minVersion: "0.17.0"` present
+- [ ] **Description field**: `spec.description: "..."` is not empty
+- [ ] **`YAML` syntax**: Resource validates with `kubectl apply --dry-run`
+
+### Recommended Validation
+
+- [ ] **Display name**: `tekton.dev/displayName` provided for better UX
+- [ ] **Categories**: Valid category from standard list
+- [ ] **Tags**: Descriptive, comma-separated tags (no spaces after commas)
+- [ ] **Documentation**: Complete `README.md` for each resource
+- [ ] **Examples**: Working samples in `samples/run.yaml`
+
+### Test Your Catalog
+
+```bash
+# Check required directory structure
+$ find . -name "*.yaml" -path "*/task/*" -o -path "*/pipeline/*"
+
+# Validate YAML syntax
+$ kubectl apply --dry-run=client -f <task/echo-hello/0.1/echo-hello.yaml>
+$ kubectl apply --dry-run=client -f <pipeline/hello-pipeline/0.1/hello-pipeline.yaml>
+
+# Test critical fields exist
+$ grep -r "app.kubernetes.io/version" task/ pipeline/
+$ grep -r "tekton.dev/pipelines.minVersion" task/ pipeline/
+$ grep -r "description:" task/ pipeline/
+```
+
+## Publishing Your Catalog
+
+1. **Push to `Git` repository** (`GitHub`, `GitLab`, etc.)
+2. **Test locally** - Validate structure and `YAML` syntax
+3. **Add to `Tekton Hub`** - See [Adding Custom Catalogs](../configure/custom-catalogs.mdx)
+4. **Share with team** - Your resources are now discoverable via `Hub resolver`
+
+## Next Steps
+
+Now that you understand catalog structure and standards, dive deeper into resource development:
+
+- **[Writing Custom Tasks](writing-tasks.mdx)** - In-depth `Task` creation guide
+- **[Writing Custom Pipelines](writing-pipelines.mdx)** - `Pipeline` orchestration patterns
