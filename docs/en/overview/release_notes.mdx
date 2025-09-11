@@ -10,7 +10,7 @@ title: Release Notes
 # Release Notes
 
 ::: tip
-The maintenance period for version **v4.2.x** is from ? ?, 2025 to ? ?, 2026.
+The maintenance period for version **v4.3.x** is from 15 Sep, 2025 to 15 Jan, 2026.
 :::
 
 ## Compatibility and support matrix
@@ -20,46 +20,40 @@ The following table shows the compatibility and support matrix between the `Alau
 | Alauda DevOps Pipelines Version | Component Version | | | | | | ACP Version |
 |:------:|:------:|:------:|:------:|:------:|:------:|:------:|:------:|
 | **Operator** | **Pipelines** | **Triggers** | **CLI** | **Chains** | **Hub** | **Results** | |
-| 4.2.x (LTS) | 1.0.x | 0.32.x | 0.41.x | 0.25.x | 1.22.x | 0.15.x | 4.0 |
-| 4.1.x | 0.65.x | 0.30.x | 0.39.x | 0.23.x | 1.19.x | 0.14.x | 4.0 |
-| 4.0.x (LTS) | 0.65.x | 0.30.x | 0.39.x | 0.23.x | 1.19.x | 0.13.x | 4.0 |
+| 4.3.x | 1.0.x | 0.32.x | 0.41.x | 0.25.x | 1.22.x | 0.15.x | 4.0,4.1 |
+| 4.2.x (LTS) | 1.0.x | 0.32.x | 0.41.x | 0.25.x | 1.22.x | 0.15.x | 4.0,4.1 |
+| 4.1.x | 0.65.x | 0.30.x | 0.39.x | 0.23.x | 1.19.x | 0.14.x | 4.0,4.1 |
+| 4.0.x (LTS) | 0.65.x | 0.30.x | 0.39.x | 0.23.x | 1.19.x | 0.13.x | 4.0,4.1 |
 
-## v4.2.0
+## v4.3.0
 
 ### New and Optimized Features
 
-**Task and Pipeline Management **
+**Pipeline**
 
-- Added Task lifecycle management capabilities in the Task view, facilitating centralized control over the full lifecycle of Tasks.
-- Expanded Task type support with new Python Task and Pytest Task.
-- Provided a generic Python Pipeline template to simplify the creation process of Python-related Pipelines.
-- Added cache mounting capability to the `run-script` Task, supporting cache storage configuration via Workspace.
-- Improved UI interaction experience: When creating Tasks or Pipelines via the UI, there is no need to explicitly specify the Namespace in the YAML; the system will automatically handle namespace configuration.
-- Pipelines now supports the use of parameter substitution syntax (e.g., `$(params.strategy)`) in the `onError` field, enabling users to dynamically define error-handling strategies through Pipeline parameters, execution context, or Task results.
-
-**Results**
-
-- Added support for configuring custom database credentials in TektonConfig, eliminating dependency on the default username and password from the default PostgreSQL secret.
-- New response field filtering and partial response features in the Results API: Allows specifying fields to be included in API responses, reducing data transfer volume, optimizing response latency and I/O performance for List operations, and improving network efficiency.
-- Extended log integration capabilities: Results can now retrieve data from Splunk.
+- With this update, Helm application management capabilities are integrated, including:
+  - Package or Push a Helm Chart to an OCI Registry.
+  - Deploy or Upgrade from an OCI-hosted Helm Chart.
+  - Deploy or Upgrade from Helm Charts in Git Repo.
+- With this update, when creating a `PipelineRun` on the UI, preview of `Pipeline` resources is supported.
 
 **Trigger**
 
-- Allowed users to configure custom `securityContext` in the EventListener resource specification to meet personalized security requirements.
-- Added support for including the `imagePullSecrets` field in EventListener objects, simplifying the configuration of credentials for pulling images from private repositories.
+- With this update, `TriggerTemplate` supports selecting `Pipeline` from `Hub` as the triggering resource.
+- With this update, `TriggerTemplate` that specifies `PipelineRun` as the resource supports direct execution.
 
-**CLI**
+**Hub**
 
-- In this release, support for the ClusterTask object has been removed from the CLI.
+- With this update, it is supported to customize the `Catalog` in the `Hub` and allow registration of custom `Pipeline` or `Task` in the `Hub`.
 
 ### Breaking Changes
 
-- Support for the ClusterTask object has been removed in this release.
+No breaking changes in this release.
 
 ### Fixed Issues
 
-{/* release-notes-for-bugs?template=fixed&project=DEVOPS&version=v4.2.0 */}
+{/* release-notes-for-bugs?template=fixed&project=DEVOPS&version=v4.3.0 */}
 
 ### Known Issues
 
-{/* release-notes-for-bugs?template=unfixed&project=DEVOPS&version=v4.2.0 */}
+{/* release-notes-for-bugs?template=unfixed&project=DEVOPS&version=v4.3.0 */}
