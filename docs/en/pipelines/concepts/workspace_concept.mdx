@@ -248,7 +248,7 @@ spec:
         mkdir -p ~/.ssh
         cp $(workspaces.ssh-credentials.path)/* ~/.ssh/
         chmod 600 ~/.ssh/id_rsa
-        git clone git@github.com:org/repo.git $(workspaces.source.path)
+        git clone ssh://git@github.com:org/repo.git $(workspaces.source.path)
     - name: build
       image: golang
       workingDir: $(workspaces.source.path)

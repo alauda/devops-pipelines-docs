@@ -121,7 +121,7 @@ data:
 Apply the updated ConfigMap to your cluster:
 
 ```bash
-kubectl apply -f tekton-hub-api-configmap.yaml
+$ kubectl apply -f tekton-hub-api-configmap.yaml
 ```
 
 ### Step 4: Apply Changes
@@ -130,7 +130,7 @@ After updating the ConfigMap, apply the changes:
 
 **Option 1: Restart the API Pod**
 ```bash
-kubectl rollout restart deployment/tekton-hub-api -n <tekton-pipelines>
+$ kubectl delete pod app=tekton-hub-api -n <tekton-pipelines>
 ```
 
 **Option 2: Wait for Automatic Refresh**
@@ -195,7 +195,7 @@ For accessing private Git repositories or repositories from private Git instance
 Create a Kubernetes secret named `tekton-hub-api-ssh-crds` with your SSH credentials:
 
 ```bash
-kubectl create secret generic tekton-hub-api-ssh-crds \
+$ kubectl create secret generic tekton-hub-api-ssh-crds \
   --from-file=id_rsa="/path/to/id_rsa" \
   --from-file=id_rsa.pub="/path/to/id_rsa.pub" \
   --from-file=known_hosts="/path/to/known_hosts" \
@@ -207,9 +207,38 @@ kubectl create secret generic tekton-hub-api-ssh-crds \
 - The secret must be created in the same namespace as your Tekton Hub installation
 - Include all three files: private key, public key, and known_hosts
 
-#### Example known_hosts Entry
+#### Generating known_hosts Entries
 
-For GitHub repositories, add this line to your `known_hosts` file:
+**Important**: You must generate the `known_hosts` file by actually connecting to the Git server to capture its SSH fingerprint. Simply copying example entries may not work due to server key changes or different Git providers.
+
+**Recommended Approach:**
+
+1. **Test SSH connection locally** to capture the server's fingerprint:
+   ```bash
+   # This will add the server's fingerprint to your local known_hosts
+   $ ssh -T git@github.com
+   $ ssh -T git@your-git-server.com
+   ```
+
+2. **Alternative: Use ssh-keyscan** to generate known_hosts entries:
+   ```bash
+   # For GitHub
+   $ ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+   # For custom Git servers
+   $ ssh-keyscan your-git-server.com >> ~/.ssh/known_hosts
+   ```
+
+3. **Verify by cloning your repositories locally** using both URLs:
+   ```bash
+   # Test the SSH URL that will be used by Tekton Hub
+   $ git clone ssh://git@github.com:org/private-repo.git
+
+   # Also test the HTTPS URL for verification
+   $ git clone https://github.com/org/private-repo.git
+   ```
+
+**Example known_hosts Entry** (generated after successful SSH connection):
 
 ```
 github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndN...
@@ -239,17 +268,33 @@ data:
 
 After adding a custom catalog, verify it's properly configured:
 
-> **Tips**: `your-tekton-hub-api` should be replaced with your actual Tekton Hub API endpoint.
+> **Tips**: The default Tekton Hub API endpoint is `tekton-hub-api.tekton-pipelines:8000`, which is only accessible within the cluster.
+>
+> For the `<your-tekton-hub-api>` placeholder in the commands below:
+> - Inside the `tekton-hub-api` pod: use `localhost:8000`
+> - From other pods in the cluster: use `tekton-hub-api.tekton-pipelines:8000`
+> - From outside the cluster: create a `NodePort` service or `Ingress` (not covered in this guide)
+>
+> For testing purposes, you can run these commands inside the `tekton-hub-api` pod using `wget`.
 
 ```bash
+# Execute inside the tekton-hub-api pod for testing
+$ kubectl exec -it deployment/tekton-hub-api -n <tekton-pipelines> -- /bin/sh
+
 # Check if the catalog appears in the API
-curl https://your-tekton-hub-api/v1/catalogs
+$ wget -qO- http://<your-tekton-hub-api>/v1/catalogs
+
+{"data":[{"id":1,"name":"catalog","type":"community","url":"file:////mnt/git/catalog.git","provider":"github"},{"id":2,"name":"<new-catalog>","type":"private","url":"<url>","provider":"<provider>"}]}
 
 # Check catalog resources
-curl https://your-tekton-hub-api/v1/resources?catalog=my-custom-catalog
+$ wget -qO- "http://<your-tekton-hub-api>/v1/query?catalogs=<my-custom-catalog>"
+
+{"data":[{"id":1,"name":"<name>","catalog":{"id":1,"name":"<my-custom-catalog>","type":"community"},"categories":[{"id":9,"name":"<name>"}],"kind":"Task","hubURLPath":"","hubRawURLPath":""}]}
 
 # Verify specific resource
-curl https://your-tekton-hub-api/v1/resource/my-custom-catalog/task/my-task
+$ wget -qO- http://<your-tekton-hub-api>/v1/resource/<my-custom-catalog>/task/<my-task>
+
+{"data":{"id":4,"name":"<my-task>","catalog":{}}}
 ```
 
 ### Test Resource Resolution
@@ -285,8 +330,8 @@ spec:
 
 **Solutions**:
 1. Check ConfigMap was applied: `kubectl get cm tekton-hub-api -o yaml`
-2. Restart API pod: `kubectl rollout restart deployment/tekton-hub-api`
-3. Check API logs: `kubectl logs deployment/tekton-hub-api`
+2. Restart API pod: `kubectl delete pod app=tekton-hub-api -n <tekton-pipelines>`
+3. Check API logs: `kubectl logs deployment/tekton-hub-api -n <tekton-pipelines>`
 
 ### Resources Not Loading
 
@@ -322,11 +367,42 @@ spec:
 **Debug Steps**:
 ```bash
 # Check available catalogs
-curl https://your-tekton-hub-api/v1/catalogs
+$ wget -qO- http://<your-tekton-hub-api>/v1/catalogs
 
 # Verify resource exists
-curl https://your-tekton-hub-api/v1/resource/catalog-name/task/task-name/0.1
+$ wget -qO- http://<your-tekton-hub-api>/v1/resource/<my-custom-catalog>/task/<my-task>/<version>
 
 # Check catalog sync status
-kubectl logs deployment/tekton-hub-api | grep "catalog-name"
+$ kubectl logs deployment/tekton-hub-api -n <tekton-pipelines>
 ```
+
+## FAQ
+
+### Q: I configured according to the documentation, but still can't see the new catalog
+
+**A**: First, check the `tekton-hub-api` logs for authentication-related errors such as "Host key verification failed":
+
+```bash
+$ kubectl logs deployment/tekton-hub-api -n <tekton-pipelines>
+```
+
+**Common causes**:
+- SSH key lacks sufficient permissions for the repository
+- `known_hosts` file missing the Git server's fingerprint
+- SSH key not properly added to repository deploy keys
+
+**Solution**:
+1. **Test locally first**: Ensure you can successfully clone the repository locally using the same SSH credentials:
+   ```bash
+   # Test with the exact same SSH key and known_hosts
+   $ git clone ssh://git@github.com:org/private-repo.git
+   ```
+
+2. **Only after local clone succeeds**, update your Kubernetes environment:
+   - Refer to the [Generating known_hosts Entries](#generating-known_hosts-entries) section to properly generate the `known_hosts` file
+   - Recreate the `tekton-hub-api-ssh-crds` secret with the working credentials
+   - Restart the `tekton-hub-api` pod and check the logs:
+   ```bash
+   $ kubectl delete pod -l app=tekton-hub-api -n <tekton-pipelines>
+   $ kubectl logs deployment/tekton-hub-api -n <tekton-pipelines>
+   ```

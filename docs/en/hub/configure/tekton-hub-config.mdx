@@ -134,13 +134,13 @@ After updating the categories:
 
 1. Apply the updated ConfigMap:
    ```bash
-   kubectl apply -f tekton-hub-api-configmap.yaml
+   $ kubectl apply -f tekton-hub-api-configmap.yaml
    ```
 
 2. Refresh the Hub configuration:
    ```bash
    # Restart the API pod
-   kubectl rollout restart deployment/tekton-hub-api -n <tekton-pipelines>
+   $ kubectl delete pod app=tekton-hub-api -n <tekton-pipelines>
    ```
 
 ### Using Categories in Resources
@@ -207,13 +207,16 @@ data:
 
 ### Custom Hub Endpoints
 
+> In most cases, you should keep the default `TEKTON_HUB_API` endpoint (`http://tekton-hub-api.tekton-pipelines:8000/`) unchanged.
+> Only modify this endpoint when you specifically need to integrate with an external hub API.
+
 For custom `Tekton Hub` instances, configure `API` endpoints via environment variables in the resolver deployment:
 
 ```yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: hubresolver
+  name: tekton-pipelines-remote-resolvers
   namespace: <tekton-pipelines>
 spec:
   template:
@@ -236,12 +239,12 @@ After updating resolver configuration:
 
 1. Apply the ConfigMap changes:
    ```bash
-   kubectl apply -f hubresolver-config.yaml
+   $ kubectl apply -f hubresolver-config.yaml
    ```
 
 2. Restart the resolver deployment:
    ```bash
-   kubectl rollout restart deployment/hubresolver -n <tekton-pipelines>
+   $ kubectl delete pod app=tekton-pipelines-resolvers -n <tekton-pipelines>
    ```
 
 ### Testing Hub Resolver
@@ -288,7 +291,7 @@ spec:
 1. Check refresh interval setting: `CATALOG_REFRESH_INTERVAL`
 2. Verify catalog repository accessibility
 3. Review `API` pod logs for sync errors
-4. Manually restart `API` pod: `kubectl rollout restart deployment/tekton-hub-api`
+4. Manually restart `API` pod: `kubectl delete pod app=tekton-hub-api -n <tekton-pipelines>`
 
 ### Category Configuration Problems
 
