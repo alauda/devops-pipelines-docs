@@ -402,7 +402,7 @@ $ kubectl logs deployment/tekton-hub-api -n <tekton-pipelines>
    - Refer to the [Generating known_hosts Entries](#generating-known_hosts-entries) section to properly generate the `known_hosts` file
    - Recreate the `tekton-hub-api-ssh-crds` secret with the working credentials
    - Restart the `tekton-hub-api` pod and check the logs:
-   ```bash
-   $ kubectl delete pod -l app=tekton-hub-api -n <tekton-pipelines>
-   $ kubectl logs deployment/tekton-hub-api -n <tekton-pipelines>
-   ```
+     ```bash
+     $ kubectl delete pod -l app=tekton-hub-api -n <tekton-pipelines>
+     $ kubectl logs deployment/tekton-hub-api -n <tekton-pipelines>
+     ```
