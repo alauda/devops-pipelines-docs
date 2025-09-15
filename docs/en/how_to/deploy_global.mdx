@@ -42,9 +42,6 @@ spec:
         hubs-wrapper:
           spec:
             ingressClassName: global-alb2
-        tektoncd-hubs-api: # ensure compatibility with earlier versions
-          spec:
-            ingressClassName: global-alb2
       deployments:
         hubs-wrapper:
           spec:
@@ -63,24 +60,42 @@ spec:
                       - name: KUBERNETES_SERVICE_HOST
                         value: erebus.cpaas-system
                     name: hubs-wrapper
-        tektoncd-hubs-api: # ensure compatibility with earlier versions
-          spec:
-            template:
-              spec:
-                containers:
-                  - env:
-                      - name: KUBERNETES_PORT_443_TCP
-                        value: tcp://erebus.cpaas-system:443
-                      - name: KUBERNETES_PORT_443_TCP_ADDR
-                        value: erebus.cpaas-system
-                      - name: KUBERNETES_PORT
-                        value: tcp://erebus.cpaas-system:443
-                      - name: EREBUS
-                        value: https://erebus.cpaas-system:443
-                      - name: KUBERNETES_SERVICE_HOST
-                        value: erebus.cpaas-system
-                    name: tektoncd-hubs-api
 ```
 
-> If both `hubs-wrapper` and `tektoncd-hubs-api` are configured simultaneously, all versions can be supported at the same time.
+## Optional: Deploying tekton-results in a global cluster
 
+If users have deployed tekton-results in a global cluster, they also need to configure the `options` for the results component. Similar to the pipeline configuration, you need to configure both ingress and deployment settings for the `tektoncd-results-api` component.
+
+Add the following configuration to the `spec.results.options` section:
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonResult
+metadata:
+  name: result
+spec:
+  options:
+    ingress:
+      tektoncd-results-api:
+        spec:
+          ingressClassName: global-alb2
+    deployments:
+      tektoncd-results-api:
+        spec:
+          template:
+            spec:
+              containers:
+                - env:
+                    - name: KUBERNETES_PORT_443_TCP
+                      value: tcp://erebus.cpaas-system:443
+                    - name: KUBERNETES_PORT_443_TCP_ADDR
+                      value: erebus.cpaas-system
+                    - name: KUBERNETES_PORT
+                      value: tcp://erebus.cpaas-system:443
+                    - name: EREBUS
+                      value: https://erebus.cpaas-system:443
+                    - name: KUBERNETES_SERVICE_HOST
+                      value: erebus.cpaas-system
+                  name: tektoncd-results-api
+    disabled: false
+```
