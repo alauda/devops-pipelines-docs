@@ -45,17 +45,15 @@ To allow a `TaskRun` or `PipelineRun` to use **multiple PVC-based workspaces**, 
 
 It is recommended to troubleshoot as follows:
 
-1. Edit the TektonConfig resource by setting `spec.pipeline.disable-affinity-assistant` as shown below:
+1. Edit the TektonConfig resource by setting `spec.pipeline.coschedule` as shown below:
 
     ```yaml
     apiVersion: operator.tekton.dev/v1alpha1
     kind: TektonConfig
     spec:
       pipeline:
-        disable-affinity-assistant: true
+        coschedule: disabled
     ```
-
-    tips: the `disable-affinity-assistant` feature flag will be removed soon and the Affinity Assistant Modes will be only controlled by the `coschedule` feature flag.
 
 2. The `feature-flags` ConfigMap will be updated automatically.
 
@@ -66,7 +64,7 @@ It is recommended to troubleshoot as follows:
       name: feature-flags
       namespace: tekton-pipelines
     data:
-      disable-affinity-assistant: "true"
+      coschedule: disabled
     ```
 
 3. No manual component restarts are required, changes will take effect automatically.
