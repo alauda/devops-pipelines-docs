@@ -188,6 +188,7 @@ spec:
 - **maven-settings**: An [optional workspace](https://github.com/tektoncd/pipeline/blob/v0.65.5/docs/workspaces.md#using-workspaces-in-pipelines) containing custom maven settings.
 - **maven-local-repo**: An [optional workspace](https://github.com/tektoncd/pipeline/blob/v0.65.5/docs/workspaces.md#using-workspaces-in-pipelines) for Maven local repository.
 - **maven-server-secret**: An [optional workspace](https://github.com/tektoncd/pipeline/blob/v0.65.5/docs/workspaces.md#using-workspaces-in-pipelines) containing server credentials.
+- **maven-trust-store**: An [optional workspace](https://github.com/tektoncd/pipeline/blob/v0.65.5/docs/workspaces.md#using-workspaces-in-pipelines) containing JKS truststore for private CAs used by Maven.
 - **sonar-settings**: An [optional workspace](https://github.com/tektoncd/pipeline/blob/v0.65.5/docs/workspaces.md#using-workspaces-in-pipelines) where SonarQube properties can be mounted.
 - **sonar-credentials**: An [optional workspace](https://github.com/tektoncd/pipeline/blob/v0.65.5/docs/workspaces.md#using-workspaces-in-pipelines) containing credentials for use within SonarQube.
 - **dockerconfig**: An [optional workspace](https://github.com/tektoncd/pipeline/blob/v0.65.5/docs/workspaces.md#using-workspaces-in-pipelines) for Docker configuration files, such as `config.json` or `.dockerconfigjson`. This is optional and is used for authentication when pushing images to the registry.
