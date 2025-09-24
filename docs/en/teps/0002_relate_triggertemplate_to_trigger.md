@@ -11,8 +11,9 @@ status: proposed
 
 ## Record of changes
 
-| Order | Change of content | Reason for change | Change of time | Change of executor | Approved by |
-| :---- | :---------------- | :---------------- | -------------- | :----------------- | :---------- |
+| Order | Change of content            | Reason for change                                                                 | Change of time | Change of executor | Approved by      |
+| :---- | :--------------------------- | :-------------------------------------------------------------------------------- | -------------- | :----------------- | :--------------- |
+| 1     | TriggerTemplate render logic | Constraints trigger the behavior of a template when used as an execution template | 9.22           | lfyou@alauda.io    | bozhou@alauda.io |
 
 ## Summary
 

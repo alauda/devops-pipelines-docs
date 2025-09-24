@@ -1,6 +1,7 @@
 {
   "devDependencies": {
     "@alauda/doom": "^1.12.7",
+    "simple-git-hooks": "^2.13.1",
     "typescript": "^5.9.2"
   },
   "scripts": {
@@ -8,7 +9,11 @@
     "build": "doom build",
     "lint": "doom lint",
     "serve": "doom serve",
+    "prepare": "simple-git-hooks",
     "translate": "doom translate"
   },
-  "packageManager": "yarn@4.9.4"
+  "packageManager": "yarn@4.9.4",
+  "simple-git-hooks": {
+    "pre-commit": "yarn lint"
+  }
 }

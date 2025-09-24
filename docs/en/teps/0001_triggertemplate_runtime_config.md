@@ -11,9 +11,10 @@ status: proposed
 
 ## Record of changes
 
-| Order | Change of content                         | Reason for change                                                                                                                                                                        | Change of time | Change of executor | Approved by      |
-| :---- | :---------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- | :----------------- | :--------------- |
-| 1     | triggertemplate.triggers.tekton.dev/usage | Tekton 中，triggertemplate.triggers.tekton.dev/type 字段描述并不够准确，可能让用户产生误解。建议将这个字段的名称更新为 triggertemplate.triggers.tekton.dev/usage，更好地反映其实际用途。 | 9.18           | lfyou@alauda.io    | bozhou@alauda.io |
+| Order | Change of content                         | Reason for change                                                                                                                                                                                                                                                       | Change of time | Change of executor | Approved by       |
+| :---- | :---------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- | :----------------- | :---------------- |
+| 1     | triggertemplate.triggers.tekton.dev/usage | The triggertemplate.triggers.tekton.dev/type field in Tekton is not described accurately enough and may be misleading to users. It is recommended that the name of this field be updated to triggertemplate.triggers.tekton.dev/usage to better reflect its actual use. | 9.18           | lfyou@alauda.io    | bozhou@alauda.io  |
+| 2     | Field merging behavior                    | Harmonized specification of the merging behavior of fields                                                                                                                                                                                                              | 9.19           | lfyou@alauda.io    | qingliu@alauda.io |
 
 ## Summary
 
