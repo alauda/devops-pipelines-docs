@@ -10,7 +10,7 @@ title: Release Notes
 # Release Notes
 
 ::: tip
-The maintenance period for version **v4.3.x** is from 15 Sep, 2025 to 15 Jan, 2026.
+The maintenance period for version **v4.4.x** is from 15 Oct, 2025 to 15 Feb, 2026.
 :::
 
 ## Compatibility and support matrix
@@ -20,31 +20,26 @@ The following table shows the compatibility and support matrix between the `Alau
 | Alauda DevOps Pipelines Version | Component Version | | | | | | ACP Version |
 |:------:|:------:|:------:|:------:|:------:|:------:|:------:|:------:|
 | **Operator** | **Pipelines** | **Triggers** | **CLI** | **Chains** | **Hub** | **Results** | |
+| 4.4.x | 1.0.x | 0.32.x | 0.41.x | 0.25.x | 1.22.x | 0.15.x | 4.0, 4.1 |
 | 4.3.x | 1.0.x | 0.32.x | 0.41.x | 0.25.x | 1.22.x | 0.15.x | 4.0, 4.1 |
 | 4.2.x (LTS) | 1.0.x | 0.32.x | 0.41.x | 0.25.x | 1.22.x | 0.15.x | 4.0, 4.1 |
 | 4.1.x | 0.65.x | 0.30.x | 0.39.x | 0.23.x | 1.19.x | 0.14.x | 4.0, 4.1 |
 | 4.0.x (LTS) | 0.65.x | 0.30.x | 0.39.x | 0.23.x | 1.19.x | 0.13.x | 4.0, 4.1 |
 
-## v4.3.0
+## v4.4.0
 
 ### New and Optimized Features
 
 **Pipeline**
 
-- With this update, Helm application management capabilities are integrated, including:
-  - Package or Push a Helm Chart to an OCI Registry.
-  - Deploy or Upgrade from an OCI-hosted Helm Chart.
-  - Deploy or Upgrade from Helm Charts in Git Repo.
-- With this update, when creating a `PipelineRun` on the UI, preview of `Pipeline` resources is supported.
+- With this update, retrying an executed `PipelineRun` now supports custom `Parameters` and `Workspaces`.
+- With this update, triggering a `PipelineRun` supports using a `Connector` as a workspace.
+- With this update, `Maven` Task supports importing CA certificates or ignoring certificate verification.
+- With this update, the order of resources in the UI navigation bar has been optimized, and some UI text has been adjusted.
 
 **Trigger**
 
-- With this update, `TriggerTemplate` supports selecting `Pipeline` from `Hub` as the triggering resource.
-- With this update, `TriggerTemplate` that specifies `PipelineRun` as the resource supports direct execution.
-
-**Hub**
-
-- With this update, it is supported to customize the `Catalog` in the `Hub` and allow registration of custom `Pipeline` or `Task` in the `Hub`.
+- With this update, `Trigger` supports `TriggerTemplate` as a target resource.
 
 ### Breaking Changes
 
@@ -52,8 +47,8 @@ No breaking changes in this release.
 
 ### Fixed Issues
 
-{/* release-notes-for-bugs?template=fixed&project=DEVOPS&version=v4.3.0 */}
+{/* release-notes-for-bugs?template=fixed&project=DEVOPS&version=v4.4.0 */}
 
 ### Known Issues
 
-{/* release-notes-for-bugs?template=unfixed&project=DEVOPS&version=v4.3.0 */}
+{/* release-notes-for-bugs?template=unfixed&project=DEVOPS&version=v4.4.0 */}
