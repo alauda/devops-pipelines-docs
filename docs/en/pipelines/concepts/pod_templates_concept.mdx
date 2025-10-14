@@ -1,0 +1,492 @@
+---
+weight: 130
+---
+
+# Pod Templates
+
+Pod templates are configuration fields within `TaskRun` and `PipelineRun` specifications that allow you to customize the Pod configuration for your Tekton workloads. They define a portion of a [`PodSpec`](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#podspec-v1-core) that Tekton uses to configure the Pods that execute your `Tasks` and `Pipelines`. This configuration allows you to customize the execution environment without modifying the core Task or Pipeline definitions.
+
+:::note
+**Important**: Pod templates are not separate Kubernetes resources. They are configuration fields within TaskRun and PipelineRun specifications.
+:::
+
+## Why Pod Templates are Needed
+
+### Pod Configuration Challenges
+
+Kubernetes-based CI/CD systems face several Pod configuration challenges:
+
+- **Environment Consistency**: Ensure consistent execution environments across Tasks
+- **Resource Management**: Specify compute resources, node selectors, and scheduling preferences
+- **Security**: Apply security contexts and access controls
+- **Network & Storage**: Configure DNS policies, volumes, and image access
+
+### Tekton's Solution
+
+Tekton Pod templates address these challenges by providing:
+
+- **Reusability**: Define common configurations for multiple TaskRuns and PipelineRuns
+- **Customization**: Customize execution environments without modifying Task/Pipeline definitions
+- **Flexibility**: Support both global and per-execution configurations
+
+## Advantages
+
+- **Consistency**: Ensure consistent execution environments across Pipeline executions
+- **Flexibility**: Override default Pod configurations for specific use cases
+- **Reusability**: Define configurations once and apply to multiple executions
+- **Security**: Apply security policies and access controls at Pod level
+- **Resource Management**: Optimize resource allocation and scheduling
+
+## Scenarios
+
+Pod templates are useful in various scenarios, including:
+
+- **Resource-Intensive Workloads**: Configure compute resources for build/test Tasks
+- **Security-Sensitive Applications**: Apply security contexts and access controls
+- **Multi-Node Clusters**: Use node selectors and affinity rules for optimal scheduling
+- **Private Registry Access**: Configure image pull secrets for private registries
+- **Network Requirements**: Customize DNS policies and network configurations
+- **Storage Requirements**: Define volumes and storage configurations
+
+## Constraints and Limitations
+
+- Pod template configuration only affects the Pod configuration, not the Task or Pipeline logic
+- Some fields may be overridden by Tekton's internal requirements
+- Global configurations are merged with execution-specific configurations
+- Affinity assistant Pods only support a subset of Pod template configuration fields
+- Pod template configuration cannot modify Tekton's core functionality or behavior
+
+## Principles
+
+### Pod Template Processing
+
+When a Pod template configuration is specified:
+
+1. Tekton validates the Pod template configuration
+2. The configuration is merged with any global Pod template configuration
+3. For PipelineRuns, the configuration is applied to all TaskRuns unless overridden by taskRunSpecs
+4. For TaskRuns, the configuration is applied directly to the Pod
+5. Tekton creates the Pod with the merged configuration
+6. The Pod executes the Task or Pipeline steps with the specified configuration
+
+### Configuration Merging Strategy
+
+Pod template configurations follow specific merging rules and have a clear priority hierarchy:
+
+#### Priority Order
+
+Pod template configurations are merged in the following order of precedence (highest to lowest):
+
+1. **PipelineRun taskRunSpecs podTemplate** (highest priority) - Pod template configurations specified in `taskRunSpecs` for specific tasks within a PipelineRun
+2. **PipelineRun podTemplate** (medium priority) - Pod template configurations specified at the PipelineRun level
+3. **Global default-pod-template** (lowest priority) - Global pod template configurations defined in ConfigMap or TektonConfig
+
+When multiple configurations exist for the same field, the higher priority configuration will override the lower priority one.
+
+#### Merging Rules
+
+- **Environment Variables (`env`)**: Merged by name value in array elements. If items have the same name, the item from TaskRun or PipelineRun will be used
+- **Volumes**: Merged by name value in array elements. If items have the same name, the item from TaskRun or PipelineRun will be used
+- **Other Fields**: If a field exists in multiple configurations, the higher priority configuration takes precedence
+
+## Configuration Examples
+
+### Basic Pod Template Configuration for TaskRun
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: build-with-pod-template
+spec:
+  taskRef:
+    name: build-task
+  podTemplate:
+    nodeSelector:
+      disktype: ssd
+    tolerations:
+    - key: "dedicated"
+      operator: "Equal"
+      value: "build"
+      effect: "NoSchedule"
+    securityContext:
+      runAsUser: 1000
+      runAsGroup: 1000
+      fsGroup: 1000
+    volumes:
+    - name: cache-volume
+      emptyDir: {}
+```
+
+### Pod Template Configuration for PipelineRun
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: build-deploy-with-pod-template
+spec:
+  pipelineRef:
+    name: build-deploy-pipeline
+  podTemplate:
+    nodeSelector:
+      environment: production
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: kubernetes.io/os
+              operator: In
+              values:
+              - linux
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+    imagePullSecrets:
+    - name: registry-secret
+    env:
+    - name: BUILD_ENV
+      value: "production"
+```
+
+### Global Pod Template Configuration
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config-defaults
+  namespace: tekton-pipelines
+data:
+  default-pod-template: |
+    nodeSelector:
+      workload: tekton
+    tolerations:
+    - key: "workload"
+      operator: "Equal"
+      value: "tekton"
+      effect: "NoSchedule"
+    securityContext:
+      fsGroup: 65532
+      fsGroupChangePolicy: "OnRootMismatch"
+    imagePullSecrets:
+    - name: default-registry-secret
+```
+
+:::note
+If you need to persist this global configuration, it is recommended to use `TektonConfig` instead of `ConfigMap`.
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  pipeline:
+    default-pod-template: |
+      securityContext:
+        fsGroup: 65532
+        fsGroupChangePolicy: "OnRootMismatch"
+```
+:::
+
+### TaskRunSpecs with Pod Template Configuration
+
+Pod template configurations can be applied to specific Tasks within a PipelineRun using TaskRunSpecs.
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: build-deploy-with-specific-templates
+spec:
+  pipelineRef:
+    name: build-deploy-pipeline
+  podTemplate:
+    # Global pod template configuration for all tasks in the pipeline
+    # This configuration will be applied to all tasks unless overridden by taskRunSpecs
+    nodeSelector:
+      environment: production
+    securityContext:
+      runAsUser: 0
+  taskRunSpecs:
+  - pipelineTaskName: build
+    podTemplate:
+      # Task-specific pod template configuration
+      # This configuration overrides the global podTemplate for the 'build' task
+      nodeSelector:
+        disktype: ssd
+      tolerations:
+      - key: "dedicated"
+        operator: "Equal"
+        value: "build"
+        effect: "NoSchedule"
+  - pipelineTaskName: deploy
+    podTemplate:
+      # Task-specific pod template configuration
+      # This configuration overrides the global podTemplate for the 'deploy' task
+      nodeSelector:
+        environment: production
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+```
+
+## Important Parameters
+
+### Supported Fields
+
+Pod template configuration supports the fields listed in the table below.
+
+| Field                        | Description                                                                                                                                                                                                                                                                                                       |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| env                          | Environment variables defined in the Pod template at TaskRun and PipelineRun level take precedence over the ones defined in steps and stepTemplate                                                                                                                                                                |
+| nodeSelector                 | Must be true for [the Pod to fit on a node](https://kubernetes.io/docs/concepts/configuration/assign-pod-node/).                                                                                                                                                                                                  |
+| tolerations                  | Allows (but does not require) the Pods to schedule onto nodes with matching taints.                                                                                                                                                                                                                               |
+| affinity                     | Allows constraining the set of nodes for which the Pod can be scheduled based on the labels present on the node.                                                                                                                                                                                                  |
+| securityContext              | Specifies Pod-level security attributes and common container settings such as runAsUser and selinux.                                                                                                                                                                                                              |
+| volumes                      | Specifies a list of volumes that containers within the Pod can mount. This allows you to specify a volume type for each volumeMount in a Task.                                                                                                                                                                    |
+| runtimeClassName             | Specifies the [runtime class](https://kubernetes.io/docs/concepts/containers/runtime-class/) for the Pod.                                                                                                                                                                                                         |
+| automountServiceAccountToken | **Default:** true. Determines whether Tekton automatically provides the token for the service account used by the Pod inside containers at a predefined path.                                                                                                                                                     |
+| dnsPolicy                    | **Default:** ClusterFirst. Specifies the [DNS policy](https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/#pod-s-dns-policy) for the Pod. Legal values are ClusterFirst, Default, and None. Does **not** support ClusterFirstWithHostNet because Tekton Pods cannot run with host networking. |
+| dnsConfig                    | Specifies [additional DNS configuration for the Pod](https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/#pod-s-dns-config), such as name servers and search domains.                                                                                                                         |
+| enableServiceLinks           | **Default:** true. Determines whether services in the Pod's namespace are exposed as environment variables to the Pod, similarly to Docker service links.                                                                                                                                                         |
+| priorityClassName            | Specifies the [priority class](https://kubernetes.io/docs/concepts/configuration/pod-priority-preemption/) for the Pod. Allows you to selectively enable preemption on lower-priority workloads.                                                                                                                  |
+| schedulerName                | Specifies the [scheduler](https://kubernetes.io/docs/tasks/administer-cluster/configure-multiple-schedulers/) to use when dispatching the Pod. You can specify different schedulers for different types of workloads, such as volcano.sh for machine learning workloads.                                          |
+| imagePullSecrets             | Specifies the [secret](https://kubernetes.io/docs/concepts/configuration/secret/) to use when [ pulling a container image](https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/).                                                                                                |
+| hostNetwork                  | **Default:** false. Determines whether to use the host network namespace.                                                                                                                                                                                                                                         |
+| hostAliases                  | Adds entries to a Pod's `/etc/hosts` to provide Pod-level overrides of hostnames. For further info see [Kubernetes' docs for this field](https://kubernetes.io/docs/tasks/network/customize-hosts-file-for-pods/).                                                                                            |
+| topologySpreadConstraints    | Specify how Pods are spread across your cluster among topology domains.                                                                                                                                                                                                                                           |
+
+### Node Selection and Scheduling
+
+#### nodeSelector
+
+Specifies node labels that must be present for Pod scheduling.
+
+**Use Cases**
+- Ensure Pods run on specific node types (SSD, GPU, etc.)
+- Route workloads to dedicated infrastructure
+- Optimize resource utilization
+
+**Configuration Example**
+```yaml
+podTemplate:
+  nodeSelector:
+    disktype: ssd
+    environment: production
+```
+
+#### affinity
+
+Allows fine-grained control over Pod scheduling based on node labels.
+
+**Use Cases**
+- Prefer specific node characteristics
+- Avoid certain node types
+- Balance workload distribution
+
+**Configuration Example**
+```yaml
+podTemplate:
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 1
+        preference:
+          matchExpressions:
+          - key: kubernetes.io/arch
+            operator: In
+            values:
+            - amd64
+```
+
+#### tolerations
+
+Allows Pods to be scheduled on nodes with matching taints.
+
+**Use Cases**
+- Schedule Pods on dedicated or specialized nodes
+- Handle node maintenance scenarios
+- Optimize resource allocation
+
+**Configuration Example**
+```yaml
+podTemplate:
+  tolerations:
+  - key: "dedicated"
+    operator: "Equal"
+    value: "build"
+    effect: "NoSchedule"
+```
+
+### Security Configuration
+
+#### securityContext
+
+Specifies Pod-level security attributes and common container settings.
+
+**Use Cases**
+- Run containers as non-root users
+- Set file system group ownership
+- Configure SELinux settings
+- Apply security policies
+
+**Configuration Example**
+```yaml
+podTemplate:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+```
+
+### Resource and Volume Management
+
+#### volumes
+
+Specifies volumes that containers within the Pod can mount.
+
+**Use Cases**
+- Share data between steps
+- Mount configuration files
+- Provide persistent storage
+- Access secrets and config maps
+
+**Configuration Example**
+```yaml
+podTemplate:
+  volumes:
+  - name: shared-data
+    emptyDir: {}
+  - name: config-volume
+    configMap:
+      name: app-config
+  - name: secret-volume
+    secret:
+      secretName: app-secrets
+```
+
+### Network Configuration
+
+#### dnsPolicy
+
+Specifies the DNS policy for the Pod.
+
+**Use Cases**
+- Configure custom DNS resolution
+- Handle network isolation requirements
+- Optimize network performance
+
+**Configuration Example**
+```yaml
+podTemplate:
+  dnsPolicy: ClusterFirst
+  dnsConfig:
+    nameservers:
+    - 8.8.8.8
+    - 8.8.4.4
+    searches:
+    - default.svc.cluster.local
+    - svc.cluster.local
+```
+
+#### enableServiceLinks
+
+Determines whether services in the Pod's namespace are exposed as environment variables.
+
+**Use Cases**
+- Control service discovery behavior
+- Optimize environment variable usage
+- Handle legacy application requirements
+
+**Configuration Example**
+```yaml
+podTemplate:
+  enableServiceLinks: false
+```
+
+### Image Access Configuration
+
+#### imagePullSecrets
+
+Specifies secrets to use when pulling container images.
+
+**Use Cases**
+- Access private container registries
+- Handle registry authentication
+- Support enterprise registry configurations
+
+**Configuration Example**
+```yaml
+podTemplate:
+  imagePullSecrets:
+  - name: private-registry-secret
+  - name: enterprise-registry-secret
+```
+
+**Note**: When `imagePullSecrets` is configured and no command is specified in the Task, Tekton will automatically look up the entrypoint of the image using the configured secrets.
+
+### Environment Variables
+
+#### env
+
+Specifies environment variables for the Pod.
+
+**Use Cases**
+- Set build environment variables
+- Configure application settings
+- Pass configuration data to containers
+
+**Configuration Example**
+```yaml
+podTemplate:
+  env:
+  - name: BUILD_ENV
+    value: "production"
+  - name: DEBUG_LEVEL
+    value: "info"
+  - name: API_ENDPOINT
+    valueFrom:
+      configMapKeyRef:
+        name: app-config
+        key: api-endpoint
+```
+
+## Best Practices
+
+### Configuration Organization
+
+- **Global Configurations**: Use for common configurations across all executions
+- **Execution-Specific Configurations**: Use for unique requirements or overrides
+- **Task-Specific Configurations**: Use TaskRunSpecs for fine-grained control
+
+### Security Considerations
+
+- Always run containers as non-root users when possible
+- Use appropriate security contexts
+- Configure image pull secrets for private registries
+- Apply least-privilege principles
+
+### Resource Optimization
+
+- Use node selectors to route workloads to appropriate nodes
+- Configure tolerations for specialized infrastructure
+- Set appropriate resource limits and requests
+- Optimize volume configurations for performance
+
+### Maintenance
+
+- Keep configurations simple and focused
+- Document configuration purposes and requirements
+- Version control configuration
+- Test configuration changes in non-production environments
+
+## References
+
+- [Tekton Pod Templates Official Documentation](https://tekton.dev/docs/pipelines/podtemplates/)
+- [Kubernetes PodSpec Documentation](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#podspec-v1-core)
