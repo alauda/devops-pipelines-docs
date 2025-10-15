@@ -1,0 +1,502 @@
+---
+weight: 5
+---
+
+# Design Documentation Process and Guidelines
+
+## Overview
+
+This document establishes the process and guidelines for creating, maintaining, and evolving design documentation within the Alauda DevOps Pipelines (Tekton Operator) project. It defines the relationship between Tekton Enhancement Proposals (TEPs) and Design Documents, ensuring a clear workflow for proposing, discussing, and documenting system behaviors.
+
+## Document Types and Purpose
+
+### Tekton Enhancement Proposals (TEPs)
+**Location**: `/docs/en/teps/`
+**Purpose**: Change proposals and discussion records
+**Lifecycle**: Temporal - represents a point-in-time proposal
+
+TEPs are used to:
+- Propose new features or significant changes
+- Record problem analysis and alternative solutions
+- Document decision-making processes
+- Capture implementation plans and timelines
+- Serve as historical records of why changes were made
+
+### Design Documents
+**Location**: `/docs/en/design/`
+**Purpose**: Authoritative system behavior specifications
+**Lifecycle**: Timeless - continuously updated to reflect current system state
+
+Design Documents are used to:
+- Define the desired behavior of system components
+- Specify APIs, interfaces, and contracts
+- Document architectural decisions and patterns
+- Provide implementation guidance for developers
+- Serve as the single source of truth for system behavior
+
+## Document Workflow Process
+
+### Phase 1: Problem Identification and Proposal (TEP Creation)
+
+**When to Create a TEP**:
+- Proposing new features or capabilities
+- Suggesting significant architectural changes
+- Addressing complex technical challenges
+- Making changes that affect multiple system components
+- Deprecating or removing existing functionality
+
+**TEP Creation Process**:
+
+1. **Problem Analysis**
+   - Clearly define the problem or opportunity
+   - Analyze current system limitations
+   - Quantify impact and business value
+   - Identify affected stakeholders and use cases
+
+2. **Solution Design**
+   - Research and document multiple solution options
+   - Perform comparative analysis (pros/cons, trade-offs)
+   - Recommend preferred approach with justification
+   - Consider backward compatibility and migration paths
+
+3. **Implementation Planning**
+   - Define high-level implementation phases
+   - Identify dependencies and risks
+   - Estimate effort and timeline
+   - Specify testing and validation approach
+
+**TEP Template Structure**:
+```markdown
+---
+title: [Descriptive Title]
+authors:
+  - [author@alauda.io]
+creation-date: YYYY-MM-DD
+last-updated: YYYY-MM-DD
+status: [proposed|accepted|rejected|superseded]
+---
+
+# TEP-XXXX: [Title]
+
+## Record of changes
+[Change tracking table]
+
+## Summary
+[Brief overview of the proposal]
+
+## Motivation
+[Problem statement and goals]
+
+## Proposal
+[Detailed solution description with alternatives]
+
+## Design Details
+[Technical specifications and implementation approach]
+
+## Implementation Plan
+[Phases, timeline, and deliverables]
+
+## Test Plan
+[Validation and testing strategy]
+
+## Security Considerations
+[Security implications and requirements]
+
+## Alternatives Considered
+[Alternative solutions and why they were rejected]
+
+## References
+[Links to related documentation and resources]
+```
+
+### Phase 2: Review and Discussion
+
+**Review Process**:
+- TEPs undergo technical review by engineering team
+- Stakeholder review by product management and affected teams
+- Community feedback period (if applicable)
+- Iterative refinement based on feedback
+
+**Decision Criteria**:
+- Technical feasibility and soundness
+- Alignment with product strategy and roadmap
+- Resource availability and priority
+- Impact on existing users and systems
+
+**Possible Outcomes**:
+- **Accepted**: TEP is approved for implementation
+- **Rejected**: TEP is declined with documented reasons
+- **Superseded**: TEP is replaced by alternative proposal
+
+### Phase 3: Design Document Creation/Update
+
+**When TEPs are Accepted**:
+1. Create new design documents OR update existing ones
+2. Design documents reflect the **desired end state** after TEP implementation
+3. Remove temporal language - focus on "what the system does" not "what will change"
+
+**Design Document Categories**:
+
+#### Behavioral Specifications
+**Purpose**: Define how system components should behave
+**Examples**: Pipeline execution behavior, connector integration patterns, validation rules
+
+**Template Structure**:
+```markdown
+---
+weight: [number]
+---
+
+# [Component/Feature] Behavior Specification
+
+## Overview
+[High-level description of component purpose and scope]
+
+## Core Concepts
+[Key concepts and terminology]
+
+## Behavioral Requirements
+[Detailed specification of expected behaviors]
+
+## API Specifications
+[Interface contracts and schemas]
+
+## Configuration and Customization
+[Available configuration options and their effects]
+
+## Error Handling and Edge Cases
+[Failure modes and recovery behaviors]
+
+## Examples and Use Cases
+[Concrete examples demonstrating expected behavior]
+
+## Related Components
+[Dependencies and interactions with other system parts]
+```
+
+#### Architectural Decision Records (ADRs)
+**Purpose**: Document significant architectural decisions and their rationale
+**Examples**: Technology choices, integration patterns, design principles
+
+**Template Structure**:
+```markdown
+---
+weight: [number]
+---
+
+# ADR-XXX: [Decision Title]
+
+## Status
+[Proposed|Accepted|Deprecated|Superseded]
+
+## Context
+[The situation requiring a decision]
+
+## Decision
+[The architectural decision made]
+
+## Rationale
+[Why this decision was made]
+
+## Consequences
+[Expected outcomes and trade-offs]
+
+## Alternatives Considered
+[Other options and why they were not chosen]
+
+## Related Decisions
+[References to other ADRs]
+```
+
+#### Integration Guides
+**Purpose**: Specify how external systems integrate with the platform
+**Examples**: Connector development guides, API integration patterns, webhook specifications
+
+**Template Structure**:
+```markdown
+---
+weight: [number]
+---
+
+# [Integration Type] Integration Specification
+
+## Overview
+[Integration purpose and scope]
+
+## Integration Patterns
+[Supported integration approaches]
+
+## Interface Specifications
+[Required APIs, protocols, and contracts]
+
+## Authentication and Security
+[Security requirements and implementation]
+
+## Configuration Schema
+[Configuration format and validation rules]
+
+## Lifecycle Management
+[Installation, updates, and removal procedures]
+
+## Testing and Validation
+[Integration testing requirements and procedures]
+
+## Examples and Samples
+[Working examples and code samples]
+```
+
+## Writing Guidelines
+
+### For TEPs
+
+**Language and Style**:
+- Use future tense and proposal language ("will implement", "proposes to", "would enable")
+- Include decision rationale and trade-off analysis
+- Document alternatives even if not recommended
+- Be specific about implementation timeline and phases
+
+**Content Requirements**:
+- Clear problem statement with quantified impact
+- Multiple solution options with comparative analysis
+- Detailed implementation plan with phases and milestones
+- Risk assessment and mitigation strategies
+- Success criteria and validation approach
+
+**Example Language**:
+```markdown
+## Proposal
+This TEP proposes to introduce connector integration for pipeline orchestration.
+The implementation would follow a three-phase approach...
+
+## Alternative Considered
+We considered implementing custom UI components for each connector type,
+but rejected this approach because...
+
+## Implementation Plan
+Phase 1 (Q1 2026): Foundation infrastructure
+- Implement integration schema validation
+- Create basic UI components
+- Success criteria: Basic git integration functional
+```
+
+### For Design Documents
+
+**Language and Style**:
+- Use present tense and definitive language ("the system supports", "connectors must provide")
+- Focus on behavior specifications rather than implementation details
+- Remove temporal references and implementation timelines
+- Be precise about requirements vs. recommendations
+
+**Content Requirements**:
+- Clear specification of expected behaviors
+- Comprehensive API and interface documentation
+- Configuration options and their effects
+- Error conditions and handling requirements
+- Concrete examples and use cases
+
+**Example Language**:
+```markdown
+## Connector Integration Behavior
+The system supports connector integration through standardized resource interfaces.
+Connectors must implement the ResourceProvider interface to participate in
+pipeline orchestration workflows.
+
+## Interface Requirements
+All connectors implementing the CodeBase interface must provide:
+- Resource validation endpoints
+- Branch/tag listing capabilities
+- Authentication credential management
+
+## Error Handling
+When connector APIs are unavailable, the system falls back to manual
+configuration mode and displays appropriate user guidance.
+```
+
+## Document Maintenance
+
+### TEP Lifecycle Management
+
+**Status Transitions**:
+- **Proposed** → **Accepted**: After successful review and approval
+- **Proposed** → **Rejected**: If proposal is declined
+- **Accepted** → **Superseded**: When replaced by newer TEP
+- **Proposed** → **Superseded**: If alternative proposal is preferred
+
+**Post-Implementation**:
+- TEPs remain as historical records
+- Link from TEPs to resulting design documents
+- Update status to reflect implementation completion
+
+### Design Document Evolution
+
+**Continuous Updates**:
+- Design documents are living specifications
+- Update when system behavior changes
+- Maintain accuracy with actual implementation
+- Version control tracks evolution over time
+
+**Change Process**:
+1. **Minor Updates**: Direct edits for clarification, examples, or small behavior changes
+2. **Major Changes**: Create new TEP to propose significant behavioral modifications
+3. **Deprecation**: Mark sections as deprecated before removal, include migration guidance
+
+### Cross-Reference Management
+
+**Linking Strategy**:
+- TEPs reference related design documents
+- Design documents link to originating TEPs
+- Maintain bidirectional traceability
+- Use consistent naming and categorization
+
+**Example References**:
+```markdown
+<!-- In TEP -->
+This proposal will result in updates to the following design documents:
+- [Pipeline Integration Behavior](../design/pipeline-integration/behavior.mdx)
+- [Connector Development Guide](../design/connectors/development-guide.mdx)
+
+<!-- In Design Document -->
+This behavior specification was established by:
+- [TEP-0002: Pipeline Connector Integration](../../teps/0002_pipeline_connector_integration.md)
+- [TEP-0005: Enhanced Workspace Management](../../teps/0005_workspace_management.md)
+```
+
+## Directory Structure and Organization
+
+### TEPs Organization
+```
+docs/en/teps/
+├── index.mdx                    # TEP overview and index
+├── 0001_triggertemplate_config.md
+├── 0002_pipeline_connector_integration.md
+└── 0003_[next_proposal].md
+```
+
+### Design Documents Organization
+```
+docs/en/design/
+├── index.mdx                    # Design documentation overview
+├── pipeline-integration/        # Pipeline-related behaviors
+│   ├── index.mdx
+│   ├── connector-behavior.mdx
+│   └── execution-behavior.mdx
+├── connectors/                  # Connector specifications
+│   ├── index.mdx
+│   ├── development-guide.mdx
+│   └── interface-specifications.mdx
+├── architecture/                # Architectural decisions
+│   ├── index.mdx
+│   ├── adr-001-connector-architecture.mdx
+│   └── adr-002-integration-patterns.mdx
+└── apis/                       # API specifications
+    ├── index.mdx
+    ├── pipeline-apis.mdx
+    └── connector-apis.mdx
+```
+
+## Quality Assurance
+
+### Review Checklist for TEPs
+
+**Content Quality**:
+- [ ] Problem clearly defined with quantified impact
+- [ ] Multiple alternatives documented and compared
+- [ ] Implementation plan is realistic and detailed
+- [ ] Security and compatibility implications addressed
+- [ ] Success criteria are measurable and specific
+
+**Process Compliance**:
+- [ ] Follows TEP template structure
+- [ ] Uses appropriate proposal language (future tense)
+- [ ] References related documentation
+- [ ] Includes proper frontmatter and metadata
+
+### Review Checklist for Design Documents
+
+**Content Quality**:
+- [ ] Behavior specifications are clear and unambiguous
+- [ ] API contracts are complete and well-documented
+- [ ] Examples demonstrate all major use cases
+- [ ] Error conditions and edge cases are covered
+- [ ] Configuration options are fully specified
+
+**Process Compliance**:
+- [ ] Uses present tense and definitive language
+- [ ] Follows appropriate template structure
+- [ ] Links to originating TEPs
+- [ ] Proper navigation weight assigned
+
+## Tools and Automation
+
+### Document Generation
+- Use consistent templates for both TEPs and design documents
+- Automated index generation using `<Overview />` components
+- Link validation to ensure cross-references remain valid
+
+### Workflow Integration
+- TEP numbering follows sequential pattern
+- Design document categorization aligns with system architecture
+- Version control branching strategy supports review process
+
+### Validation
+- Automated checks for template compliance
+- Link validation for cross-references
+- Spell checking and grammar validation
+- Technical accuracy review process
+
+## Examples and Best Practices
+
+### Good TEP Example
+```markdown
+# TEP-0002: Pipeline Orchestration and Execution with Connector Integration
+
+## Problem Statement
+Currently, users must manually enter git repository URLs when configuring
+pipelines, leading to a 25% error rate and 15-30 minutes of configuration
+time per pipeline. User research shows this is the #1 friction point...
+
+## Proposed Solution
+This TEP proposes introducing connector-backed resource selection...
+[Details with alternatives and rationale]
+
+## Implementation Plan
+Phase 1 (8 weeks): Core infrastructure
+- Deliverable: Integration schema
+- Success criteria: Basic git connector functional
+- Risk: Connector API reliability
+```
+
+### Good Design Document Example
+```markdown
+# Pipeline Connector Integration Behavior
+
+## Overview
+The pipeline system supports connector integration through standardized
+resource interfaces, enabling users to browse and select external resources
+during pipeline configuration and execution.
+
+## Core Behaviors
+### Resource Selection
+When users configure pipeline parameters, the system:
+1. Identifies compatible connectors based on parameter type
+2. Presents resource browsing interface
+3. Validates selected resources in real-time
+4. Auto-populates related parameters and workspaces
+
+### Error Handling
+When connector APIs are unavailable:
+- System displays fallback manual entry form
+- Shows last known resource state if cached
+- Provides clear error messages with recovery guidance
+```
+
+## Conclusion
+
+This process ensures that:
+- **TEPs** serve as comprehensive change proposals with full context and decision rationale
+- **Design Documents** provide authoritative, timeless specifications of system behavior
+- **Evolution** is managed through a clear, repeatable process
+- **Traceability** is maintained between proposals and specifications
+- **Quality** is consistent across all documentation
+
+By following these guidelines, both human authors and AI agents can contribute effectively to the documentation ecosystem while maintaining consistency, quality, and long-term maintainability.
