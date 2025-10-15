@@ -1,0 +1,871 @@
+# Pipeline Integrate with Connector Tech Design
+
+## Overview
+
+- 抽象 ResourceInterface，定义了资源类型及其属性，用于流水线或任务中。
+- 抽象 PipelineIntegration，定义 Pipeline 或 Task 支持的 ResourceInterface 以及 数据的映射关系。
+- 通过 ConnectorClass 标记支持的 ResourceInterface。
+
+## ConnectorClass
+
+ConnectorClass 可通过 labels `resourceinterface.connectors.cpaas.io/<ResourceInterface-name>` 来标记支持的 ResourceInterface。
+
+一个 ConnectorClass 可以支持多个 ResourceInterface。
+
+例如
+``` yaml
+kind: ConnectorClass
+metadata:
+  name: git
+  labels:
+    resourceinterface.connectors.cpaas.io/gitcoderepository: "true"
+spec: {}
+---
+kind: ConnectorClass
+metadata:
+  name: github
+  labels:
+    resourceinterface.connectors.cpaas.io/githubcoderepository: "true"
+
+    resourceinterface.connectors.cpaas.io/githubociartifactrepo: "true"
+spec: {}
+```
+
+当含有 该 label 时，则表示该 ConnectorClass 支持该 ResourceInterface。
+例如上述示例中，声明了， github ConnectorClass 支持 GithubCodeRepository 和 GithubOCIArtifactRepo 两个 ResourceInterface。
+
+关于 ResourceInterface 的定义，可参考下文。
+
+## ResourceInterface
+
+- 集群级别
+- API Version: connectors.alauda.io/v1alpha1
+- Kind: ResourceInterface
+
+### 类别标记
+
+通过 labels `resourceinterface.connectors.cpaas.io/catagory` 来标记该 ResourceInterface 的类别。
+
+例如
+``` yaml
+metadata:
+  labels:
+    resourceinterface.connectors.cpaas.io/category: "GitCodeRepository"
+```
+
+例如， `gitcoderepository` 和 `githubcoderepository` 都标记为 `GitCodeRepository` 类别。属于同一个类别时， 其 attributes 和 workspaces 需要满足相同的字段约定。
+
+用户可为自定义的 ResourceInterface 标记新的类别，前后端不应该针对特定的类别名称做具体的业务逻辑。
+
+### 数据结构
+
+#### spec.params
+
+通过 `spec.params` 来定义构造 PipelineIntegration 时所需要的参数。
+
+字段说明如下:
+
+- **name**: 表示该参数的名称
+- **type**: 支持 string, array, object, 和 tektoncd 定义的 ParamSpec type一致。
+- **default**: 表示该参数的默认值. 此时会作为 PipelineIntegration 中，对应 param 的默认值。 和 tektoncd 的 ParamSpec 的 default 一致。
+- **description**: 表示该参数的描述信息。可用于在 UI 中展示。
+
+``` yaml
+spec:
+  params:
+  - name: repository
+    type: string
+    default: ""
+    description: "The repository name"
+```
+
+#### spec.attributes
+
+通过 `spec.attributes` 来定义该 ResourceInterface 构造的 PipelineIntegration 提供的 attributes。
+编排 Pipeline 时，可以在 Pipeline Task 中引用这些 attributes，attribute 可参数化为 Pipeline Param。
+
+attributes 是一个数组， 数组内每个对象包含的结构如下:
+
+字段说明如下:
+
+- `name`: 表示该 attribute 的名称
+- `type`: 表示该 attribute 的值类型， 支持 string, array, ~~object~~, 和 tektoncd 定义的 ParamSpec type一致。
+- `expression`: 表示该 attribute 的值是通过表达式来计算的。表达式语法参考下文 "expression 的表达式"。
+- `parameterize`: 表示该 attribute 的参数化信息。
+- `parameterize.name`: 表示该 attribute 参数化时，默认的参数名称。
+- `parameterize.disable`: 表示该 attribute 是否禁用参数化。
+- `dependsOn`: 表示该 attribute 值的计算所依赖的参数或 connector。前端可用来识别该 attribute 是否需要等待参数或 connector 准备好后，再进行计算。 dependsOn 的表达式参考下文 "dependsOn 的表达式"。
+
+例如
+
+``` yaml
+spec:
+  attributes:
+  - name: url
+    type: string
+    parameterize:
+      name: git-url
+    expression: "<connector.spec.address>/<params.repository>"
+    dependsOn:
+    - params.repository
+    - connector
+  - name: revision
+    default: "refs/heads/main"
+    type: string
+    parameterize:
+      disable: false
+      name: git-revision
+```
+
+##### expression 的表达式
+
+通过表达式，可以将多个 `params` 的值以及 `connector` 的属性信息进行组合计算，从而得到新的值。
+
+计算后支持的类型
+
+- string
+- array
+- ~~object~~
+
+表达式支持的语法要求
+
+- 支持简单字符串的拼接。 例如 params.org/parmas.repository
+- 支持从 object 类型中获取属性后，进行拼接。 例如 connector.spec.address/params.org/params.repository
+- 支持从 object 类型中获取属性后，经过特定函数处理后，进行拼接。 例如 url(connecor.spec.address).host/params.org/params.repository
+- 支持引用 array 参数，直接输出为array. 例如 params.tags[*]
+- 支持引用 array 参数，将 array 遍历后，进行拼接, 输出数组。 例如  tags.map(tag => url(connector.spec.address).host + params.org +":" +tag)
+
+获取数据的范围
+
+- `connector`: 当前构造的 PipelineIntegration 所关联的 connector 信息. 可以直接使用 connector的数据结构作为输入。 例如 `connector.metadata.name`
+- `params`: 当前构造的 PipelineIntegration 的 params 信息
+
+表达式语法
+
+使用 JavaScript 的语法, 返回的值的类型和 当前 attribute 的 type 对齐。 传入的上下文数据为
+
+```
+{
+  "params": {
+    "param-name": "param-value"
+    ...
+  },
+  "connector": {}
+}
+```
+
+表达式本身通过 `{}` 来包裹。
+
+例如
+
+``` javascript
+# 字符串拼接
+{connector.spec.address + "/" + params.repository}
+
+# 使用 URL 对象处理地址
+{new URL(connector.spec.address).host + "/" + params.repository}
+
+# 遍历数组
+{tags.map(tag => new URL(connector.spec.address).host + params.repository +":" +tag)}
+```
+
+安全性
+
+- 前端需要在沙盒内运行对应的 js 代码， 确保安全性。
+
+##### dependsOn 的表达式
+
+通过 dependsOn 的表达式， 可以指定该 attribute 的值的计算依赖的参数或 connector, 格式为: `<source>.<field>`
+
+- `params.<field>`: 依赖 PipelineIntegration 的 param， 此时 `<field>` 为 param 的名称, 表示依赖指定 param 的值
+- `connector`: 依赖 PipelineIntegration 所关联的 connector 信息， 此时 `<field>` 应为空, 表示依赖用户需要先输入 connector
+
+例如
+
+- `params.repository`: 表示依赖 repository 参数的值
+- `connector`: 表示依赖用户输入 connector
+
+#### spec.workspaces
+
+定义该 ResourceInterface 支持的 workspaces。
+
+字段说明如下:
+
+- `name`: 表示该 workspace 的名称
+- `workspaceMapping.name`: 表示该 workspace 在构造 PipelineIntegration 时，被指定为 workspace 的情况下，映射workspace 的默认名称。
+- `value`: 表示该 workspace 的默认值, 和 tektoncd 的 workspacebinding 一致。[参考 tektoncd workspacebinding](https://tekton.dev/docs/pipelines/workspaces/#specifying-volumesources-in-workspaces)。 其中 value 属性中的字段值也支持使用表达式， 来动态获取 PipelineIntegration 中的 param 或 connector 的值。
+
+例如
+
+``` yaml
+spec:
+  workspaces:
+  - name: git-source
+    workspaceMapping:
+      name: git-source
+    value:
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteMany
+          resources:
+            requests:
+              storage: 1Gi
+  - name: git-basic-auth
+    workspaceMapping:
+      name: git-basic-auth
+    value:
+      csi:
+        driver: connectors-csi
+        readOnly: true
+        volumeAttributes:
+          connector.name: "{connector.metadata.name}"
+          connector.namespace: "{connector.metadata.namespace}"
+          configuration.names: "gitconfig"
+          token.expiration: 30m
+```
+
+这些是当前 ResourceInterface 支持的 workspaces 列表并为其提供了推荐值， 用户可以在触发流水线时， 直接使用这些默认值。
+
+value 字段的表达式说明
+
+value 中的字段的值，支持通过表达式来计算。 表达式中支持引用 PipelineIntegration 中的 params 或 connector 的值。 表达式的语法参考 "expression 表达式"。
+
+``` yaml
+spec:
+  workspaces:
+  - name: git-basic-auth
+    workspaceMapping:
+      name: git-basic-auth
+    value:
+      csi:
+        driver: connectors-csi
+        readOnly: true
+        volumeAttributes:
+          connector.name: "{connector.metadata.name}"
+          connector.namespace: "{connector.metadata.namespace}"
+          configuration.names: "gitconfig"
+          token.expiration: 30m
+```
+
+#### Examples
+
+``` yaml
+kind: ResourceInterface
+metadata:
+  name: gitcoderepository
+  labels:
+    resourceinterface.connectors.cpaas.io/category: "GitCodeRepository"
+spec:
+  params:
+  - name: repository
+    type: string
+  - name: revision
+    type: string
+    default: "refs/heads/main"
+
+  attributes:
+  - name: url
+    type: string
+    expression: "{connector.spec.address + '/' + params.repository}"
+    parameterize:
+      name: git-url
+    dependsOn:
+    - params.repository
+    - connector
+  - name: revision
+    type: string
+    expression: "{params.revision}"
+    parameterize:
+      name: git-revision
+    dependsOn:
+    - params.revision
+
+  workspaces:
+    - name: git-source
+      workspaceMapping:
+        name: git-source
+      value:
+        volumeClaimTemplate:
+          spec:
+            accessModes:
+              - ReadWriteMany
+            resources:
+              requests:
+                storage: 200Mi
+    - name: git-basic-auth
+      workspaceMapping:
+        name: git-basic-auth
+      value:
+        csi:
+          driver: connectors-csi
+          readOnly: true
+          volumeAttributes:
+            connector.name: "{connector.metadata.name}"
+            connector.namespace: "{connector.metadata.namespace}"
+            configuration.names: "gitconfig"
+            token.expiration: 30m
+```
+
+## PipelineIntegration
+
+PipelineIntegration 并不是实际的 k8s 资源，而是 Pipeline 编排时，记录在 Pipeline 或 Task 中的信息。
+其中包含了关联的 connector 信息， 构造时的参数信息，attribute 和 PipelineTask params 和 workspaces 的映射关系 等。
+
+### 在 Pipeline 或 Task 中的保存
+
+通过 annotation `integrations.tekton.dev/integrations` 来记录该 PipelineIntegration 信息。值为 PipelineIntegration 数组，yaml 格式。
+
+``` yaml
+kind: Pipeline | kind: Task
+annotations:
+  integrations.tekton.dev/integrations: |
+    - name: code
+      interface:
+        category: "GitCodeRepository"
+      params:
+      - name: repository
+        value: "myorg/my-app-new"
+      ...
+```
+
+### ResourceInterface Reference and Connector Reference
+
+通过 `interface` 来引用对应的 ResourceInterface， 通过 `connectorRef` 字段 来引用对应的 Connector。
+
+字段说明如下:
+
+- `interface.apiVersion`: 引用对应的 ResourceInterface 的 apiVersion, 当前值为 `connectors.alauda.io/v1alpha1`
+- `interface.name`: 引用对应的 ResourceInterface 的名称
+- `interface.category`: 引用对应的 ResourceInterface 的类别. 和 interface.name 二选其一。
+- `connectorRef.name`: 引用对应的 Connector 的名称
+- `connectorRef.namespace`: 引用对应的 Connector 所在的 namespace, 可选，为空时，表示在 Pipeline 所在的 namespace。
+- `connectorRef.setAtRuntime`: 表示该 connector 的值是否需要在触发时输入。当用户未提供 name 时，setAtRuntime 应为 true。如果提供了 name，且 setAtRuntime 为 false，则name 和namespace 表示该 connector 的值在触发时的默认值。
+
+``` yaml
+interface:
+  apiVersion: "connectors.alauda.io/v1alpha1"
+  # name: "gitcoderepository"
+  category: "GitCodeRepository"
+connectorRef:
+  name: "git-connector"
+  namespace: "default"
+  setAtRuntime: true
+```
+
+ResourceInterface 将会影响构造 PipelineIntegration 的所需的参数。
+
+### params
+
+通过 params 来记录构造 PipelineIntegration 的参数。params 本身为一个数组。
+
+数组中的单个对象的字段说明如下:
+
+- `name`: 表示该参数的名称. 和 ResourceInterface.spec.params[].name 对齐。
+- `value`: 表示该参数的值。默认来自 对应 ResourceInterface.spec.params[<name>].default 的值。 value 的类型为 string, array, object, 和 ResourceInterface.spec.params[<name>].type 一致。定义和 tektoncd 的 ParamValue 一致。
+- `setAtRuntime`: 表示该参数的值是否需要在触发时输入。当用户未提供 value 时，setAtRuntime 应为 true。
+
+例如:
+
+``` yaml
+params:
+- name: repository
+  value: "myorg/my-app"
+  setAtRuntime: true
+```
+
+### attributes
+
+字段说明如下:
+
+- `name`: 表示该 attribute 的名称, 和 ResourceInterface.spec.attributes[].name 对齐。
+- `param`: 表示该 attribute 参数化之后，在 Pipeline 的 spec.params 中对应的参数名称。
+  * 当 attribute 依赖的 param 或者 connector 是在触发时赋值，则该 attribute 必定需要参数化。
+  * 为空时，表示未进行参数化。
+  * 参数化时，参数的默认名称来自 `<ResourceInterface>.spec.attributes[].parameterize.name` 的值。
+- `value`: 表示该 attribute 的值，该值是否在前端记录，前端可自行决定。
+  - 该值的两种形态:
+    * **编排时**: 默认为 <ResourceInterface>.spec.attributes[].value.default 的值。可能是一个常量（字面静态值）， 也可能是由表达式计算之后的一个常量（计算后静态展）。在标记了参数化时，该编排时的值为 $(params.<param>). PipelineTask 中引用的即为该编排时的值。
+    * **触发时**: 仅当attribute 标记了参数化时，存在该形态。此时该值是由依赖的 param 的值计算而来。经过计算后，该值为静态值。在流水线触发时，传入PipelineRun 的值为该触发时的值。
+- `refPath`: 表示该 attribute 在 PipelineTask 中引用的路径。 表达式参考 "refPath 的表达式"。
+
+例如:
+
+``` yaml
+attributes:
+- name: url
+  param: git-url
+  value: $(params.git-url)
+  refPath:
+  - tasks.git-clone.params.url
+- name: revision
+  value: "refs/heads/main"
+  refPath:
+  - tasks.git-clone.params.revision
+```
+
+### workspaces
+
+前端可通过 workspaces 来记录当前 PipelineIntegration workspace 化的 workspace 列表。这些 workspace 可在 Pipeline Task 中引用。
+
+字段说明如下:
+
+- `name`: 表示该 workspace 的名称， 和 `<ResourceInterface>.spec.workspaces[].name` 一致。
+- `workspace`: 表示通过 workspace 进行参数化的 workspace名称，需要在 Pipeline 的 spec.workspaces 中增加该名字的 workspace。
+- `refPath`: 表示该 workspace 在 PipelineTask 中引用的路径。 表达式参考 "refPath 的表达式"。
+
+例如:
+
+``` yaml
+workspaces:
+- name: git-source
+  workspace: git-source
+  refPath:
+  - tasks.git-clone.workspaces.output
+- name: git-basic-auth
+  workspace: git-basic-auth
+  refPath:
+  - tasks.git-clone.workspaces.basic-auth
+```
+
+### refPath 的表达式
+
+refPath 的表达式，用于表示 PipelineTask 中哪些路径的参数引用了当前的 attribute 或 workspace。格式为:
+
+- `tasks.<pipelinetask-name>.workspaces.<workspace-name>`
+- `tasks.<pipelinetask-name>.params.<param-name>`
+
+### Examples
+
+``` yaml
+name: code
+interface:
+  apiVersion: "connectors.alauda.io/v1alpha1"
+  category: "GitCodeRepository"
+connectorRef:
+  name: "git-connector"
+  namespace: "default"
+  setAtRuntime: true
+params:
+- name: repository
+  value: "myorg/my-app-new"
+  setAtRuntime: true
+attributes:
+- name: url
+  param: git-url
+  value: $(params.git-url)
+  refPath:
+  - tasks.git-clone.params.url
+- name: revision
+  param: git-revision
+  value: $(params.git-revision)
+  refPath:
+  - tasks.git-clone.params.revision
+workspaces:
+- name: git-source
+  workspace: git-source
+  refPath:
+  - tasks.git-clone.workspaces.output
+- name: git-basic-auth
+  workspace: git-basic-auth
+  refPath:
+  - tasks.git-clone.workspaces.basic-auth
+```
+
+## UI 交互表单定义
+
+如上所描述， ResourceInterface 中定义了 params, 我们通过 descriptors 或 annotations 提供 params 的 UI 交互信息的定义。
+
+``` yaml
+kind: ResourceInterface
+metadata:
+  name: GitCodeRepository
+  annotations:
+    x-descriptors: ""
+spec:
+  params:
+  - name: repository
+    descriptors: []
+```
+
+**表单 UI 定义应支持的类型**
+
+数据类型: 同 param type
+展示类型: TODO
+
+**表单 UI 应支持的数据上下文来源**
+
+- 支持从其他 params 中获取数据
+- 支持从 connector 获取数据
+
+**支持的数据获取方式**
+
+- 传入上下文数据，调用远程 API。
+
+表单定义语法参考: TODO: 定义表单描述的 DSL.
+
+## API
+
+**获取当前集群的 ResourceInterfaces 列表**
+
+GET /apis/connectors.alauda.io/v1alpha1/ResourceInterfaces
+
+返回结果符合 k8s list 的返回结果。其中 单个 ResourceInterface 的结构参考本文中，"数据结构" 章节的说明。
+
+权限: 除平台管理员外，其他均为只读权限。
+
+## 使用场景
+
+### 构造 PipelineIntegration
+
+**选择 interface category 或 `interface.name`**
+
+- 使用 ResourceInterface API， 获取所有 ResourceInterface， 获取所有 ResourceInterface 的名称。
+- 使用 ResourceInterface annotations 标记的 `resourceinterface.connectors.cpaas.io/category` 信息， 显示 category 的名称列表。
+
+**选择 connector**
+
+category -> 支持该 category 的 ResourceInterface 列表 -> 支持该 ResourceInterface 的 ConnectorClass 列表 -> 该 ConnectorClass 下的 Connector (集群， 项目， NS) 列表
+
+- 使用 用户选择的 category 或 interface 名称，过滤获得 ResourceInterface (n) 列表。
+- 获取当前集群内，支持 ResourceInterface (n) 的 ConnectorClass (n): 过滤标记 `resourceinterface.connectors.cpaas.io/<ResourceInterface-name>` 为 true 的 ConnectorClass 列表。记录对应的 ResourceInterface 名称。
+- 根据 ConnectorClass 列表，显示该 ConnectorClass 下的 Connector (集群， 项目， NS) 列表
+
+例如:
+
+- 标记了  GitCodeRepository category 的 ResourceInterface 列表为:
+  - GitCodeRepository
+  - GithubCodeRepository
+- 标记了支持 GitCodeRepository ResourceInterface 的 ConnectorClass 列表为:
+  - git
+- 标记了支持 GithubCodeRepository ResourceInterface 的 ConnectorClass 列表为:
+  - github， 记录 GithubCodeRepository ResourceInterface 名称
+- list  git, github connectorclass 下的 Connector (集群， 项目， NS) 列表
+- 用户选择 github connector 后，记录 ConnectorClass 名称， 反查到当前 category 下 对应的 ResourceInterface 名称。
+
+**PipelineIntegration 表单渲染**
+
+- 根据上述步骤中，记录推导的 ResourceInterface 名称， 获取 `<ResourceInterface>.spec.params` 信息， 并渲染 params 表单。 params 表单渲染逻辑，可参考 `UI 交互表单定义` 章节。 如无表单交互定义时，使用字段 type 对应的表单渲染逻辑。
+- 使用 `<ResourceInterface>.spec.attributes` 信息， 渲染 attributes 列表。
+- 使用 `<ResourceInterface>.spec.workspaces` 信息， 渲染 workspaces 列表。
+
+**Param: Set at Runtime**
+
+- 当 Param 未提供值时，setAtRuntime 默认为 true。
+- 当 Param 提供了值，用户配置了 setAtRuntime 时，值为 runtime 时的默认值存在。
+- 当 Param 提供了值，用户配置了 setAtRuntime 为 false 时，值为编排时的值存在。
+
+**Attribute: Add as Param**
+
+- 当依赖的 param 或者 connector 需要在触发时赋值时，则该 attribute 必定需要参数化。
+- 参数化后，需要在 Pipeline 的 spec.params 中，增加一个参数，默认参数名称为 `<ResourceInterface>.spec.attributes[].parameterize.name` 中定义的值， 参数类型为 `<ResourceInterface>.spec.attributes[].type`. 如果 `<ResourceInterface>.spec.attributes[].default` 不为空，则其为 param 的默认值。
+
+**Workspace: Add as Workspace**
+
+- 在 Pipeline 的 spec.workspaces 中，增加一个 workspace， workspace 名称为 `<ResourceInterface>.spec.workspaces[].workspaceMapping.name` 中定义的值.
+
+### 编排 Task 时引用 Attributes
+
+前端可在编排 Task 时引用 PipelineIntegration 中的 attributes。
+
+- 静态值 （字面静态，计算后静态）
+- `$(params.<param>)`
+
+例如  PipelineIntegration 信息如下
+
+``` yaml
+attributes:
+- name: url
+  value: https://github.com/org/repo.git
+  refPath:
+  - tasks.git-clone.params.url
+- name: revision
+  param: git-revision
+  refPath:
+  - tasks.git-clone.params.revision
+```
+
+通过 refPath 来记录 引用了该 attribute 的 PipelineTask 的 param。
+
+在 Pipeline 编排task 时，对应的 Pipeline 内容为
+
+``` yaml
+params:
+- name: git-revision
+  type: string
+  default: "refs/heads/main"
+
+tasks:
+- name: git-clone
+  params:
+    - name: url
+      value: https://github.com/org/repo.git
+    - name: revision
+      value: $(params.git-revision)
+```
+
+**PipelineIntegration 值变化时， PipelineTask 值的联动修改**
+
+- 根据 refPath 信息，找到 PipelineTask 中对应的 param 或 workspace， 并修改其值。
+
+### 触发流水线时 PipelineIntegration 表单
+
+- 根据 PipelineIntegration 标记了 setAtRuntime 为 true 的 param，渲染 param 字段。
+- 根据 `<ResourceInterface>.spec.params[xx]` 信息，渲染 pipeline param 字段的 UI 交互。
+
+### 触发流水线时， Pipeline Params 和 Workspaces 表单
+
+**params**
+
+- 根据 Pipeline Params 列表， 渲染 param 字段。
+- 根据 PipelineIntegration 中，attribute 的参数化信息，找到 Pipeline Params 和 Attribute 的对应关系。
+- 根据 <ResourceInterface>.spec.attributes[xx].expression 信息，计算展示当前 param 的值。
+- 当 Pipeline Param 并非来自 attribute 时，正常展示表单，由用户输入。
+
+**workspaces**
+
+- 根据记录 workspace 来自的 `<ResourceInterface>.spec.workspaces[xx]` 信息，填充默认值。
+
+### 模板流水线
+
+模板流水线中，通常含有 git-url 和 git-revision 参数。
+
+``` yaml
+kind: Pipeline
+spec:
+  params:
+  - name: git-url
+    type: string
+  - name: git-revision
+    type: string
+```
+
+Pipeline 中的 PipelineIntegration 信息为
+
+``` yaml
+name: my-app-codebase
+interface:
+  apiVersion: connectors.alauda.io/v1alpha1
+  category: "GitCodeRepository"
+connectorRef:
+  setAtRuntime: true
+attributes:
+- name: url
+  param: git-url
+  value: $(params.git-url)
+  refPath:
+  - tasks.git-clone.params.url
+- name: revision
+  param: git-revision
+  value: $(params.git-revision)
+  refPath:
+  - tasks.git-clone.params.revision
+workspaces:
+- name: git-source
+  workspace: git-source
+  refPath:
+  - tasks.git-clone.workspaces.output
+- name: git-basic-auth
+  workspace: git-basic-auth
+  refPath:
+  - tasks.git-clone.workspaces.basic-auth
+```
+
+触发流水线时， 先输入 pipeline integration 信息， 根据 pipeline integration 信息，渲染展示 pipeline params 字段。
+
+## Samples
+
+### ResourceInterface 示例
+
+更多例子可参考: [connectors-extensions](https://github.com/AlaudaDevops/connectors-extensions/pull/47/files)
+
+### PipelineIntegration 示例
+
+GitCodeRepository
+
+``` yaml
+# 全部静态值
+name: my-app-codebase
+interface:
+  apiVersion: connectors.alauda.io/v1alpha1
+  category: "GitCodeRepository"
+connectorRef:
+  name: "git-connector"
+  namespace: "default"
+params:
+- name: repository
+  value: "myorg/my-app-new"
+attributes:
+- name: url
+  value: "https://github.com/myorg/my-app-new.git"
+- name: revision
+  value: "refs/heads/main"
+---
+# Revision 运行时指定
+name: my-app-codebase
+interface:
+  apiVersion: connectors.alauda.io/v1alpha1
+  category: "GitCodeRepository"
+connectorRef:
+  name: "git-connector"
+  namespace: "default"
+params:
+- name: repository
+  value: "myorg/my-app-new"
+- name: revision
+  setAtRuntime: true
+attributes:
+- name: url
+  value: "https://github.com/myorg/my-app-new.git"
+- name: revision
+  param: git-revision
+  value: $(params.git-revision)
+  refPath:
+  - tasks.git-clone.params.revision
+---
+# Url 和 Revision 运行时指定
+name: my-app-codebase
+interface:
+  apiVersion: connectors.alauda.io/v1alpha1
+  category: "GitCodeRepository"
+connectorRef:
+  name: "git-connector"
+  namespace: "default"
+params:
+- name: repository
+  setAtRuntime: true
+- name: revision
+  setAtRuntime: true
+attributes:
+- name: url
+  param: git-url
+  value: $(params.git-url)
+  refPath:
+  - tasks.git-clone.params.url
+- name: revision
+  param: git-revision
+  value: $(params.git-revision)
+  refPath:
+  - tasks.git-clone.params.revision
+---
+# Connector 和 url 和 revision 运行时指定
+name: my-app-codebase
+interface:
+  category: GitCodeRepository
+  apiVersion: connectors.alauda.io/v1alpha1
+connectorRef:
+  setAtRuntime: true
+params:
+- name: repository
+  setAtRuntime: true
+- name: revision
+  setAtRuntime: true
+attributes:
+- name: url
+  param: git-url
+  value: $(params.git-url)
+  refPath:
+  - tasks.git-clone.params.url
+- name: revision
+  param: git-revision
+  value: $(params.git-revision)
+  refPath:
+  - tasks.git-clone.params.revision
+workspaces:
+- name: git-source
+  workspace: git-source
+  refPath:
+  - tasks.git-clone.workspaces.output
+- name: git-basic-auth
+  workspace: git-basic-auth
+  refPath:
+  - tasks.git-clone.workspaces.basic-auth
+```
+
+GithubCodeRepository
+
+``` yaml
+# Resource 全部静态值
+name: my-app-codebase
+interface:
+  name: GithubCodeRepository
+  apiVersion: connectors.alauda.io/v1alpha1
+connector:
+  name: "github-connector"
+  namespace: "default"
+params:
+- name: organization
+  value: "myorg"
+- name: repository-name
+  value: "my-app-new"
+- name: revision
+  value: "refs/heads/main"
+attributes:
+- name: url
+  value: "https://github.com/myorg/my-app-new.git"
+- name: revision
+  value: "refs/heads/main"
+---
+# url 运行时指定 和 revision 运行时指定
+name: my-app-codebase
+interface:
+  name: GithubCodeRepository
+  apiVersion: connectors.alauda.io/v1alpha1
+connectorRef:
+  name: "github-connector"
+  namespace: "default"
+params:
+- name: organization
+  value: "myorg"
+  setAtRuntime: true
+- name: repository-name
+  setAtRuntime: true
+- name: revision
+  setAtRuntime: true
+attributes:
+- name: url
+  param: git-url
+  value: $(params.git-url)
+  refPath:
+  - tasks.git-clone.params.url
+- name: revision
+  param: git-revision
+  value: $(params.git-revision)
+  refPath:
+  - tasks.git-clone.params.revision
+
+# connector 为空， url 和 revision 都运行时指定
+
+name: my-app-codebase
+interface:
+  name: GithubCodeRepository
+  apiVersion: connectors.alauda.io/v1alpha1
+connectorRef:
+  setAtRuntime: true
+params:
+- name: organization
+  setAtRuntime: true
+- name: repository-name
+  setAtRuntime: true
+- name: revision
+  setAtRuntime: true
+attributes:
+- name: url
+  param: git-url
+  value: $(params.git-url)
+  refPath:
+  - tasks.git-clone.params.url
+- name: revision
+  value: $(params.git-revision)
+  refPath:
+  - tasks.git-clone.params.revision
+```
+
+## 当前方案局限
+
+- Connector address 发生变化时，对于已编排保存PipelineIntegration的 Pipeline 或 TriggerTemplate 资源, 无法自动更新已经关联了静态 address的 pipeline params 值。
+
+## References
+
+- [Tekton Pipeline Integrate with Connector Behavior](/design/pipeline-integration/connector-behavior.mdx)
+- [Tekton Pipeline Integrate with Connector Teps](/teps/0004_pipeline_connector_integration.md)
