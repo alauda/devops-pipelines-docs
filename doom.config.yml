@@ -21,8 +21,6 @@ internalRoutes: # 可选，支持 glob 匹配，相对于 docs 目录，匹配�
   - '**/keps/**/*'
   - '*/development/**/*'
   - '**/development/**/*'
-  - '*/design/**/*'
-  - '**/design/**/*'
 
 releaseNotes:
   queryTemplates:
