@@ -75,70 +75,70 @@ spec: {}
 - 一个 ResourceClass 可以继承自某个 ConnectorClass， 也可以不继承。
 - 参数和表单分离。 参数是用来约束创建 Resource 时所需要的参数，单独使用表单来描述，如何完成这些参数的输入。
 
-``` yaml
-kind: ResourceClass
-metadata:
-  name: GitCodeRepository
-spec:
-  extends: "" # 表示继承自哪个 ConnectorClass
+  ```yaml
+  kind: ResourceClass
+  metadata:
+    name: GitCodeRepository
+  spec:
+    extends: "" # 表示继承自哪个 ConnectorClass
 
-  params: # Params 表示创建该 GitCodeRpository 类型的 Resource 时，必要的数据字段是什么
-  - name: repository
-    type: string # 支持 string, array, object
-    parameterize:
-      name: git-repository # 参数化时，默认的参数名称
-  - name: revision
-    type: string
-    parameterize: # 参数化的含义: 如果用户勾选了参数化，则表示编排的 Pipeline 增加一个名为 git-revision 的时参数。
-      name: git-revision
-
-  # Output 表示该类型的 Resource，可以提供哪些信息给 Pipeline 编排时使用. 用户可根据需要来扩展 output 的定义
-  # 分为 attributes, workspaces, apis 三个部分。
-  output:
-    attributes:
-    - name: url
-      value:
-        # expression: $(connector.spec.address)/$(attributes.repository)
-      type: string
-    - name: revision
-      value:
-        attribute: revision # 引用 attribute 的值
-      type: string
-    workspaces: # 声明当前 resourceclass 可以实例化的 workspace list
-    - name: git-source # 未提供任何信息，在创建 Resource 的时候， 确认是 pvcClaim 类型 还是 sc
-
-    - name: git-basic-auth # 提供了部分初始化信息，在创建 Resource 的时候，workspace 表单使用这些默认值，用户可修改。
+    params: # Params 表示创建该 GitCodeRpository 类型的 Resource 时，必要的数据字段是什么
+    - name: repository
+      type: string # 支持 string, array, object
       parameterize:
-        name: git-basic-auth
-      csi:
-        volumeAttributes:
-          configuration.names: "gitconfig"
-          token.expiration: 30m
-
-    - name: git-ssh-auth
-      parameterize:
-        name: git-ssh-authth
-      csi:
-        volumeAttributes:
-          configuration.names: "sshconfig"
-          token.expiration: 30m
-
-    apis: # 定义该 resource 的 api 接口的实现约定，表示如果实现了该 ResourceClass, 则实现了如下接口。
-    - name: git-revision # 在其他地方，可以通过 name 来引用
-      path: /api/v1/revisions?url=$(attributes.url)
-
-status:
-  output: # 最终计算出来的 output 信息
-    attributes: # 根据 extends 信息，动态计算而来
-    - name: url
+        name: git-repository # 参数化时，默认的参数名称
     - name: revision
-    workspaces: # 根据 extends 信息，动态计算而来
-    - name: git-source
-    - name: git-basic-auth
-    apis:
-    - name: git-revision
-      path: /api/v1/revisions?url=$(attributes.url)
-```
+      type: string
+      parameterize: # 参数化的含义: 如果用户勾选了参数化，则表示编排的 Pipeline 增加一个名为 git-revision 的时参数。
+        name: git-revision
+
+    # Output 表示该类型的 Resource，可以提供哪些信息给 Pipeline 编排时使用. 用户可根据需要来扩展 output 的定义
+    # 分为 attributes, workspaces, apis 三个部分。
+    output:
+      attributes:
+      - name: url
+        value:
+          # expression: $(connector.spec.address)/$(attributes.repository)
+        type: string
+      - name: revision
+        value:
+          attribute: revision # 引用 attribute 的值
+        type: string
+      workspaces: # 声明当前 resourceclass 可以实例化的 workspace list
+      - name: git-source # 未提供任何信息，在创建 Resource 的时候， 确认是 pvcClaim 类型 还是 sc
+
+      - name: git-basic-auth # 提供了部分初始化信息，在创建 Resource 的时候，workspace 表单使用这些默认值，用户可修改。
+        parameterize:
+          name: git-basic-auth
+        csi:
+          volumeAttributes:
+            configuration.names: "gitconfig"
+            token.expiration: 30m
+
+      - name: git-ssh-auth
+        parameterize:
+          name: git-ssh-authth
+        csi:
+          volumeAttributes:
+            configuration.names: "sshconfig"
+            token.expiration: 30m
+
+      apis: # 定义该 resource 的 api 接口的实现约定，表示如果实现了该 ResourceClass, 则实现了如下接口。
+      - name: git-revision # 在其他地方，可以通过 name 来引用
+        path: /api/v1/revisions?url=$(attributes.url)
+
+  status:
+    output: # 最终计算出来的 output 信息
+      attributes: # 根据 extends 信息，动态计算而来
+      - name: url
+      - name: revision
+      workspaces: # 根据 extends 信息，动态计算而来
+      - name: git-source
+      - name: git-basic-auth
+      apis:
+      - name: git-revision
+        path: /api/v1/revisions?url=$(attributes.url)
+  ```
 
 
 #### 扩展新类型
@@ -151,7 +151,9 @@ status:
 - OCIArtifact
 - MavenArtifact
 
-``` yaml
+示例如下：
+
+```yaml
 kind: Resource
 metadata:
   name: OCIArtifact
@@ -174,7 +176,7 @@ spec:
 
 如为 Github 定义独立的 GithubCodeRepository ResourceClass
 
-``` yaml
+```  yaml
 kind: ResourceClass
 metadata:
   name: GithubCodeRepository
@@ -274,21 +276,21 @@ Type 可选择 ResourceClass ， ConnectorRef 对应相应实现了 ResourceClas
 
 - Pipeline spec.params 增加 item
 
-``` yaml
-spec:
-  params:
-  - name: git-revision
-    type: string
-    value: ""
-```
+  ```yaml
+  spec:
+    params:
+    - name: git-revision
+      type: string
+      value: ""
+  ```
 
 - resource.params 中配置如下信息， 同时前端记录 spec.params.git-revision 来自 resources[xx].params.revision。
 
-``` yaml
-params:
-- name: revision
-  param: git-revision
-```
+  ```yaml
+  params:
+  - name: revision
+    param: git-revision
+  ```
 
 在执行触发时，
 根据 resource.params.revision 的表单定义， 渲染 Revision 表单。选择具体的值之后，按照普通PipelineRun 的逻辑，传入param 的值。
@@ -299,21 +301,21 @@ params:
 
 - Pipeline spec.workspaces 增加 item
 
-``` yaml
-spec:
-  workspaces:
-  - name: git-source
-```
+  ```yaml
+  spec:
+    workspaces:
+    - name: git-source
+  ```
 
 - resource.workspaces 中配置如下信息， 同时前端记录 spec.workspaces.git-source 来自 resources[xx].workspaces.git-source。
 
-``` yaml
-workspaces:
-- name: git-source
-  volumeClaimTemplate: {} # 由用户的输入决定
-- name: git-basic-auth
-  # csi:
-```
+  ```yaml
+  workspaces:
+  - name: git-source
+    volumeClaimTemplate: {} # 由用户的输入决定
+  - name: git-basic-auth
+    # csi:
+  ```
 在执行触发时, 根据 spec.workspaces.git-source 值的来源，填充 Workspace 的值。
 
 **编排 Task 时的引用**
@@ -325,13 +327,13 @@ workspaces:
 - 定义一套 前端可识别的表达式， 由前端来完成 output 的计算逻辑。
 - 由后端提供高级 API 来计算 output 值， 每次 Resource 的值有变更时，调用该 API 来获取 output 值。
 
-``` yaml
-status:
-  output:
-    attributes:
-    - name: url
-      expression: $(connector.spec.address)/$(attributes.repository)
-```
+  ```yaml
+  status:
+    output:
+      attributes:
+      - name: url
+        expression: $(connector.spec.address)/$(attributes.repository)
+  ```
 
 前端引用时:
 
@@ -342,20 +344,20 @@ status:
 
 - ResourceClass 中，定义当前类型的 Resource 可使用的 API 列表.
 
-``` yaml
-status:
-  apis:
-  - name: git-revision
-    path: /api/v1/revisions?url=$(attributes.url)
-```
+  ```yaml
+  status:
+    apis:
+    - name: git-revision
+      path: /api/v1/revisions?url=$(attributes.url)
+  ```
 
 - 在 UI 表单定义区域，在表单中定义当前依赖的资源名称。
 
-``` yaml
-annotations:
-  x-descriptors:
-    - resourcesclass.gitcoderepository.apis.name: git-revision
-```
+  ```yaml
+  annotations:
+    x-descriptors:
+      - resourcesclass.gitcoderepository.apis.name: git-revision
+  ```
 
 前端根据二者信息，使用 connector 信息，调用 connector api 获取数据，并展示。
 

@@ -1,0 +1,313 @@
+---
+created: '2025-10-16'
+title: Pipeline Integration
+weight: 200
+---
+
+# Pipeline Integration
+
+## Overview
+
+When building CI/CD pipelines with Tekton, developers often need to integrate with external resources such as Git repositories, container registries, and artifact repositories. Traditionally, this requires manually configuring URLs, credentials, and parameters for each external tool, which is error-prone and time-consuming.
+
+Integrating Tekton Pipelines with Connectors solves this problem by providing a standardized way to connect external resources to pipeline workflows. This integration enables:
+
+- **Easy Resource Browsing and Selection**: Browse and add external resources like Git repositories, Git Revision, OCI repositories, and other resources through UI assistance instead of manual entry
+- **Unified Resource Attributes**: Handle split attributes from the same remote resource as a cohesive unit, eliminating the need to configure separate `url` and `revision` parameters plus workspace configurations
+- **Guided Workspace Setup**: Quick workspace setup with relevant connectors and clear guidance on which connector type is appropriate for each workspace
+- **Maintained Flexibility**: Preserve the current orchestration and pipeline execution experience while adding powerful connector capabilities
+
+### What is Pipeline Integration
+
+Pipeline Integration is the mechanism that connects external resources (through <ExternalSiteLink name="connectors" href="/connectors/concepts/connector.html" children="Connectors" /> and <ExternalSiteLink name="connectors" href="/connectors/concepts/resource_interface.html" children="ResourceInterfaces" />) with Tekton Tasks and Pipelines. It defines:
+
+- **Which resource and connector** to use in pipeline workflows
+- **Parameter configuration** required for the resource
+- **Attribute mapping** between resource outputs and pipeline parameters
+- **Workspace mapping** for volumes and credentials
+
+PipelineIntegration is not an actual Kubernetes resource, but integration metadata stored in Tekton Pipeline or Task annotations using the `integrations.tekton.dev/integrations` key.
+
+This document describes the concepts and key fields of Pipeline Integration. If you want to integrate connectors into your custom pipeline or task, you should understand the details covered in this document.
+
+The built-in Pipeline and Task components already support Pipeline Integration, so you can use them directly without any additional configuration.
+
+## Pipeline Integration Key Fields
+
+A Pipeline Integration contains the following key fields:
+
+- **ResourceInterface Reference**: Specifies which ResourceInterface to use (by category or name)
+- **Connector Reference**: Identifies which Connector instance provides the resource
+- **Parameter Configuration**: Input parameters required by the ResourceInterface
+- **Attribute Mapping**: How resource attributes map to pipeline/task parameters
+- **Workspace Mapping**: How resource workspaces map to pipeline workspaces
+
+## Storage in Annotations
+
+Integration metadata is stored using the `integrations.tekton.dev/integrations` annotation as a YAML array:
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  annotations:
+    integrations.tekton.dev/integrations: |
+      - name: code-repo
+        interface:
+          category: "GitCodeRepository"
+        connectorRef:
+          name: github-connector
+          namespace: default
+          setAtRuntime: false
+        params:
+        - name: repository
+          value: "myorg/myapp"
+          setAtRuntime: false
+        - name: revision
+          setAtRuntime: true
+        attributes:
+        - name: url
+          param: git-url
+          refPath:
+          - tasks.git-clone.params.url
+        - name: revision
+          param: git-revision
+          refPath:
+          - tasks.git-clone.params.revision
+        workspaces:
+        - name: git-source
+          workspace: source-workspace
+          refPath:
+          - tasks.git-clone.workspaces.output
+```
+
+## Pipeline Integration Structure
+
+### Name
+
+The name of the pipeline integration.
+
+```yaml
+name: "code-repo"
+```
+
+### ResourceInterface Reference
+
+Specifies which ResourceInterface to use. Supports both category-based and name-based references:
+
+**Category-based Reference** (flexible, works with any compatible connector):
+```yaml
+interface:
+  apiVersion: "connectors.alauda.io/v1alpha1"
+  category: "GitCodeRepository"
+```
+
+all category names are defined in the ResourceInterface labels named `resourceinterface.connectors.cpaas.io/category`.
+
+**Name-based Reference** (specific interface):
+```yaml
+interface:
+  name: "gitcoderepository"
+  apiVersion: "connectors.alauda.io/v1alpha1"
+```
+
+**When to use each approach:**
+- Use **category-based** for reusable pipelines that should work with different resourceinterfaces implementations
+- Use **name-based** for pipelines that require specific resourceinterface name.
+
+### Connector Reference
+
+Specifies which Connector instance to use for accessing the external resource:
+
+```yaml
+connectorRef:
+  name: "github-connector"        # Connector name
+  namespace: "default"            # Optional, defaults to same namespace as pipeline
+  setAtRuntime: true              # Whether to select connector at runtime
+```
+
+**Configuration Options:**
+- **Fixed Connector**: Set `name` and `namespace`, leave `setAtRuntime` as `false` or omit it
+- **Runtime Selection**: Set `setAtRuntime: true` to allow connector selection during pipeline execution
+- **Default with Override**: Provide `name` and set `setAtRuntime: true` for default with runtime override capability
+
+### Parameters
+
+Input parameters required by the ResourceInterface. These parameters are used to calculate resource attributes:
+
+```yaml
+params:
+- name: repository
+  value: "myorg/myapp"           # Fixed value
+  setAtRuntime: false            # Not changeable at runtime
+- name: revision
+  value: "main"                  # Default value
+  setAtRuntime: true             # Can be changed at runtime
+```
+
+**Parameter Behavior:**
+- When `setAtRuntime: true`, the parameter must be provided when executing the pipeline
+- When `setAtRuntime: false` or omitted, the parameter uses the fixed `value`
+- Parameters without `value` but with `setAtRuntime: true` require user input at runtime
+
+### Attributes
+
+Output attributes calculated from parameters and connector information, and their mapping to pipeline parameters:
+
+```yaml
+attributes:
+- name: url
+  param: git-url                 # Pipeline parameter name (when parameterized)
+  refPath:                       # Where this attribute is used
+  - tasks.git-clone.params.url   # PipelineTask parameter that receives this value
+- name: revision
+  value: "refs/heads/main"       # Static value (no parameterization)
+  refPath:
+  - tasks.git-clone.params.revision
+```
+
+**Attribute Configuration:**
+- **Attribute name** must match `ResourceInterface.spec.attributes[].name`
+- **Attribute value** is calculated using the expression defined in `ResourceInterface.spec.attributes[].expression`
+- **Parameterized attributes** create pipeline parameters (specified by `param` field)
+- **Static attributes** use fixed values (specified by `value` field)
+- **refPath** defines where the attribute value is used in pipeline tasks
+
+### Workspaces
+
+Workspace mapping between ResourceInterface workspaces and pipeline workspaces:
+
+```yaml
+workspaces:
+- name: git-source              # ResourceInterface workspace name
+  workspace: source-workspace   # Pipeline workspace name
+  refPath:                      # Where this workspace is used
+  - tasks.git-clone.workspaces.output
+- name: git-basic-auth
+  workspace: git-credentials
+  refPath:
+  - tasks.git-clone.workspaces.basic-auth
+```
+
+**Workspace Configuration:**
+- **Workspace name** must match `ResourceInterface.spec.workspaces[].name`
+- **Pipeline workspace** is automatically created with the specified by `workspace` field, and the default value is from the `ResourceInterface.spec.workspaces[].workspaceMapping.name`.
+- **refPath** defines which pipelinetask's workspace use this workspace.
+
+## Task Integration Support
+
+Tasks can declare integration support to enable automatic parameter and workspace mapping:
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: git-clone
+  annotations:
+    integrations.tekton.dev/integrations: |
+      - name: code-repo
+        interface:
+          category: Git Code Repository
+        attributes:
+        - name: url
+          param: git-url
+        - name: revision
+          param: git-revision
+        workspaces:
+        - name: source
+          workspace: output
+        - name: credentials
+          workspace: basic-auth
+spec:
+  params:
+  - name: git-url
+    type: string
+  - name: revision
+    type: string
+  workspaces:
+  - name: output
+  - name: basic-auth
+```
+
+## Examples
+
+**Revision set at runtime**
+
+- connector and repository are fixed values, revision is set at runtime.
+- using fixed value `https://github.com/myorg/myapp.git` in git-clone task's url parameter.
+- using runtime parameter `$(params.revision)` in git-clone task's revision parameter.
+- using workspace `source-workspace` in git-clone task's source workspace.
+
+如:
+
+```  yaml
+- name: app-source
+  interface:
+    category: "GitCodeRepository"
+  connectorRef:
+    name: github-connector
+    namespace: default
+  params:
+  - name: repository
+    value: "myorg/myapp"
+  - name: revision
+    setAtRuntime: true
+  attributes:
+  - name: url
+    value: "https://github.com/myorg/myapp.git"
+    refPath:
+    - tasks.git-clone.params.url
+  - name: revision
+    value: "$(params.revision)"
+    refPath:
+    - tasks.git-clone.params.revision
+  workspaces:
+  - name: git-source
+    workspace: source-workspace
+    refPath:
+    - tasks.git-clone.workspaces.output
+```
+
+**Connector and repository and revision are set at runtime**
+
+- connector and repository and revision are set at runtime.
+- using runtime parameter `$(params.git-url)` in git-clone task's url parameter.
+- using runtime parameter `$(params.git-revision)` in git-clone task's revision parameter.
+- using workspace `source-workspace` in git-clone task's source workspace.
+
+如:
+
+```  yaml
+- name: app-source
+  interface:
+    category: "GitCodeRepository"
+    apiVersion: "connectors.alauda.io/v1alpha1"
+  connectorRef:
+    setAtRuntime: true
+  params:
+  - name: repository
+    setAtRuntime: true
+  - name: revision
+    setAtRuntime: true
+  attributes:
+  - name: url
+    param: git-url
+    value: $(params.git-url)
+    refPath:
+    - tasks.git-clone.params.url
+  - name: revision
+    param: git-revision
+    value: $(params.git-revision)
+    refPath:
+    - tasks.git-clone.params.revision
+  workspaces:
+  - name: git-source
+    workspace: source-workspace
+    refPath:
+    - tasks.git-clone.workspaces.output
+```
+
+## References
+
+- <ExternalSiteLink name="connectors" href="/connectors/concepts/connector.html" children="What is Connector" />
+- <ExternalSiteLink name="connectors" href="/connectors/concepts/resource_interface.html" children="What is ResourceInterface" />

@@ -31,6 +31,12 @@ To lift that ceiling, Tekton supports reading results from **sidecar logs**, whe
 
 ## Troubleshooting
 
+:::tip
+The following instructions assume that you have installed Tekton Pipeline into the `tekton-pipelines` namespace by default.
+
+If you have installed it into a different namespace, please replace `tekton-pipelines` with your namespace.
+:::
+
 Following are the steps to configure the result size limit:
 
 1. Edit the TektonConfig resource by setting `spec.pipeline.results-from` and `spec.pipeline.max-result-size` as shown below:
@@ -61,7 +67,45 @@ Following are the steps to configure the result size limit:
      max-result-size: "65536"
    ```
 
-3. No manual component restarts are required, changes will take effect automatically.
+3. Since the `results-from: sidecar-logs` feature is enabled, you need to configure log access permissions for the controller:
+
+    > Technical Note: This configuration allows the controller to retrieve results information from pod logs. For detailed information, please refer to the [Tekton official documentation](https://github.com/tektoncd/pipeline/tree/main/optional_config/enable-log-access-to-controller).
+
+    ```bash
+    kubectl apply -f - <<EOF
+    kind: ClusterRole
+    apiVersion: rbac.authorization.k8s.io/v1
+    metadata:
+      name: tekton-pipelines-controller-pod-log-access
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: default
+        app.kubernetes.io/part-of: tekton-pipelines
+    rules:
+      - apiGroups: [""]
+        resources: ["pods/log"]
+        verbs: ["get"]
+    ---
+    kind: ClusterRoleBinding
+    apiVersion: rbac.authorization.k8s.io/v1
+    metadata:
+      name: tekton-pipelines-controller-pod-log-access
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: default
+        app.kubernetes.io/part-of: tekton-pipelines
+    subjects:
+      - kind: ServiceAccount
+        name: tekton-pipelines-controller
+        namespace: tekton-pipelines
+    roleRef:
+      kind: ClusterRole
+      name: tekton-pipelines-controller-pod-log-access
+      apiGroup: rbac.authorization.k8s.io
+    EOF
+    ```
+
+4. No manual component restarts are required, changes will take effect automatically.
 
 ## Related Content
 

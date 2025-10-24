@@ -70,7 +70,9 @@ metadata:
 - **default**: 表示该参数的默认值. 此时会作为 PipelineIntegration 中，对应 param 的默认值。 和 tektoncd 的 ParamSpec 的 default 一致。
 - **description**: 表示该参数的描述信息。可用于在 UI 中展示。
 
-``` yaml
+例如:
+
+```  yaml
 spec:
   params:
   - name: repository
@@ -342,7 +344,9 @@ annotations:
 - `connectorRef.namespace`: 引用对应的 Connector 所在的 namespace, 可选，为空时，表示在 Pipeline 所在的 namespace。
 - `connectorRef.setAtRuntime`: 表示该 connector 的值是否需要在触发时输入。当用户未提供 name 时，setAtRuntime 应为 true。如果提供了 name，且 setAtRuntime 为 false，则name 和namespace 表示该 connector 的值在触发时的默认值。
 
-``` yaml
+例如:
+
+```yaml
 interface:
   apiVersion: "connectors.alauda.io/v1alpha1"
   # name: "gitcoderepository"
@@ -362,7 +366,7 @@ ResourceInterface 将会影响构造 PipelineIntegration 的所需的参数。
 数组中的单个对象的字段说明如下:
 
 - `name`: 表示该参数的名称. 和 ResourceInterface.spec.params[].name 对齐。
-- `value`: 表示该参数的值。默认来自 对应 ResourceInterface.spec.params[<name>].default 的值。 value 的类型为 string, array, object, 和 ResourceInterface.spec.params[<name>].type 一致。定义和 tektoncd 的 ParamValue 一致。
+- `value`: 表示该参数的值。默认来自 对应 `ResourceInterface.spec.params[<name>].default` 的值。 value 的类型为 string, array, object, 和 `ResourceInterface.spec.params[<name>].type` 一致。定义和 tektoncd 的 ParamValue 一致。
 - `setAtRuntime`: 表示该参数的值是否需要在触发时输入。当用户未提供 value 时，setAtRuntime 应为 true。
 
 例如:
@@ -385,7 +389,7 @@ params:
   * 参数化时，参数的默认名称来自 `<ResourceInterface>.spec.attributes[].parameterize.name` 的值。
 - `value`: 表示该 attribute 的值，该值是否在前端记录，前端可自行决定。
   - 该值的两种形态:
-    * **编排时**: 默认为 <ResourceInterface>.spec.attributes[].value.default 的值。可能是一个常量（字面静态值）， 也可能是由表达式计算之后的一个常量（计算后静态展）。在标记了参数化时，该编排时的值为 $(params.<param>). PipelineTask 中引用的即为该编排时的值。
+    * **编排时**: 默认为 `<ResourceInterface>.spec.attributes[].value.default` 的值。可能是一个常量（字面静态值）， 也可能是由表达式计算之后的一个常量（计算后静态展）。在标记了参数化时，该编排时的值为 `$(params.<param>)`. PipelineTask 中引用的即为该编排时的值。
     * **触发时**: 仅当attribute 标记了参数化时，存在该形态。此时该值是由依赖的 param 的值计算而来。经过计算后，该值为静态值。在流水线触发时，传入PipelineRun 的值为该触发时的值。
 - `refPath`: 表示该 attribute 在 PipelineTask 中引用的路径。 表达式参考 "refPath 的表达式"。
 
@@ -619,7 +623,7 @@ tasks:
 
 - 根据 Pipeline Params 列表， 渲染 param 字段。
 - 根据 PipelineIntegration 中，attribute 的参数化信息，找到 Pipeline Params 和 Attribute 的对应关系。
-- 根据 <ResourceInterface>.spec.attributes[xx].expression 信息，计算展示当前 param 的值。
+- 根据 `<ResourceInterface>.spec.attributes[xx].expression` 信息，计算展示当前 param 的值。
 - 当 Pipeline Param 并非来自 attribute 时，正常展示表单，由用户输入。
 
 **workspaces**

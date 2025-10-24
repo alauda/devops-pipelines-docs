@@ -417,4 +417,4 @@ Integrate connector selection directly into pipeline-as-code workflows. This was
 
 - [Tekton Pipeline Specification](https://tekton.dev/docs/pipelines/pipelines/)
 - [Tekton Workspace Documentation](https://tekton.dev/docs/pipelines/workspaces/)
-- [Connector Integration Architecture](../design/connector-integration/)
+- [Connector Integration Architecture](../design/pipeline-integration/)
