@@ -1,0 +1,40 @@
+---
+created: '2025-01-24'
+title: Integration tests
+sourceSHA: 974fcd1a6e7c614d1662ddea346698287f805be148ea6665ad97dd3efba4b75b
+---
+
+# Integration tests
+
+There will be multiple integration testing schemes in the repository:
+
+1. Integration tests in the `Tekton Triggers` code repository: WIP
+2. Built-in integration tests (for functionalities involved in this repository, such as the integration tests for `TriggerBinding`): located in the `test/integration` directory
+
+## Official Tests for Tekton Triggers
+
+- WIP
+
+## Built-in Integration Tests
+
+### Prerequisites
+
+- The `Tekton Triggers` project and the Tekton Pipelines project must be installed in the Kubernetes cluster.
+- The namespace `test-triggers` must exist.
+- The runtime environment should have `kubectl` installed and configured with kubeconfig.
+
+### Running Tests
+
+Navigate to the `test` directory in the terminal.
+
+```bash
+go test -v ./integration
+```
+
+Note: It is necessary to manually clean up the data generated from the tests:
+
+```bash
+kubectl delete ns test-triggers
+## OR
+kubectl -n test-triggers delete eventlistener,triggers,pipelineruns --all
+```

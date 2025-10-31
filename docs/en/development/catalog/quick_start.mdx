@@ -1,0 +1,116 @@
+---
+weight: 5
+status: proposed
+title: Catalog Development Guide
+creation-date: "2025-02-25"
+category: docs
+authors:
+  - "@qingliu"
+---
+
+# Catalog Development Guide
+
+## How to Initialize a New `Task`
+
+Refer to the [catalog convention](./convention.md) and the existing `maven` project to initialize a new `Task`.
+
+### 1. Initialize the Main Directory `task/maven/{version}/`
+
+> The directory name `task` is a convention of `TektonHub` and cannot be modified.
+
+```yaml
+./task/maven/0.5
+├── README.md
+├── maven.yaml
+├── samples
+│   ├── pvc-pod.yaml
+│   └── taskrun-pvc.yaml
+├── features
+│   └── maven.feature
+└── testdata
+    └── taskrun-maven-test-server-creds.yaml
+```
+
+- `README.md` describes the functionality and usage of the `Task`
+- `maven.yaml` describes the specific implementation of the `Task`
+- `samples` directory contains usage examples for the `Task`
+- `features` directory contains test cases for the `Task`
+- `testdata` directory contains test data for the `Task`
+
+### 2. Build Dependent Images
+
+a. Prepare `Dockerfile` and other files for building image dependencies in `images/{taskname}/`.
+
+```yaml
+./images/maven
+└── Dockerfile
+```
+
+b. Prepare the image build pipeline file `build-maven.yaml`.
+
+```yaml
+.tekton/images
+└── build-maven.yaml
+```
+
+Pay special attention to the following areas:
+
+- `pipelinesascode.tekton.dev/on-comment` trigger comment keywords
+- `pipelinesascode.tekton.dev/on-cel-expression` trigger conditions
+- `file-list-for-commit-sha` list of related files for calculating version numbers
+    - Since this code repository contains many components, changes to other components should not affect the version number of the current component.
+- `update-files-based-on-image` used to perform a series of operations based on the built image
+    - Can be used to update the `values.yaml` file in the code root directory
+    - Can be used to automatically update the image version numbers used in the `Task`
+
+:::tip
+Currently, only the `catalog` image build pipeline needs to configure `upstreams` for automatically updating the upstream `tektoncd-hub` repository.
+
+See the [Update catalog to hub process](#update_catalog_to_hub) below for details.
+:::
+
+c. Register new dependent images in `values.yaml`
+
+> The purpose of this file is to record all images that this component depends on in the product.
+>
+> This information will be automatically synchronized to `tektoncd-hub` -> `tektoncd-operator` as needed.
+>
+> This will ultimately ensure that the `spec.relatedImages` field in the `ClusterServiceVersion` of `Tektoncd-Operator` contains this information.
+
+```yaml
+global:
+  registry:
+    address: registry.alauda.cn:60070
+  images:
+    # Add here, subsequent tag and digest will be automatically updated
+    maven:
+      repository: devops/tektoncd/hub/maven
+      digest: sha256:c5df6519e7e45607e78fc72db5dd3ff450b369b24f6ec08d7c2df81256c706c7
+      tag: v0.1.0-beta.45.gce64259
+```
+
+### 3. Write Integration Tests
+
+- Arrange the `task/{taskname}/{version}/features/{taskname}.feature` file as needed.
+- Adjust the BDD code `./godods` as needed
+- Prepare the integration test pipeline file `.tekton/integrations/{taskname}.yaml`
+
+## Workflow Process
+
+- Submit PR
+    - Automatically triggers image build pipeline, automatically updates dependent files like `values.yaml`.
+    - Manually trigger `e2e` integration test pipeline
+- Merge PR
+    - Automatically triggers `catalog` image build pipeline
+    - Automatically triggers `tektoncd-hub` pipeline, automatically updates `values.yaml`
+
+## Update Catalog to Hub Process \{#update_catalog_to_hub}
+
+The `catalog` image will contain all dependent `Task`s. It will automatically trigger the build pipeline when there are changes in the `task` directory.
+
+In its image build pipeline, there is a step called `upstreams` that is used to automatically update the upstream `tektoncd-hub` repository.
+
+It will actively trigger the upstream `tektoncd-hub` pipeline [hub-fetch-catalog-values](https://github.com/AlaudaDevops/tektoncd-hub/blob/main/.tekton/pr-catalog-update.yaml) when there are changes in the `main` and `release` branches to automatically fetch the latest configuration file `values.yaml`.
+
+The purpose of this step is to ensure that the `values.yaml` file in the `tektoncd-hub` repository also contains the latest dependent image information from `catalog`.
+
