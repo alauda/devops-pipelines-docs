@@ -170,14 +170,14 @@ spec:
     - name: context
       type: string
       default: "."
-  image: docker
+  image: podman
   env:
     - name: IMAGE_NAME
       value: $(params.image.name)
     - name: IMAGE_TAG
       value: $(params.image.tag)
   script: |
-    docker build -t $IMAGE_NAME:$IMAGE_TAG $(params.context)
+    podman build -t $IMAGE_NAME:$IMAGE_TAG $(params.context)
 ```
 
 ### Results

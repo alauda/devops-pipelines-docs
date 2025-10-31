@@ -4416,7 +4416,7 @@ spec:
                           x-kubernetes-list-type: atomic
                         image:
                           description: |-
-                            Docker image name.
+                            OCI image name.
                             More info: https://kubernetes.io/docs/concepts/containers/images
                           type: string
                         imagePullPolicy:

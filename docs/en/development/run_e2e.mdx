@@ -13,7 +13,7 @@ Before starting, please ensure your environment meets the following requirements
 
 ### 1. System Requirements
 - Linux or macOS operating system
-- Docker installed and running
+- Podman installed
 - At least 4GB available memory
 - At least 10GB available disk space
 
@@ -23,7 +23,7 @@ Before starting, please ensure your environment meets the following requirements
 - Cluster version: Kubernetes 1.19+
 
 ### 3. Tool Requirements
-- `docker` command-line tool
+- `podman` command-line tool
 - `allure` optional test report reading tool
 
 ## Quick Start
@@ -32,10 +32,10 @@ Before starting, please ensure your environment meets the following requirements
 
 ```bash
 # Check Docker version
-docker version
+podman version
 
 # Pull the E2E test image
-docker pull registry.alauda.cn:60070/devops/tektoncd/e2e/operator/operator-e2e:latest
+podman pull registry.alauda.cn:60070/devops/tektoncd/e2e/operator/operator-e2e:latest
 ```
 
 > **Note**: The test image is built from the Dockerfile located at `.tekton/dockerfiles/operator-e2e.Dockerfile`.
@@ -267,7 +267,7 @@ Each toolchain contains the following common configuration items:
 ### Step 3: Run E2E Tests
 
 ```bash
-docker run --entrypoint /bin/bash -it \
+podman run --entrypoint /bin/bash -it \
   -e TESTING_CONFIG=/tmp/workspace/config.yaml \
   -e KUBECONFIG=/tmp/workspace/config \
   -v ${PWD}/workspace:/tmp/workspace \
@@ -334,7 +334,7 @@ allure open allure-report/
    curl -I registry.alauda.cn:60070
 
    # Configure image registry authentication
-   docker login registry.alauda.cn:60070
+   podman login registry.alauda.cn:60070
    ```
 
 4. **Test Timeout**
@@ -358,7 +358,7 @@ Enable debug mode to get more detailed logs:
 
 ```bash
 # Run tests with debug mode
-docker run --entrypoint /bin/bash -it \
+podman run --entrypoint /bin/bash -it \
   -e TESTING_CONFIG=/tmp/workspace/config.yaml \
   -e KUBECONFIG=/tmp/workspace/config \
   -e DEBUG=true \
