@@ -21,4 +21,4 @@ All contributions must follow the Tekton Community Code of Conduct.
 
 ## Related Documentation
 
-- **[Quick Start](quick_start)** - Quick deployment for testing and development
+- **[Quick Start](quick-start.md)** - Quick deployment for testing and development
