@@ -33,7 +33,7 @@ kind: EventListener
 metadata:
   name: eventlistener
 spec:
-  serviceAccountName: tekton-triggers-sa  # Optional, defaults to default SA if not specified
+  serviceAccountName: triggers-default-sa
   resources:
     kubernetesResource:
       serviceType: NodePort  # Service type
@@ -87,7 +87,7 @@ Defines a set of trigger configurations:
 EventListener supports multiple security configurations:
 
 1. **ServiceAccount**: 
-   - **Default ServiceAccount**: If `spec.serviceAccountName` is not specified, EventListener will use the default ServiceAccount in the namespace. The default ServiceAccount has namespace-scoped permissions only and is suitable for EventListeners that only need to handle triggers within the same namespace.
+   - **Default ServiceAccount (`triggers-default-sa`)**: If `spec.serviceAccountName` is not specified, EventListener will automatically use the `triggers-default-sa` ServiceAccount in the namespace. This ServiceAccount is automatically granted the necessary namespace-scoped permissions required for EventListeners to handle triggers within the same namespace. The permissions are automatically bound to the namespace where the ServiceAccount exists.
    - **Custom ServiceAccount**: When you need to handle triggers across multiple namespaces (e.g., when `namespaceSelector` is configured), you must specify a custom ServiceAccount with cluster-scoped permissions. Ensure that the specified ServiceAccount is configured with the corresponding permissions (see [Permission Guidelines](#permission-guidelines) below).
 2. **Interceptor Validation**: Use CEL interceptors for event validation.
 3. **TLS**: Supports configuring HTTPS certificates.
@@ -96,9 +96,9 @@ EventListener supports multiple security configurations:
 
 #### Default ServiceAccount vs Custom ServiceAccount
 
-- **Default ServiceAccount**: When `spec.serviceAccountName` is not specified, EventListener uses the default ServiceAccount. The default ServiceAccount only has namespace-scoped permissions, which is sufficient for EventListeners that handle triggers within the same namespace only.
+- **Default ServiceAccount (`triggers-default-sa`)**: When `spec.serviceAccountName` is not specified, EventListener automatically uses the `triggers-default-sa` ServiceAccount in the namespace. This ServiceAccount is automatically granted the necessary namespace-scoped permissions required for EventListeners to handle triggers within the same namespace. The permissions are automatically bound to the namespace where the ServiceAccount exists, so you don't need to manually configure Role or RoleBinding.
 
-- **Custom ServiceAccount with Cluster Permissions**: When you configure `namespaceSelector` to listen to triggers from multiple namespaces (including `'*'` for all namespaces), you must specify a custom ServiceAccount with cluster-scoped permissions. The default ServiceAccount does not have the necessary cluster-scoped permissions to access resources across namespaces.
+- **Custom ServiceAccount with Cluster Permissions**: When you configure `namespaceSelector` to listen to triggers from multiple namespaces (including `'*'` for all namespaces), you must specify a custom ServiceAccount with cluster-scoped permissions. The `triggers-default-sa` ServiceAccount only has namespace-scoped permissions and does not have the necessary cluster-scoped permissions to access resources across namespaces.
 
 #### Required Permissions
 
@@ -159,6 +159,117 @@ rules:
 
 Deploying the EventListener needs to be planned according to the scale and the actual network situation of the environment, as described below on how to configure differently based on planning:
 
+### EventListener Trigger Configuration Scenarios
+
+EventListener supports three different scenarios for configuring triggers, each suitable for different use cases:
+
+#### 1. Namespace-Level EventListener
+
+A namespace-level EventListener binds to specific triggers within the same namespace by explicitly configuring the `triggers` field in the EventListener spec. This is the simplest scenario and is suitable for single-namespace deployments.
+
+**Use Cases and Recommendations:**
+
+- **Use Cases**:
+  - Independent deployment and management for a single project or team
+  - Requires explicit resource isolation and permission control
+  - Teams have in-depth understanding of EventListener configuration and need fine-grained control over each trigger
+  - Different namespaces require different EventListener configurations or resource limits
+  - High requirements for performance and fault isolation
+
+- **Recommended For**:
+  - Experienced DevOps teams or scenarios requiring high customization
+  - When different projects need different EventListener configurations, resource quotas, or security policies
+  - Multi-tenant environments requiring complete isolation between tenants
+  - When different namespaces need different replica counts, resource limits, or network policies
+
+**Example Configuration:**
+
+```yaml
+spec:
+  # serviceAccountName is optional, defaults to triggers-default-sa
+  triggers:
+    - name: trigger-1
+      bindings:
+        - ref: gitlab-push
+          kind: ClusterTriggerBinding
+      template:
+        ref: pipeline-template
+    - name: trigger-2
+      bindings:
+        - ref: github-pullrequest
+          kind: ClusterTriggerBinding
+      template:
+        ref: pipeline-template
+```
+
+#### 2. Project-Level EventListener
+
+A project-level EventListener uses `namespaceSelector` to bind to triggers across multiple specified namespaces. This is suitable for managing triggers across a set of related namespaces (e.g., a project or team).
+
+**Use Cases and Recommendations:**
+
+- **Use Cases**:
+  - Multiple related projects or namespaces need to share the same EventListener
+  - Unified event handling at the project group or department level
+  - Need to share resources across multiple namespaces without covering the entire cluster
+  - Some performance isolation requirements, but can accept resource sharing within the project group
+
+- **Recommended For**:
+  - Medium-sized teams or project groups that need unified trigger management across multiple related namespaces
+  - When multiple projects use similar configurations and resource requirements, reducing operational costs
+  - When centralized management of Webhook events for a group of related projects is needed
+  - Teams with some understanding of EventListener who can configure and manage cross-namespace permissions
+
+**Example Configuration:**
+
+```yaml
+spec:
+  serviceAccountName: eventlistener  # Custom SA with cluster permissions
+  namespaceSelector:
+    matchNames:
+      - project-a
+      - project-b
+      - project-c
+```
+
+#### 3. Global-Level EventListener
+
+A global-level EventListener uses `namespaceSelector` with a wildcard (`'*'`) to bind to triggers from all namespaces in the cluster. This is suitable for centralized event handling across the entire cluster.
+
+**Use Cases and Recommendations:**
+
+- **Use Cases**:
+  - Cluster-wide unified event processing and management
+  - Users have no strict requirements for performance isolation and can accept resource sharing
+  - One-time configuration enables all users to use it out-of-the-box without separate configuration in each namespace
+  - Users don't need in-depth knowledge of EventListener, managed uniformly by the platform
+  - Small to medium-sized clusters with relatively controllable event volumes
+
+- **Recommended For**:
+  - Platform scenarios where platform administrators configure and manage uniformly
+  - When cluster scale is small and all users need to use the same EventListener configuration
+  - Simplifying user workflows and reducing learning costs and configuration complexity
+  - Centralized operational management for unified monitoring and troubleshooting
+  - Note: In large-scale clusters or high-concurrency scenarios, performance impact and fault isolation should be considered
+
+**Example Configuration:**
+
+```yaml
+spec:
+  serviceAccountName: eventlistener  # Custom SA with cluster permissions
+  namespaceSelector:
+    matchNames:
+      - '*'  # Wildcard for all namespaces
+```
+
+**Comparison Table:**
+
+| Scenario | Namespace Scope | ServiceAccount | Configuration Complexity | Use Case |
+| -------- | --------------- | -------------- | ----------------------- | -------- |
+| Namespace-Level | Single namespace | `triggers-default-sa` (auto) | Simple | Single project/team |
+| Project-Level | Multiple specified namespaces | Custom SA (cluster permissions) | Moderate | Multiple related projects |
+| Global-Level | All namespaces (`*`) | Custom SA (cluster permissions) | Complex | Cluster-wide management |
+
 ### Scale
 
 In different planning scenarios, different configurations can be used to meet varying requirements.
@@ -196,51 +307,15 @@ Depending on the priority of the environment and the available network resources
   kubectl create namespace tekton-webhooks
   ```
 
-  ### Create EventListener
+  ### Create ClusterRole and ServiceAccount and Set Permissions
 
-  Save the following YAML as `eventlistener.yaml`.
+    - **Default ServiceAccount (`triggers-default-sa`)**: When `spec.serviceAccountName` is not specified, EventListener automatically uses the `triggers-default-sa` ServiceAccount in the namespace. This ServiceAccount is automatically granted the necessary namespace-scoped permissions required for EventListeners to handle triggers within the same namespace. The permissions are automatically bound to the namespace where the ServiceAccount exists, so you don't need to manually configure Role or RoleBinding.
 
-  :::info
-  **ServiceAccount Selection**:
-  - If you only need to handle triggers within the same namespace, you can omit `spec.serviceAccountName` to use the default ServiceAccount.
-  - Since this example uses `namespaceSelector` with `'*'` to listen to triggers from all namespaces, a custom ServiceAccount with cluster-scoped permissions is required. Therefore, `serviceAccountName: "eventlistener"` is specified here.
+    - **Custom ServiceAccount with Cluster Permissions**: When you configure `namespaceSelector` to listen to triggers from multiple namespaces (including `'*'` for all namespaces), you must specify a custom ServiceAccount with cluster-scoped permissions. The `triggers-default-sa` ServiceAccount only has namespace-scoped permissions and does not have the necessary cluster-scoped permissions to access resources across namespaces.
+
+  :::warning
+  **Required for namespaceSelector**: The following steps are only required when using `namespaceSelector` to listen to triggers across multiple namespaces. If your EventListener only handles triggers within the same namespace, you can skip these steps and use the default `triggers-default-sa` ServiceAccount, which will automatically have the required permissions.
   :::
-
-  ```yaml
-  apiVersion: triggers.tekton.dev/v1beta1
-  kind: EventListener
-  metadata:
-    name: eventlistener
-    namespace: tekton-webhooks
-    labels:
-      el.tekton.dev/namespaces: all
-      el.tekton.dev/size: small
-  spec:
-    serviceAccountName: "eventlistener" # Required: Custom SA with cluster permissions needed for namespaceSelector
-    # Listen to triggers from all NS
-    namespaceSelector:
-      matchNames:
-      - '*'
-    # Declare Kubernetes resource, default is Deployment
-    resources:
-      kubernetesResource:
-        serviceType: ClusterIP # ClusterIP service type
-        servicePort: 80  # Service port (container port)
-        replicas: 2 # Replicas
-        spec: # Deployment spec
-          template:
-            metadata:
-              labels:
-                el.tekton.dev/namespaces: all
-                el.tekton.dev/size: small
-            spec: {}
-  ```
-
-  ```bash
-  kubectl apply -f eventlistener.yaml
-  ```
-
-  ### Create ClusterRole
 
   The following YAML is for `eventlistener-role.yaml`.
 
@@ -278,17 +353,55 @@ Depending on the priority of the environment and the available network resources
   kubectl apply -f eventlistener-role.yaml
   ```
 
-  ### Create ServiceAccount and Set Permissions
-
-  :::warning
-  **Required for namespaceSelector**: The following steps are only required when using `namespaceSelector` to listen to triggers across multiple namespaces. If your EventListener only handles triggers within the same namespace, you can skip these steps and use the default ServiceAccount.
-  :::
-
   Create a binding using the ClusterRole and ServiceAccount above.
 
   ```bash
   kubectl -n tekton-webhooks create serviceaccount eventlistener
   kubectl create clusterrolebinding tekton-webhooks:eventlistener:eventlistener-role --clusterrole=eventlistener-role --serviceaccount=tekton-webhooks:eventlistener
+  ```
+
+  ### Create EventListener
+
+  Save the following YAML as `eventlistener.yaml`.
+
+  :::info
+  **ServiceAccount Selection**:
+  - If you only need to handle triggers within the same namespace, you can omit `spec.serviceAccountName` to use the default `triggers-default-sa` ServiceAccount, which will automatically have the required namespace-scoped permissions.
+  - Since this example uses `namespaceSelector` with `'*'` to listen to triggers from all namespaces, a custom ServiceAccount with cluster-scoped permissions is required. Therefore, `serviceAccountName: "eventlistener"` is specified here.
+  :::
+
+  ```yaml
+  apiVersion: triggers.tekton.dev/v1beta1
+  kind: EventListener
+  metadata:
+    name: eventlistener
+    namespace: tekton-webhooks
+    labels:
+      el.tekton.dev/namespaces: all
+      el.tekton.dev/size: small
+  spec:
+    serviceAccountName: "eventlistener" # Required: Custom SA with cluster permissions needed for namespaceSelector
+    # Listen to triggers from all NS
+    namespaceSelector:
+      matchNames:
+      - '*'
+    # Declare Kubernetes resource, default is Deployment
+    resources:
+      kubernetesResource:
+        serviceType: ClusterIP # ClusterIP service type
+        servicePort: 80  # Service port (container port)
+        replicas: 2 # Replicas
+        spec: # Deployment spec
+          template:
+            metadata:
+              labels:
+                el.tekton.dev/namespaces: all
+                el.tekton.dev/size: small
+            spec: {}
+  ```
+
+  ```bash
+  kubectl apply -f eventlistener.yaml
   ```
 
   ### Create Ingress and TLS Secrets
@@ -378,9 +491,10 @@ Depending on the priority of the environment and the available network resources
 
 2. **Permission Issues**
    - Confirm ServiceAccount permissions.
-   - Check Role and RoleBinding.
+   - If using the default `triggers-default-sa` ServiceAccount, verify that it exists in the namespace and has been automatically granted the required permissions.
+   - If using a custom ServiceAccount, check Role and RoleBinding configurations.
    - Verify namespace access permissions.
-   - If using `namespaceSelector` to listen across namespaces, ensure you're using a custom ServiceAccount with cluster-scoped permissions. The default ServiceAccount only has namespace-scoped permissions.
+   - If using `namespaceSelector` to listen across namespaces, ensure you're using a custom ServiceAccount with cluster-scoped permissions. The `triggers-default-sa` ServiceAccount only has namespace-scoped permissions.
 
 3. **Performance Issues**
    - Adjust resource limits.
