@@ -5,7 +5,11 @@ sourceSHA: bf8f76fc1e85dcb50e08e768990ac4a072a49790ba6fc95bc4e20e322b5b6e78
 
 # Quick Start
 
-This guide will help you get started with Tekton Triggers by creating a simple "Hello World" trigger scenario to demonstrate its basic functionality.
+This guide will help you get started with Tekton Triggers by creating a simple "Hello World" trigger scenario to demonstrate its basic functionality. The guide follows these steps:
+
+1. Configure trigger-wrapper export rules to expose EventListeners externally
+2. Create EventListener and related resources
+3. Get the automatically generated webhook address from EventListener status
 
 ## Prerequisites
 
@@ -20,68 +24,150 @@ This guide will help you get started with Tekton Triggers by creating a simple "
 
 3. **Permissions**
 
-   - Requires **namespace administrator privileges**
+   - Requires **cluster administrator privileges** (for configuring trigger-wrapper-config)
+   - Requires **namespace administrator privileges** (for creating EventListener resources)
 
-## Create Example Project
+## Step 1: Configure Trigger-Wrapper Export Rules
+
+:::tip
+The trigger-wrapper automatically exposes EventListeners externally based on export rules. You need to configure these rules first so that EventListeners can be accessed via external URLs. For detailed configuration instructions, refer to [Configure trigger-wrapper export rules](./how_to/trigger-wrapper-config.mdx).
+:::
 
 <Steps>
-  ### **Create Namespace** (Optional)
+  ### **Configure Export Rules via TektonConfig**
 
-  ::: tip
-  If you do not want to create a namespace, you can skip this step and modify the namespace name in the example below.
+  Create or update the `TektonConfig` resource to configure export rules. Create the file `tektonconfig.yaml`:
+
+  ```yaml
+  apiVersion: operator.tekton.dev/v1alpha1
+  kind: TektonConfig
+  metadata:
+    name: config
+  spec:
+    pipeline:
+      options:
+        configMaps:
+          trigger-wrapper-config:
+            data:
+              config: |
+                export-rules:
+                  - name: demo-webhooks
+                    host: webhooks.example.com  # Replace with your domain
+                    ingressClass: nginx  # Replace with your ingress class
+                    urlPathPrefix: /triggers
+                    externalHosts:
+                      - "https://webhooks.example.com"  # Replace with your external URL
+                    namespaceSelector:
+                      matchNames:
+                        - "tekton-triggers-demo"  # Match your demo namespace
+  ```
+
+  ### **Choose Ingress Configuration Method**
+
+  The trigger-wrapper supports two methods for configuring Ingress to expose EventListeners externally. Choose the method that best fits your environment:
+
+  #### **Method 1: General Ingress Configuration (Recommended for Production)**
+
+  This method is suitable for most Kubernetes environments. You need to:
+
+  1. **Create an IngressClass** (if not already exists):
+     for more info please refer to <ExternalSiteLink name="acp" href="configure/networking/functions" children="Creating Ingresses" />.
+
+  2. **Or use a LoadBalancer Service** to get an external IP address
+     for more info please refer to <ExternalSiteLink name="acp" href="/configure/networking/how_to" children="Configure a Load Balancer" />.
+
+  3. **Configure the export rules** based on your Ingress setup:
+     - If using IngressClass: Set `ingressClass` to your IngressClass name (e.g., `nginx`)
+     - If using LoadBalancer: Get the external IP/domain from the LoadBalancer service and configure `host` and `externalHosts` accordingly
+
+  Example configuration for IngressClass:
+  ```yaml
+  export-rules:
+    - name: demo-webhooks
+      host: webhooks.example.com  # Your domain name
+      ingressClass: nginx  # Your IngressClass name
+      urlPathPrefix: /triggers
+      externalHosts:
+        - "https://webhooks.example.com"  # External accessible URL
+  ```
+
+  #### **Method 2: Quick Start for ACP Business Clusters**
+
+  If you're using an ACP (Alauda Container Platform) business cluster, you can leverage the platform's built-in gateway for quick setup:
+
+  1. **Get your ACP platform access address** (e.g., `https://192.168.1.100`)
+  2. **Get your cluster name** (e.g., `test`)
+  3. **Configure the export rules** as follows:
+     - Set `host` to empty (or use wildcard `*`)
+     - Set `externalHosts` to: `<ACP Platform Access Address>/clusters-rewrite/<Cluster Name>`
+     - The final webhook URL will be: `<externalHost>/<urlPathPrefix>/<namespace>/<eventlistener-name>`
+
+  Example configuration for ACP:
+  ```yaml
+  export-rules:
+    - name: demo-webhooks
+      host: ""  # Empty or use wildcard "*"
+      ingressClass: nginx  # Use default ingress class
+      urlPathPrefix: /triggers
+      externalHosts:
+        - "https://192.168.1.100/clusters-rewrite/test"  # ACP Platform URL + /clusters-rewrite/<cluster-name>
+      namespaceSelector:
+        matchNames:
+          - "tekton-triggers-demo"
+  ```
+
+  With this configuration, the webhook address will be:
+  ```
+  https://192.168.1.100/clusters-rewrite/test/triggers/tekton-triggers-demo/hello-listener
+  ```
+
+  :::tip
+  **ACP Configuration Formula**: 
+  - ACP Platform URL: `https://192.168.1.100`
+  - Cluster Name: `test`
+  - URL Path Prefix: `/triggers` (configurable)
+  - External Host: `https://192.168.1.100/clusters-rewrite/test`
+  - Final Webhook URL: `https://192.168.1.100/clusters-rewrite/test/triggers/<namespace>/<eventlistener-name>`
+  
+  **Example**: If ACP platform address is `https://192.168.1.100`, cluster name is `test`, and `urlPathPrefix` is `/triggers`, then the access address is `https://192.168.1.100/clusters-rewrite/test/triggers`.
   :::
+
+  :::warning
+  **Important**: Replace the placeholder values (`webhooks.example.com`, `nginx`, etc.) with your actual domain name, ingress class, and external host URL. If you don't have a domain configured, you can use an empty `host` field and configure `externalHosts` with your actual accessible URL.
+  :::
+
+  ### **Apply TektonConfig**
+
+  ```bash
+  kubectl apply -f tektonconfig.yaml
+  ```
+
+  ### **Verify Configuration**
+
+  Wait a few moments for the Operator to sync the configuration, then verify:
+
+  ```bash
+  kubectl get configmap trigger-wrapper-config -n tekton-pipelines -o yaml
+  ```
+
+  The ConfigMap should contain your export rules configuration.
+</Steps>
+
+## Step 2: Create Example Project
+
+<Steps>
+  ### **Create Namespace**
 
   ```bash
   kubectl create namespace tekton-triggers-demo
   ```
 
-  ### **Create Service Account and Permissions**
-
-  Create the file `rbac.yaml`:
-
-  ```yaml
-  apiVersion: v1
-  kind: ServiceAccount
-  metadata:
-    name: tekton-triggers-example-sa
-    namespace: tekton-triggers-demo
-  ---
-  apiVersion: rbac.authorization.k8s.io/v1
-  kind: RoleBinding
-  metadata:
-    name: tekton-triggers-example-binding
-    namespace: tekton-triggers-demo
-  subjects:
-    - kind: ServiceAccount
-      name: tekton-triggers-example-sa
-      namespace: tekton-triggers-demo
-  roleRef:
-    apiGroup: rbac.authorization.k8s.io
-    kind: ClusterRole
-    name: tekton-triggers-eventlistener-roles
-  ---
-  apiVersion: rbac.authorization.k8s.io/v1
-  kind: ClusterRoleBinding
-  metadata:
-    name: tekton-triggers-example-clusterbinding
-  subjects:
-    - kind: ServiceAccount
-      name: tekton-triggers-example-sa
-      namespace: tekton-triggers-demo
-  roleRef:
-    apiGroup: rbac.authorization.k8s.io
-    kind: ClusterRole
-    name: tekton-triggers-aggregate-view
-  ```
-
-  ### Apply Configuration
-
-  ```bash
-  kubectl apply -f rbac.yaml
-  ```
+  :::tip
+  For this quick start, we'll use the default ServiceAccount which has namespace-scoped permissions. This is sufficient since we're only handling triggers within the same namespace. If you need to handle triggers across multiple namespaces, refer to [Setup EventListener](./how_to/eventlistener.mdx) for configuring a custom ServiceAccount with cluster-scoped permissions.
+  :::
 </Steps>
 
-## Create Hello World TaskRun
+## Step 3: Create Hello World TaskRun
 
 <Steps>
   ### **Create Task**
@@ -163,7 +249,9 @@ This guide will help you get started with Tekton Triggers by creating a simple "
     name: hello-listener
     namespace: tekton-triggers-demo
   spec:
-    serviceAccountName: tekton-triggers-example-sa
+    # Run the following order to get ServiceAccount works for triggers within the same namespace
+    # $ kubectl get sa -n ${YOUR_NS} -l triggers.tekton.dev/default-service-account -o jsonpath='{.items[0].metadata.name}'
+    serviceAccount: <your service account>
     triggers:
       - name: hello-trigger
         bindings:
@@ -171,6 +259,10 @@ This guide will help you get started with Tekton Triggers by creating a simple "
         template:
           ref: hello-template
   ```
+
+  :::info
+  **ServiceAccount Note**: We're using the default ServiceAccount here (by omitting `serviceAccountName`). This is sufficient for this example since all resources are in the same namespace. The trigger-wrapper will automatically expose this EventListener based on the export rules configured in Step 1.
+  :::
 
   ### Apply Configuration
 
@@ -184,23 +276,44 @@ This guide will help you get started with Tekton Triggers by creating a simple "
   ```
 </Steps>
 
-## Test the Trigger
+## Step 4: Get Webhook Address and Test
 
 <Steps>
-  ### **Get EventListener URL**
+  ### **Wait for EventListener to be Ready**
 
   ```bash
   # Wait for the Pod to be ready
   kubectl get pods -n tekton-triggers-demo
 
-  # Get the service address
-  export EL_URL=$(kubectl get el hello-listener -n tekton-triggers-demo -o jsonpath='{.status.address.url}')
+  # Wait for EventListener to be ready
+  kubectl wait --for=condition=Ready eventlistener/hello-listener -n tekton-triggers-demo --timeout=60s
   ```
 
-  ::: tip
-  Different cluster network configurations may prevent direct use of this address. If you encounter issues, please contact your platform administrator.
+  ### **Get Automatically Generated Webhook Address**
 
-  If you only need to test, you can access the address within the cluster or forward the address to your local machine using `kubectl port-forward -n <namespace> svc/<service-name> <svc-port>:<local-port>`.
+  The trigger-wrapper automatically generates external webhook addresses based on the export rules configured in Step 1. These addresses are populated in the EventListener's `status.addresses` field:
+
+  ```bash
+  # Get the first webhook address from status.addresses
+  export EL_URL=$(kubectl get el hello-listener -n tekton-triggers-demo -o jsonpath='{.status.addresses[0].url}')
+
+  # Or view all available addresses
+  kubectl get el hello-listener -n tekton-triggers-demo -o jsonpath='{.status.addresses[*].url}' | tr ' ' '\n'
+  ```
+
+  :::tip
+  **Address Format**: The webhook address follows the pattern: `<externalHost>/<urlPathPrefix>/<namespace>/<eventlistener-name>`
+  
+  For example: `https://webhooks.example.com/triggers/tekton-triggers-demo/hello-listener`
+
+  If `status.addresses` is empty, check:
+  - The export rules in trigger-wrapper-config match your EventListener's namespace
+  - The trigger-wrapper controller is running and has processed the EventListener
+  - View controller logs: `kubectl logs -n tekton-pipelines -l app=tektoncd-enhancement-controller`
+  :::
+
+  :::warning
+  **Network Access**: Ensure your external host URL is accessible from where you're testing. If you're testing within the cluster, you may need to use port-forward or access the internal service address instead.
   :::
 
   ### **Send Test Request**
@@ -234,20 +347,29 @@ Now that you have successfully created and tested a basic Tekton Triggers exampl
 
 1. Explore concepts of [Tekton Triggers](./concepts/core_concept.mdx)
 2. Learn how to use [Setup EventListeners](./how_to/eventlistener.mdx) for common setup instructions
-3. Setup and use [Gitlab events](./how_to/gitlab_events.mdx) to trigger pipelines
+3. Configure [trigger-wrapper export rules](./how_to/trigger-wrapper-config.mdx) for advanced exposure scenarios
+4. Setup and use [Gitlab events](./how_to/gitlab_events.mdx) to trigger pipelines
 
 ## Frequently Asked Questions
 
 1. **EventListener Pod fails to start**
-   - Check if the RBAC configuration is correct
-   - Confirm if the service account has sufficient privileges
+   - Check if the default ServiceAccount has sufficient namespace-scoped permissions
+   - Verify the EventListener resource is correctly configured
+   - View EventListener Pod logs: `kubectl logs -n tekton-triggers-demo -l app=el-hello-listener`
 
-2. **Trigger does not respond**
-   - Verify if the EventListener service is accessible
+2. **Webhook address (status.addresses) is empty**
+   - Verify that export rules in trigger-wrapper-config match your EventListener's namespace
+   - Check that the trigger-wrapper controller is running: `kubectl get pods -n tekton-pipelines -l app=tektoncd-enhancement-controller`
+   - View controller logs to see if there are any matching or configuration errors
+   - Ensure the namespace in `namespaceSelector.matchNames` matches your EventListener namespace
+
+3. **Trigger does not respond**
+   - Verify the webhook URL is accessible (check `status.addresses`)
    - Check if the request format is correct
-   - View the EventListener Pod logs
+   - View the EventListener Pod logs: `kubectl logs -n tekton-triggers-demo -l app=el-hello-listener`
+   - Verify the Ingress is correctly configured: `kubectl get ingress -n tekton-triggers-demo`
 
-3. **TaskRun is not created**
+4. **TaskRun is not created**
    - Confirm that the TriggerTemplate configuration is correct
    - Check the parameter mapping in TriggerBinding
-   - View the error logs of the EventListener
+   - View the error logs of the EventListener Pod

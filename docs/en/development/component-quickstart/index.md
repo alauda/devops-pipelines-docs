@@ -54,6 +54,19 @@ Refer to this file: <https://gitlab-ce.alauda.cn/devops/edge/-/blob/master/clust
 
 The expectation is that this configuration will be uniformly managed through the above `gitops` code repository.
 
+1.5 Required Configuration File List
+
+| File                        | Source                | Purpose                                                    |
+|-----------------------------|-----------------------|------------------------------------------------------------|
+| **base.mk**                 | Copy from other project | Common make targets (check/test/manifests/deploy, etc.)     |
+| **Makefile**                | Create new            | Override project-specific settings such as manifests/dist/deploy |
+| **renovate.json**           | Copy from template    | Dependency auto-update                                      |
+| **sonar-project.properties**| Copy from template    | Code quality checks                                         |
+| **.golangci.yml**           | Copy from template    | Static code analysis                                        |
+| **go.mod & go.sum**         | `go mod init`         | Dependency management                                       |
+| **hack/boilerplate.go.txt** | Copy from template    | License header template                                     |
+| **cmd/controller/rbac.go**  | Create new            | RBAC kubebuilder annotations                                |
+
 ### 2. Scaffolding Configuration
 
 #### 2.1 Initialize Configuration File `values.yaml`

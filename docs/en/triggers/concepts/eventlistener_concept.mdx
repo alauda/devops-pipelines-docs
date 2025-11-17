@@ -190,8 +190,229 @@ You can configure:
 - Service type (ClusterIP, NodePort, LoadBalancer)
 - Custom Pod template specifications
 
-## Reference Materials
+## Webhook Secret Authentication
 
+Webhook secret authentication is a critical security mechanism that ensures only legitimate events from trusted sources are processed by your EventListener. Without proper authentication, your webhook endpoints could be exploited by malicious actors to trigger unauthorized pipeline executions.
+
+### Why Webhook Secret Authentication is Important
+
+1. **Prevent Unauthorized Access**: Only requests with valid signatures or tokens are processed
+2. **Verify Event Source**: Ensures events actually come from the configured external system (GitHub, GitLab, etc.)
+3. **Protect Against Replay Attacks**: Signature validation includes the payload, preventing tampering
+4. **Compliance**: Many organizations require webhook authentication for security compliance
+
+### How It Works
+
+Different platforms use different authentication mechanisms:
+
+- **GitHub**: Uses HMAC-SHA256 signature in `X-Hub-Signature-256` or `X-Hub-Signature` header
+- **GitLab**: Uses a secret token in `X-GitLab-Token` header
+
+The interceptor validates the incoming request against the secret stored in Kubernetes Secret before allowing the event to proceed to TriggerBinding.
+
+### Creating Webhook Secrets
+
+#### Step 1: Generate or Obtain Secret Token
+
+**For GitHub:**
+1. Go to your repository → Settings → Webhooks → Add webhook
+2. Generate a secret token (or use an existing one)
+3. Copy the secret token value
+
+**For GitLab:**
+1. Go to your project → Settings → Webhooks
+2. Generate a secret token
+3. Copy the secret token value
+
+#### Step 2: Create Kubernetes Secret
+
+Create a Kubernetes Secret containing your webhook secret token:
+
+```bash
+# For GitHub
+kubectl create secret generic github-webhook-secret \
+  --from-literal=secretToken=<your-github-secret-token> \
+  -n <namespace>
+
+# For GitLab
+kubectl create secret generic gitlab-webhook-secret \
+  --from-literal=secretToken=<your-gitlab-secret-token> \
+  -n <namespace>
+
+Alternatively, you can create the secret using YAML:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: github-webhook-secret
+  namespace: tekton-triggers-demo
+type: Opaque
+stringData:
+  secretToken: <your-secret-token-here>
+```
+
+:::warning
+**Security Best Practice**: Never commit secret tokens to version control. Use Kubernetes Secrets and ensure proper RBAC permissions are configured to restrict access to secrets.
+:::
+
+### Configuring Interceptor Authentication
+
+#### GitHub Interceptor with Secret Authentication
+
+The GitHub interceptor validates webhook signatures using HMAC-SHA256. Configure it as follows:
+
+```yaml
+apiVersion: triggers.tekton.dev/v1beta1
+kind: EventListener
+metadata:
+  name: github-secure-listener
+spec:
+  serviceAccountName: tekton-triggers-sa
+  triggers:
+    - name: github-push-secure
+      interceptors:
+        - ref:
+            name: "github"
+          params:
+            - name: "secretRef"
+              value:
+                secretName: github-webhook-secret  # Name of the Kubernetes Secret
+                secretKey: secretToken             # Key in the Secret
+            - name: "eventTypes"
+              value: ["push", "pull_request"]
+      bindings:
+        - ref: github-push-binding
+      template:
+        ref: build-template
+```
+
+**How it works:**
+- GitHub sends webhook requests with `X-Hub-Signature-256` header containing HMAC-SHA256 signature
+- The interceptor retrieves the secret from Kubernetes Secret
+- It validates the signature by computing HMAC-SHA256 of the request body using the secret
+- Only requests with valid signatures are allowed to proceed
+
+**Reference**: [GitHub Webhook Security Documentation](https://docs.github.com/en/developers/webhooks-and-events/webhooks/securing-your-webhooks)
+
+#### GitLab Interceptor with Secret Authentication
+
+The GitLab interceptor validates webhook tokens using constant-time comparison:
+
+```yaml
+apiVersion: triggers.tekton.dev/v1beta1
+kind: EventListener
+metadata:
+  name: gitlab-secure-listener
+spec:
+  serviceAccountName: tekton-triggers-sa
+  triggers:
+    - name: gitlab-push-secure
+      interceptors:
+        - ref:
+            name: "gitlab"
+          params:
+            - name: "secretRef"
+              value:
+                secretName: gitlab-webhook-secret  # Name of the Kubernetes Secret
+                secretKey: secretToken             # Key in the Secret
+            - name: "eventTypes"
+              value: ["Push Hook", "Merge Request Hook"]
+      bindings:
+        - ref: gitlab-push-binding
+      template:
+        ref: build-template
+```
+
+**How it works:**
+- GitLab sends webhook requests with `X-GitLab-Token` header containing the secret token
+- The interceptor retrieves the secret from Kubernetes Secret
+- It compares the header value with the secret using constant-time comparison to prevent timing attacks
+- Only requests with matching tokens are allowed to proceed
+
+**Reference**: [GitLab Webhook Security Documentation](https://docs.gitlab.com/ee/user/project/integrations/webhooks.html#secret-token)
+
+### Complete Example: Secure GitHub Webhook Setup
+
+Here's a complete example showing how to set up a secure GitHub webhook:
+
+**Step 1: Create the Secret**
+
+```bash
+kubectl create secret generic github-webhook-secret \
+  --from-literal=secretToken=your-secret-token-here \
+  -n tekton-triggers-demo
+```
+
+**Step 2: Create EventListener with Authentication**
+
+```yaml
+apiVersion: triggers.tekton.dev/v1beta1
+kind: EventListener
+metadata:
+  name: secure-github-listener
+  namespace: tekton-triggers-demo
+spec:
+  serviceAccountName: tekton-triggers-sa
+  triggers:
+    - name: github-push-secure
+      interceptors:
+        - ref:
+            name: "github"
+          params:
+            - name: "secretRef"
+              value:
+                secretName: github-webhook-secret
+                secretKey: secretToken
+            - name: "eventTypes"
+              value: ["push"]
+      bindings:
+        - ref: github-push-binding
+      template:
+        ref: build-template
+```
+
+**Step 3: Configure GitHub Webhook**
+
+1. Go to your GitHub repository → Settings → Webhooks → Add webhook
+2. Set the Payload URL to your EventListener webhook address
+3. Set Content type to `application/json`
+4. Paste your secret token in the "Secret" field
+5. Select the events you want to trigger (e.g., "Just the push event")
+6. Click "Add webhook"
+
+### Troubleshooting Secret Authentication
+
+**Common Issues:**
+
+1. **Authentication Fails**
+   - Verify the secret token matches exactly between the external system and Kubernetes Secret
+   - Check that the secret key name (`secretKey`) matches the key in your Secret
+   - Ensure the secret exists in the same namespace as your EventListener
+
+2. **Secret Not Found**
+   - Verify the secret name in `secretRef.secretName` matches the actual Secret name
+   - Check that the ServiceAccount has permissions to read Secrets:
+     ```yaml
+     - apiGroups: [""]
+       resources: ["secrets"]
+       verbs: ["get", "list"]
+     ```
+
+3. **Signature Validation Fails**
+   - For GitHub/Bitbucket: Ensure the webhook is configured with the correct secret in the external system
+   - For GitLab: Verify the `X-GitLab-Token` header matches the secret token
+   - Check EventListener logs for detailed error messages:
+     ```bash
+     kubectl logs -n <namespace> -l app=el-<eventlistener-name>
+     ```
+
+### Reference Materials
+
+- [Tekton Triggers Interceptors Documentation](https://tekton.dev/docs/triggers/interceptors/)
+- [GitHub Webhook Security](https://docs.github.com/en/developers/webhooks-and-events/webhooks/securing-your-webhooks)
+- [GitLab Webhook Security](https://docs.gitlab.com/ee/user/project/integrations/webhooks.html#secret-token)
+- [Kubernetes Secrets Documentation](https://kubernetes.io/docs/concepts/configuration/secret/)
 - [Tekton Triggers Official Documentation](https://tekton.dev/docs/triggers/)
 - [EventListener API Reference](https://tekton.dev/docs/triggers/eventlisteners/)
 - [Tekton Trigger Examples](https://github.com/tektoncd/triggers/tree/main/examples)

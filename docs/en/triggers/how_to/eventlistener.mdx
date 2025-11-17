@@ -33,7 +33,7 @@ kind: EventListener
 metadata:
   name: eventlistener
 spec:
-  serviceAccountName: tekton-triggers-sa  # Optional, used to specify ServiceAccount
+  serviceAccountName: tekton-triggers-sa  # Optional, defaults to default SA if not specified
   resources:
     kubernetesResource:
       serviceType: NodePort  # Service type
@@ -86,11 +86,21 @@ Defines a set of trigger configurations:
 
 EventListener supports multiple security configurations:
 
-1. **ServiceAccount**: Specify running permissions through `spec.serviceAccountName`. Ensure that the specified ServiceAccount is configured with the corresponding permissions.
+1. **ServiceAccount**: 
+   - **Default ServiceAccount**: If `spec.serviceAccountName` is not specified, EventListener will use the default ServiceAccount in the namespace. The default ServiceAccount has namespace-scoped permissions only and is suitable for EventListeners that only need to handle triggers within the same namespace.
+   - **Custom ServiceAccount**: When you need to handle triggers across multiple namespaces (e.g., when `namespaceSelector` is configured), you must specify a custom ServiceAccount with cluster-scoped permissions. Ensure that the specified ServiceAccount is configured with the corresponding permissions (see [Permission Guidelines](#permission-guidelines) below).
 2. **Interceptor Validation**: Use CEL interceptors for event validation.
 3. **TLS**: Supports configuring HTTPS certificates.
 
 ### Permission Guidelines
+
+#### Default ServiceAccount vs Custom ServiceAccount
+
+- **Default ServiceAccount**: When `spec.serviceAccountName` is not specified, EventListener uses the default ServiceAccount. The default ServiceAccount only has namespace-scoped permissions, which is sufficient for EventListeners that handle triggers within the same namespace only.
+
+- **Custom ServiceAccount with Cluster Permissions**: When you configure `namespaceSelector` to listen to triggers from multiple namespaces (including `'*'` for all namespaces), you must specify a custom ServiceAccount with cluster-scoped permissions. The default ServiceAccount does not have the necessary cluster-scoped permissions to access resources across namespaces.
+
+#### Required Permissions
 
 To trigger pipeline and tasks properly, the ServiceAccount used by EventListener needs the following permissions:
 
@@ -190,6 +200,12 @@ Depending on the priority of the environment and the available network resources
 
   Save the following YAML as `eventlistener.yaml`.
 
+  :::info
+  **ServiceAccount Selection**:
+  - If you only need to handle triggers within the same namespace, you can omit `spec.serviceAccountName` to use the default ServiceAccount.
+  - Since this example uses `namespaceSelector` with `'*'` to listen to triggers from all namespaces, a custom ServiceAccount with cluster-scoped permissions is required. Therefore, `serviceAccountName: "eventlistener"` is specified here.
+  :::
+
   ```yaml
   apiVersion: triggers.tekton.dev/v1beta1
   kind: EventListener
@@ -200,7 +216,7 @@ Depending on the priority of the environment and the available network resources
       el.tekton.dev/namespaces: all
       el.tekton.dev/size: small
   spec:
-    serviceAccountName: "eventlistener" # Custom SA
+    serviceAccountName: "eventlistener" # Required: Custom SA with cluster permissions needed for namespaceSelector
     # Listen to triggers from all NS
     namespaceSelector:
       matchNames:
@@ -263,6 +279,10 @@ Depending on the priority of the environment and the available network resources
   ```
 
   ### Create ServiceAccount and Set Permissions
+
+  :::warning
+  **Required for namespaceSelector**: The following steps are only required when using `namespaceSelector` to listen to triggers across multiple namespaces. If your EventListener only handles triggers within the same namespace, you can skip these steps and use the default ServiceAccount.
+  :::
 
   Create a binding using the ClusterRole and ServiceAccount above.
 
@@ -360,6 +380,7 @@ Depending on the priority of the environment and the available network resources
    - Confirm ServiceAccount permissions.
    - Check Role and RoleBinding.
    - Verify namespace access permissions.
+   - If using `namespaceSelector` to listen across namespaces, ensure you're using a custom ServiceAccount with cluster-scoped permissions. The default ServiceAccount only has namespace-scoped permissions.
 
 3. **Performance Issues**
    - Adjust resource limits.
