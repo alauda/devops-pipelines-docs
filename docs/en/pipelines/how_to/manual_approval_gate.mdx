@@ -1,0 +1,191 @@
+---
+weight: 30
+i18n:
+  title:
+    en: Manual Approval Gate
+    zh: 手动审批关卡
+title: Manual Approval Gate
+---
+
+# `Manual Approval Gate` for `Tekton Pipelines`
+
+## Feature Overview
+
+`Manual Approval Gate` lets pipeline authors pause a `PipelineRun` until designated approvers review and approve the operation. Behind the scenes, the Operator-provided controller creates an `ApprovalTask` resource for every approval step, tracks approver responses, and writes the result back to the originating `CustomRun`.
+
+## Use Cases
+
+- Enforcing human checkpoints before deploying to production or performing destructive maintenance.
+- Implementing multi-person approval policies by combining individuals and groups with `numberOfApprovalsRequired`.
+- Auditing who approved or rejected a change by querying `ApprovalTask` status fields or CLI output.
+
+## Prerequisites
+
+- A cluster administrator has deployed `Manual Approval Gate`. If not, refer to the [deployment guide](../../how_to/manual_approval_gate_operator.mdx).
+- You can create or edit `Pipeline`/`PipelineRun` objects in the target namespace.
+- Approvers can patch `approvaltasks.openshift-pipelines.org` resources (typically via `kubectl`) in the target namespace. Platforms such as `Alauda Container Platform` grant this capability by default; only customize RBAC if you have explicitly removed the built-in permissions.
+
+## Steps
+
+### 1. Declare the approval step in a pipeline
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: deploy-with-approval
+spec:
+  tasks:
+    - name: build
+      taskRef:
+        name: build-bundle     # Placeholder Task; replace with your build logic
+    - name: wait-for-approval
+      runAfter:
+        - build
+      taskRef:
+        apiVersion: openshift-pipelines.org/v1alpha1
+        kind: ApprovalTask
+      params:
+        - name: approvers
+          value:
+            - alice
+            - group:release-managers
+        - name: numberOfApprovalsRequired
+          value: "1"
+        - name: timeout
+          value: "24h"
+        - name: description
+          value: "Approve promotion into production"
+    - name: deploy
+      runAfter:
+        - wait-for-approval
+      taskRef:
+        name: deploy-prod     # Placeholder Task; replace with your deployment logic
+```
+
+When the pipeline reaches `wait-for-approval`, `Tekton` emits a `CustomRun`. The approval controller creates an `ApprovalTask` with your parameters and keeps the `PipelineRun` pending until quorum is met or a rejection occurs.
+
+### 2. Monitor approval status
+
+```bash
+$ kubectl get approvaltasks.openshift-pipelines.org
+
+NAME                                         AGE
+deploy-with-approval-run-wait-for-approval   4m16s
+```
+
+```bash
+$ kubectl describe approvaltask deploy-with-approval-run-wait-for-approval
+Name:         deploy-with-approval-run-wait-for-approval
+Status:
+  Approvals Received:  1
+  Approvals Required:  1
+  Approvers:
+    alice
+    release-managers
+  Approvers Response:
+    Name:      alice
+    Response:  approved
+    Type:      User
+  Start Time:  2025-11-17T10:37:01Z
+  State:       approved
+Events:        <none>
+```
+
+Important status fields:
+
+- `status.state`: overall gate state such as `pending`, `approved`, or `rejected`.
+- `status.approvalsRequired` / `status.approvalsReceived`: quorum tracking (the received count appears only after at least one approver responds).
+- `status.approversResponse`: per-user/group outcome plus messages, useful for auditing.
+
+### 3. Approve or reject
+
+```bash
+$ kubectl get approvaltask deploy-with-approval-run-wait-for-approval -o json | jq '.spec.approvers'
+
+$ kubectl patch approvaltask deploy-with-approval-run-wait-for-approval \
+    --type='json' \
+    --as alice \
+    -p='[
+      {"op":"replace","path":"/spec/approvers/0/input","value":"approve"},
+      {"op":"replace","path":"/spec/approvers/0/message","value":"QA complete"}
+    ]'
+
+$ kubectl patch approvaltask deploy-with-approval-run-wait-for-approval \
+    --type='json' \
+    --as alice \
+    -p='[
+      {"op":"replace","path":"/spec/approvers/0/input","value":"reject"},
+      {"op":"replace","path":"/spec/approvers/0/message","value":"Found regression"}
+    ]'
+
+$ kubectl patch approvaltask deploy-with-approval-run-wait-for-approval \
+    --type='json' \
+    --as bob \
+    --as-group release-managers \
+    -p='[
+      {"op":"replace","path":"/spec/approvers/1/input","value":"approve"},
+      {"op":"replace","path":"/spec/approvers/1/message","value":"Group approval from release-managers"}
+    ]'
+```
+
+The first command helps you determine the array index for your approver entry. The JSON patches then update only the matched entry's `input` and `message`, whether it represents a user (`alice` in the example) or a user impersonating a group (`bob` acting for `release-managers`). The controller sets the corresponding `CustomRun` and `PipelineRun` to `Succeeded` or `Failed` accordingly: approvals accumulate until `numberOfApprovalsRequired` is satisfied, while any rejection immediately fails that section of the pipeline.
+
+> **Tip:** Use `--as <username>` (required) and optionally `--as-group <group>` when you need to approve as a specific identity. The validation webhook allows you to modify only the entry that matches that impersonated user, so you often impersonate a user while also attaching the relevant group. RBAC must grant you impersonation rights. For example, `kubectl patch ... --as release-robot --as-group release-managers` simulates a service account acting for the `release-managers` group.
+
+### 4. Extend `PipelineRun` timeouts for long approvals
+
+If an approval could take hours or days, configure both `PipelineRun.spec.timeouts.pipeline` and `PipelineRun.spec.timeouts.tasks` to exceed the approval window so the run does not terminate before approvers respond. A simple `PipelineRun` to exercise the approval gate looks like the following:
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: deploy-with-approval-run
+spec:
+  pipelineRef:
+    name: deploy-with-approval
+  timeouts:
+    pipeline: 72h
+    tasks: 72h
+```
+
+Ensure the approval task's `timeout` parameter is shorter than the pipeline timeout. Otherwise, the `PipelineRun` might expire first, leaving the approval unresolved.
+
+## Operation Results
+
+- `kubectl get approvaltasks -o yaml` shows each approval gate with `state` and quorum-related fields (the `approvalsReceived` column appears after someone responds).
+- `PipelineRun` status reflects the approval outcome: when approved, downstream tasks resume; when rejected, the run fails with the reason propagated from the `ApprovalTask`.
+- Dispatch logs or `kubectl get approvaltask -o yaml` output provide the approval history for auditing.
+
+## Troubleshooting
+
+- **Approval task never appears:** Confirm the administrator-installed `ManualApprovalGate` CR is `READY`. Without the controller, `CustomRun` objects remain pending.
+- **Approvers lack permissions:** Grant them `get`, `list`, `update`, and `patch` access to `approvaltasks.openshift-pipelines.org` in the relevant namespace.
+- **Pipeline ended before approval finished:** Set both `PipelineRun.spec.timeouts.pipeline` and `PipelineRun.spec.timeouts.tasks` to cover the expected approval window, and ensure the approval `timeout` is realistic. Otherwise the run may time out even if approvers have not responded.
+- **Stuck in pending even after approvals:** Check `status.approversResponse` for users who changed their vote or rejected. You may need to update the approver list and rerun the pipeline.
+
+## User and group identifiers
+
+`Manual Approval Gate` relies on your platform's identity provider to match approver names. Always use the canonical identifiers exposed by the provider rather than UI display names. For example, on `Alauda Container Platform`:
+
+```bash
+$ kubectl get users.auth.alauda.io
+NAME                               TYPE    USERNAME   AGE
+21232f297a57a5a743894a0e4a801fc3   local   admin      19d
+```
+
+Use the `USERNAME` column (such as `admin`) when adding user approvers.
+
+```bash
+$ kubectl get groups.auth.alauda.io
+NAME      DISPLAYNAME   CONNTYPE   CONNID   AGE
+g-v9mfs   test-group    local      local    19d
+```
+
+Use the `NAME` column (such as `g-v9mfs`) when referencing group approvers (for example, `group:g-v9mfs`). Other platforms expose similar resources—consult the identity service documentation for the exact field names.
+
+## Learn More
+
+- [Deploying `Manual Approval Gate` as an administrator](../../how_to/manual_approval_gate_operator.mdx)
+- [Manual Approval Gate upstream repository](https://github.com/openshift-pipelines/manual-approval-gate)

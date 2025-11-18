@@ -1,0 +1,105 @@
+---
+weight: 70
+i18n:
+  title:
+    en: Deploy Manual Approval Gate
+    zh: 部署手动审批关卡
+title: Deploy Manual Approval Gate
+---
+
+# Deploying `Manual Approval Gate`
+
+## Feature Overview
+
+`Manual Approval Gate` provides the cluster-scoped controller and webhooks that back `ApprovalTask` custom tasks. Administrators must create and maintain the `ManualApprovalGate` custom resource (CR) so that platform users can insert manual approvals in their pipelines. This guide explains how to deploy the `Manual Approval Gate` component in `tekton-pipelines`, customize runtime options, and uninstall it safely.
+
+## Use Cases
+
+- Enabling manual approvals for all teams in the cluster by provisioning a managed controller.
+- Tweaking controller deployments (for example, replica counts, resource limits, or ConfigMaps) through the Operator's `options` contract instead of editing manifests.
+- Cleaning up the feature when approval tasks are no longer required.
+
+## Prerequisites
+
+- `Alauda DevOps Pipelines` v4.5.0 or later with cluster-admin access.
+- `kubectl` configured against the target cluster.
+
+## Steps
+
+### 1. Create the `ManualApprovalGate` CR
+
+Save the manifest as `manual-approval-gate.yaml` and apply it:
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: ManualApprovalGate
+metadata:
+  name: manual-approval-gate
+spec:
+  targetNamespace: tekton-pipelines
+  options:
+    disabled: false
+```
+
+```bash
+kubectl apply -f manual-approval-gate.yaml
+```
+
+- `spec.targetNamespace` determines where controller deployments, webhooks, and ConfigMaps are created. We recommend `tekton-pipelines` so that the component stays beside other Tekton services, but you can point it to any namespace as long as that namespace exists (or is created) before applying the CR.
+- Use `spec.options` to override Deployments, ConfigMaps, or image fields without editing generated YAML. For detailed syntax, refer to [Adjusting Optional Configuration Items of Subcomponents](../configure/customize_options.mdx).
+
+### 2. Verify controller health
+
+```bash
+$ kubectl get manualapprovalgates.operator.tekton.dev manual-approval-gate
+
+NAME                   VERSION          READY   REASON
+manual-approval-gate   v0.7.0-4f10729   True
+```
+
+```bash
+$ kubectl get deployment -n tekton-pipelines | grep manual-approval-gate
+
+manual-approval-gate-controller     1/1     1            1           1h1m
+manual-approval-gate-webhook        1/1     1            1           1h1m
+```
+
+The CR's `READY` condition must report `True`, and you should see controller and webhook Deployments running in `tekton-pipelines`.
+
+### 3. Reconfigure or force a rollout
+
+- Patch the CR to adjust replicas or other options; the Operator rolls the workloads automatically:
+
+    ```bash
+    kubectl patch manualapprovalgate manual-approval-gate \
+      --type merge \
+      --patch '{"spec":{"options":{"deployments":{"manual-approval-gate-controller":{"spec":{"replicas":2}}}}}}'
+    ```
+
+
+### 4. Uninstall `Manual Approval Gate`
+
+```bash
+$ kubectl delete manualapprovalgate manual-approval-gate
+$ kubectl get deployment -n tekton-pipelines | grep manual-approval-gate
+```
+
+The CRD remains installed so you can recreate the CR later, but Deployments, Services, and Webhooks should disappear.
+
+## Operation Results
+
+- `kubectl get manualapprovalgates` shows the instance with `READY=True`, `VERSION=<release>`, and `REASON` empty or `Installed`.
+- `kubectl get pods -n tekton-pipelines | grep manual-approval-gate` lists controller and webhook pods in `Running` state.
+- After deletion, no pods or services with the same label remain, and the Operator stops reconciling `ApprovalTask` resources until the CR is recreated.
+
+## Troubleshooting
+
+- **`ManualApprovalGate` CR stuck in `NotReady`:** Run `kubectl describe manualapprovalgate manual-approval-gate` to check events, then review Operator logs (`kubectl logs -n tekton-operator deploy/tekton-operator`). Mis-typed fields in `spec.options` or insufficient privileges are the most common root causes.
+- **Controller/webhook pods crash looping:** Describe the failing pods in `tekton-pipelines` to confirm whether TLS secrets or configuration maps are missing. Reapplying the CR usually recreates these resources automatically.
+- **`ApprovalTask` resources not created:** Ensure the `ManualApprovalGate` CR still exists with `READY=True`. If it was deleted or is failing, reinstall it before users rerun pipelines.
+
+## Learn More
+
+- [Manual Approval Gate usage for pipeline authors](../pipelines/how_to/manual_approval_gate.mdx)
+- [Tekton Operator documentation](../overview/architecture.mdx)
+- [ApprovalTask upstream repository](https://github.com/openshift-pipelines/manual-approval-gate)

@@ -1,0 +1,189 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.1
+  name: approvaltasks.openshiftpipelines.org
+spec:
+  group: openshiftpipelines.org
+  names:
+    kind: ApprovalTask
+    listKind: ApprovalTaskList
+    plural: approvaltasks
+    singular: approvaltask
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: ApprovalTask is a "wait for manual approval" Task.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec holds the desired state of the TaskGroup from the client
+            properties:
+              approvers:
+                items:
+                  properties:
+                    input:
+                      type: string
+                    message:
+                      type: string
+                    name:
+                      type: string
+                    type:
+                      type: string
+                    users:
+                      items:
+                        properties:
+                          input:
+                            type: string
+                          name:
+                            type: string
+                        required:
+                        - input
+                        - name
+                        type: object
+                      type: array
+                  required:
+                  - input
+                  - name
+                  - type
+                  type: object
+                type: array
+              description:
+                type: string
+              numberOfApprovalsRequired:
+                type: integer
+            required:
+            - approvers
+            - numberOfApprovalsRequired
+            type: object
+          status:
+            properties:
+              annotations:
+                additionalProperties:
+                  type: string
+                description: |-
+                  Annotations is additional Status fields for the Resource to save some
+                  additional State as well as convey more information to the user. This is
+                  roughly akin to Annotations on any k8s resource, just the reconciler conveying
+                  richer information outwards.
+                type: object
+              approvalsReceived:
+                description: ApprovalsReceived is the number of approvals received
+                  so far
+                type: integer
+              approvalsRequired:
+                description: ApprovalsRequired is the number of approvals required
+                  for the task
+                type: integer
+              approvers:
+                items:
+                  type: string
+                type: array
+              approversResponse:
+                items:
+                  properties:
+                    groupMembers:
+                      items:
+                        properties:
+                          message:
+                            type: string
+                          name:
+                            type: string
+                          response:
+                            type: string
+                        required:
+                        - name
+                        - response
+                        type: object
+                      type: array
+                    message:
+                      type: string
+                    name:
+                      type: string
+                    response:
+                      type: string
+                    type:
+                      type: string
+                  required:
+                  - name
+                  - response
+                  - type
+                  type: object
+                type: array
+              conditions:
+                description: Conditions the latest available observations of a resource's
+                  current state.
+                items:
+                  description: |-
+                    Condition defines a readiness condition for a Knative resource.
+                    See: https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        LastTransitionTime is the last time the condition transitioned from one status to another.
+                        We use VolatileTime in place of metav1.Time to exclude this from creating equality.Semantic
+                        differences (all other things held constant).
+                      type: string
+                    message:
+                      description: A human readable message indicating details about
+                        the transition.
+                      type: string
+                    reason:
+                      description: The reason for the condition's last transition.
+                      type: string
+                    severity:
+                      description: |-
+                        Severity with which to treat failures of this type of condition.
+                        When this is not specified, it defaults to Error.
+                      type: string
+                    status:
+                      description: Status of the condition, one of True, False, Unknown.
+                      type: string
+                    type:
+                      description: Type of condition.
+                      type: string
+                  required:
+                  - status
+                  - type
+                  type: object
+                type: array
+              observedGeneration:
+                description: |-
+                  ObservedGeneration is the 'Generation' of the Service that
+                  was last processed by the controller.
+                format: int64
+                type: integer
+              startTime:
+                description: StartTime is the time the build is actually started.
+                format: date-time
+                type: string
+              state:
+                type: string
+            required:
+            - state
+            type: object
+        required:
+        - status
+        type: object
+    served: true
+    storage: true
