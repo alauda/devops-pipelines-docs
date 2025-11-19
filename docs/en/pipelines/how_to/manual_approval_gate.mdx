@@ -100,9 +100,30 @@ Important status fields:
 
 ### 3. Approve or reject
 
+#### User approvals
+
+First, inspect the approvers list to determine the correct index:
+
 ```bash
 $ kubectl get approvaltask deploy-with-approval-run-wait-for-approval -o json | jq '.spec.approvers'
+[
+  {
+    "name": "alice",
+    "type": "User",
+    "input": "pending",
+  },
+  {
+    "name": "release-managers",
+    "type": "Group",
+    "input": "pending",
+    "users": []
+  }
+]
+```
 
+To approve as a user:
+
+```bash
 $ kubectl patch approvaltask deploy-with-approval-run-wait-for-approval \
     --type='json' \
     --as alice \
@@ -110,7 +131,11 @@ $ kubectl patch approvaltask deploy-with-approval-run-wait-for-approval \
       {"op":"replace","path":"/spec/approvers/0/input","value":"approve"},
       {"op":"replace","path":"/spec/approvers/0/message","value":"QA complete"}
     ]'
+```
 
+To reject as a user:
+
+```bash
 $ kubectl patch approvaltask deploy-with-approval-run-wait-for-approval \
     --type='json' \
     --as alice \
@@ -118,20 +143,144 @@ $ kubectl patch approvaltask deploy-with-approval-run-wait-for-approval \
       {"op":"replace","path":"/spec/approvers/0/input","value":"reject"},
       {"op":"replace","path":"/spec/approvers/0/message","value":"Found regression"}
     ]'
+```
 
+#### Group approvals
+
+When a group is configured as an approver, individual members of that group can submit their approval by adding their response to the `users` array under the group entry. Multiple group members can approve independently, and each approval counts toward the `approvalsReceived` total.
+
+Initially, the group approver entry does not have a `users` field:
+
+```yaml
+spec:
+  approvers:
+  - name: alice
+    type: User
+    input: pending
+    message: ""
+  - name: release-managers
+    type: Group
+    input: pending
+    message: ""
+  numberOfApprovalsRequired: 2
+```
+
+The first group member creates the `users` array and sets the group's `input` to approve:
+
+```bash
+# First member (bob) from release-managers group approves
 $ kubectl patch approvaltask deploy-with-approval-run-wait-for-approval \
     --type='json' \
     --as bob \
     --as-group release-managers \
     -p='[
+      {"op":"add","path":"/spec/approvers/1/users","value":[{"name":"bob","input":"approve"}]},
       {"op":"replace","path":"/spec/approvers/1/input","value":"approve"},
-      {"op":"replace","path":"/spec/approvers/1/message","value":"Group approval from release-managers"}
+      {"op":"replace","path":"/spec/approvers/1/message","value":"Approved by bob"}
     ]'
 ```
 
-The first command helps you determine the array index for your approver entry. The JSON patches then update only the matched entry's `input` and `message`, whether it represents a user (`alice` in the example) or a user impersonating a group (`bob` acting for `release-managers`). The controller sets the corresponding `CustomRun` and `PipelineRun` to `Succeeded` or `Failed` accordingly: approvals accumulate until `numberOfApprovalsRequired` is satisfied, while any rejection immediately fails that section of the pipeline.
+Subsequent group members append to the existing `users` array and update the group's `input`:
 
-> **Tip:** Use `--as <username>` (required) and optionally `--as-group <group>` when you need to approve as a specific identity. The validation webhook allows you to modify only the entry that matches that impersonated user, so you often impersonate a user while also attaching the relevant group. RBAC must grant you impersonation rights. For example, `kubectl patch ... --as release-robot --as-group release-managers` simulates a service account acting for the `release-managers` group.
+```bash
+# Second member (carol) from release-managers group also approves
+$ kubectl patch approvaltask deploy-with-approval-run-wait-for-approval \
+    --type='json' \
+    --as carol \
+    --as-group release-managers \
+    -p='[
+      {"op":"add","path":"/spec/approvers/1/users/-","value":{"name":"carol","input":"approve"}},
+      {"op":"replace","path":"/spec/approvers/1/input","value":"approve"},
+      {"op":"replace","path":"/spec/approvers/1/message","value":"Approved by carol"}
+    ]'
+```
+
+To reject as a group member:
+
+```bash
+# A member (david) from release-managers group rejects
+$ kubectl patch approvaltask deploy-with-approval-run-wait-for-approval \
+    --type='json' \
+    --as david \
+    --as-group release-managers \
+    -p='[
+      {"op":"add","path":"/spec/approvers/1/users/-","value":{"name":"david","input":"reject"}},
+      {"op":"replace","path":"/spec/approvers/1/input","value":"reject"},
+      {"op":"replace","path":"/spec/approvers/1/message","value":"Security concerns found"}
+    ]'
+```
+
+After these patches, check the group entry and status to see all members' responses:
+
+```bash
+$ kubectl get approvaltask deploy-with-approval-run-wait-for-approval -o json | jq '{spec: .spec.approvers[1], status: .status}'
+{
+  "spec": {
+    "input": "approve",
+    "message": "Approved by carol",
+    "name": "release-managers",
+    "type": "Group",
+    "users": [
+      {
+        "input": "approve",
+        "name": "bob"
+      },
+      {
+        "input": "approve",
+        "name": "carol"
+      }
+    ]
+  },
+  "status": {
+    "approvalsReceived": 2,
+    "approvalsRequired": 2,
+    "approvers": [
+      "alice",
+      "release-managers"
+    ],
+    "approversResponse": [
+      {
+        "groupMembers": [
+          {
+            "message": "Approved by carol",
+            "name": "bob",
+            "response": "approved"
+          },
+          {
+            "message": "Approved by carol",
+            "name": "carol",
+            "response": "approved"
+          }
+        ],
+        "message": "Approved by carol",
+        "name": "release-managers",
+        "response": "approved",
+        "type": "Group"
+      }
+    ],
+    "startTime": "2025-11-18T14:07:48Z",
+    "state": "approved"
+  }
+}
+```
+
+In this example, both `bob` and `carol` from the `release-managers` group have approved. Each approval from a group member increments `approvalsReceived` separately, so two group member approvals count as two approvals toward the required total. The `status.approversResponse` shows detailed approval information including individual group members' responses.
+
+**Key points for group approvals:**
+
+- Each group member must perform **two required operations**: add their entry to the `users` array AND set the group's `input` (either `approve` or `reject`). Optionally, they can also set the group's `message`
+- The first group member creates the `users` array using path `/spec/approvers/<index>/users` with an array value
+- Subsequent members append to the array using path `/spec/approvers/<index>/users/-` where `-` appends to the array end
+- Each user entry in the `users` array contains only `name` and `input` fields (no `message` field within the user entry)
+- The group-level `message` field is optional and shared; it will be overwritten by subsequent responses if they provide a new message
+- Each group member approval increments `approvalsReceived` independently
+- Multiple members from the same group can approve, and each counts toward the required total
+- The `status.approversResponse` field tracks detailed approval information including individual group members
+- Use `--as <username> --as-group <groupname>` to identify as a group member when patching
+
+The controller sets the corresponding `CustomRun` and `PipelineRun` to `Succeeded` or `Failed` accordingly: approvals accumulate until `numberOfApprovalsRequired` is satisfied, while any rejection immediately fails that section of the pipeline.
+
+> **Tip:** Use `--as <username>` (required) and `--as-group <group>` when you need to approve as a specific identity. The validation webhook allows you to modify only the entry that matches that impersonated user and group. RBAC must grant you impersonation rights. For example, `kubectl patch ... --as bob --as-group release-managers` identifies you as user `bob` acting within the `release-managers` group.
 
 ### 4. Extend `PipelineRun` timeouts for long approvals
 
