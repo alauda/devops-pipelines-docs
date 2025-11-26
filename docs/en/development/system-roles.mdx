@@ -1,0 +1,263 @@
+# System Roles Management
+
+## Overview
+
+The Tekton Operator now includes a system roles feature that provides default RBAC (Role-Based Access Control) permissions for Tekton resources. These roles are automatically bundled with the operator and deployed to the cluster, ensuring that platform users have appropriate access to Tekton resources based on their role in the system.
+
+## What Changed
+
+### New Directory Structure
+
+A new `config/system-roles/` directory has been added to the project with the following structure:
+
+```
+config/system-roles/
+├── kustomization.yaml
+├── tekton-cluster-admin.yaml
+├── tekton-deployment-admin.yaml
+├── tekton-pipelines.yaml
+├── tekton-triggers-admin.yaml
+└── tekton-triggers.yaml
+```
+
+### Bundle Integration
+
+The system roles are now integrated into the operator bundle during the build process. The `.tekton/to-all-in-one.yaml` pipeline has been updated to include the following steps:
+
+```yaml
+# Copy system-roles to the bundle directory
+cp -rf config/system-roles upstream/operatorhub/kubernetes/manifests
+yq e -i '.resources += "../system-roles"' upstream/operatorhub/kubernetes/manifests/fetch-strategy-release-manifest/kustomization.yaml
+```
+
+This ensures that the system roles are packaged with each operator release and automatically applied when the operator is deployed.
+
+## System Roles Explained
+
+### 1. **tekton-pipelines.yaml**
+
+Defines permissions for Tekton Pipeline resources including pipelines, tasks, runs, and related components.
+
+**Admin Role** (`cpaas:tekton-pipelines:business-ns:admin`):
+- Full access (`*`) to: pipelines, pipelineruns, tasks, taskruns, stepactions, runs, customruns, pipelineresources
+- Full access to Tekton Hub resources
+- Full access to Pipelines as Code repositories
+- Full access to scheduled triggers
+- Full access to resolution requests and results
+
+**View Role** (`cpaas:tekton-pipelines:business-ns:view`):
+- Read-only access (get, list, watch) to all the above resources
+
+**Aggregates to**: cluster-admin, namespace-admin, namespace-developer, platform-admin, project-admin, platform-auditor
+
+### 2. **tekton-triggers.yaml**
+
+Defines permissions for Tekton Triggers resources (triggers, triggertemplates, triggerbindings).
+
+**Admin Role** (`cpaas:tekton-triggers:business-ns:admin`):
+- Full access to triggers, triggertemplates, and triggerbindings
+
+**View Role** (`cpaas:tekton-triggers:business-ns:view`):
+- Read-only access to triggers, triggertemplates, and triggerbindings
+
+**Aggregates to**: Similar to tekton-pipelines roles
+
+### 3. **tekton-triggers-admin.yaml**
+
+Defines elevated permissions for managing EventListeners and Interceptors.
+
+**Admin Role** (`cpaas:tekton-triggers-admin:business-ns:admin`):
+- Full access to interceptors, eventlisteners, and eventlisteners/finalizers
+
+**View Role** (`cpaas:tekton-triggers-admin:business-ns:view`):
+- Read-only access to interceptors, eventlisteners, and eventlisteners/finalizers
+
+**Aggregates to**: cluster-admin, namespace-admin, platform-admin, project-admin
+
+### 4. **tekton-cluster-admin.yaml**
+
+Defines permissions for cluster-scoped Tekton resources.
+
+**Admin Role** (`cpaas:tekton-cluster-admin:business-ns:admin`):
+- Full access to clustertasks, clustertriggerbindings, and clusterinterceptors
+
+**View Role** (`cpaas:tekton-cluster-admin:business-ns:view`):
+- Read-only access to clustertasks, clustertriggerbindings, and clusterinterceptors
+
+**Aggregates to**: cluster-admin, platform-admin
+
+### 5. **tekton-deployment-admin.yaml**
+
+Defines permissions for managing Tekton operator CRDs (TektonPipeline, TektonTrigger, etc.).
+
+**Admin Role** (`cpaas:tekton-deployment-admin:business-ns:admin`):
+- Full access to all `operator.tekton.dev` resources
+
+**View Role** (`cpaas:tekton-deployment-admin:business-ns:view`):
+- Read-only access to all `operator.tekton.dev` resources
+
+**Aggregates to**: cluster-admin, platform-admin, platform-auditor
+
+## How to Modify System Roles
+
+### When to Modify
+
+Developers should modify system roles when:
+
+1. **Adding New Tekton Resources**: When new CRDs or API groups are introduced
+2. **Changing Permission Requirements**: When security policies require different access levels
+3. **Fixing Permission Issues**: When users report access denied errors for legitimate operations
+4. **Deprecating Resources**: When removing support for certain resources
+
+### Steps to Modify
+
+1. **Identify the Correct File**: Determine which role file needs to be updated based on the resource type:
+   - Pipeline resources → `tekton-pipelines.yaml`
+   - Trigger resources → `tekton-triggers.yaml` or `tekton-triggers-admin.yaml`
+   - Cluster-scoped resources → `tekton-cluster-admin.yaml`
+   - Operator CRDs → `tekton-deployment-admin.yaml`
+
+2. **Edit the Role Definition**: Update the ClusterRole rules with the new permissions:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    rbac.cpaas.io/aggregate-to-cluster-admin: "true"
+    # ... other aggregation labels
+  name: cpaas:tekton-new-resource:business-ns:admin
+rules:
+  - apiGroups:
+      - your.api.group
+    resources:
+      - yourresource
+      - yourresource/status
+    verbs:
+      - '*'  # or specific verbs: get, list, watch, create, update, delete
+```
+
+3. **Update kustomization.yaml**: If adding a new role file, add it to `config/system-roles/kustomization.yaml`:
+
+```yaml
+resources:
+- tekton-cluster-admin.yaml
+- tekton-deployment-admin.yaml
+- tekton-pipelines.yaml
+- tekton-triggers-admin.yaml
+- tekton-triggers.yaml
+- your-new-role.yaml  # Add new file here
+```
+
+4. **Test Locally**: Build and test the changes locally:
+
+```bash
+# Generate the bundle
+make bundle
+
+# Verify the roles are included
+cat upstream/operatorhub/kubernetes/release-artifacts/bundle/manifests/*.yaml | grep -A 20 "kind: ClusterRole"
+```
+
+5. **Commit and Create PR**: Submit your changes following the standard Git workflow.
+
+### Best Practices
+
+1. **Use Aggregation Labels**: Always include appropriate `rbac.cpaas.io/aggregate-to-*` labels to ensure roles are properly inherited by higher-level roles.
+
+2. **Follow Naming Convention**: Use the pattern `cpaas:<component>:<scope>:<permission>` for role names.
+
+3. **Separate Admin and View Roles**: Always create both admin (full access) and view (read-only) versions of each role.
+
+4. **Document Changes**: Update this documentation when adding or modifying roles.
+
+5. **Consider Least Privilege**: Only grant the minimum permissions necessary for each role.
+
+6. **Test with Multiple Personas**: Verify that:
+   - Cluster admins have full access
+   - Namespace admins have appropriate namespace-scoped access
+   - Developers have necessary permissions without excessive privileges
+   - Auditors have read-only access
+
+### Example: Adding a New Resource Type
+
+Suppose you need to add permissions for a new custom resource `buildpacks.tekton.dev`:
+
+```yaml
+# Add to tekton-pipelines.yaml
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    rbac.cpaas.io/aggregate-to-cluster-admin: "true"
+    rbac.cpaas.io/aggregate-to-namespace-admin: "true"
+    rbac.cpaas.io/aggregate-to-namespace-developer: "true"
+    rbac.cpaas.io/aggregate-to-platform-admin: "true"
+    rbac.cpaas.io/aggregate-to-project-admin: "true"
+    rbac.cpaas.io/aggregate-to-scope-business-ns: "true"
+  name: cpaas:tekton-buildpacks:business-ns:admin
+rules:
+  - apiGroups:
+      - tekton.dev
+    resources:
+      - buildpacks
+      - buildpacks/status
+    verbs:
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    rbac.cpaas.io/aggregate-to-platform-auditor: "true"
+    rbac.cpaas.io/aggregate-to-scope-business-ns: "true"
+  name: cpaas:tekton-buildpacks:business-ns:view
+rules:
+  - apiGroups:
+      - tekton.dev
+    resources:
+      - buildpacks
+      - buildpacks/status
+    verbs:
+      - get
+      - list
+      - watch
+```
+
+## Troubleshooting
+
+### Roles Not Applied
+
+If system roles are not being applied after deployment:
+
+1. Check that the bundle build completed successfully
+2. Verify the roles are present in the bundle manifests:
+   ```bash
+   kubectl get clusterroles | grep cpaas:tekton
+   ```
+3. Check operator logs for any errors during role creation
+
+### Permission Denied Errors
+
+If users report permission denied errors:
+
+1. Identify which resource and operation is being denied
+2. Check which role should grant that permission
+3. Verify the user has the appropriate role binding
+4. Update the system role if the permission should be included
+
+### Role Aggregation Not Working
+
+If roles are not being aggregated correctly:
+
+1. Verify the aggregation labels match the parent role's `aggregationRule`
+2. Check that ClusterRoleBindings exist for the parent roles
+3. Ensure the operator has permissions to create ClusterRoles and ClusterRoleBindings
+
+## Related Resources
+
+- [Kubernetes RBAC Documentation](https://kubernetes.io/docs/reference/access-authn-authz/rbac/)
+- [Role Aggregation](https://kubernetes.io/docs/reference/access-authn-authz/rbac/#aggregated-clusterroles)
+- [Tekton RBAC](https://tekton.dev/docs/pipelines/auth/)
+- [Permission migration guide](https://gitlab-ce.alauda.cn/devops/tech-research/permission-migrator/-/blob/main/docs/MIGRATE.md#%E6%96%B0%E6%97%A7%E8%BD%AC%E6%8D%A2%E8%A7%84%E5%88%99)
