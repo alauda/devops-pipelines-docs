@@ -251,7 +251,7 @@ The trigger-wrapper automatically exposes EventListeners externally based on exp
   spec:
     # Run the following order to get ServiceAccount works for triggers within the same namespace
     # $ kubectl get sa -n ${YOUR_NS} -l triggers.tekton.dev/default-service-account -o jsonpath='{.items[0].metadata.name}'
-    serviceAccount: <your service account>
+    serviceAccountName: triggers-default-sa  # Or set to <your service account> to use a custom ServiceAccount
     triggers:
       - name: hello-trigger
         bindings:
@@ -261,7 +261,7 @@ The trigger-wrapper automatically exposes EventListeners externally based on exp
   ```
 
   :::info
-  **ServiceAccount Note**: We're using the default ServiceAccount here (by omitting `serviceAccountName`). This is sufficient for this example since all resources are in the same namespace. The trigger-wrapper will automatically expose this EventListener based on the export rules configured in Step 1.
+  **ServiceAccount Note**: We're using the default ServiceAccount here (by setting `serviceAccountName` to `triggers-default-sa`). This is sufficient for this example since all resources are in the same namespace. The trigger-wrapper will automatically expose this EventListener based on the export rules configured in Step 1.
   :::
 
   ### Apply Configuration

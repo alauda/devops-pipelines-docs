@@ -1,0 +1,419 @@
+---
+title: Use Harbor Event Triggers
+weight: 71
+---
+
+# Use Harbor Event Triggers
+
+## Overview
+
+Harbor Event Triggers allows you to automatically trigger Tekton pipelines through Harbor's Webhook events. It supports multiple event types, including artifact push, pull, delete, and scanning completion, enabling you to build a complete CI/CD automation workflow for container images and OCI charts.
+
+## Core Features
+
+- **Multi-event Type Support**: Supports various Harbor events such as Push Artifact, Pull Artifact, Delete Artifact, and Scanning Completed.
+- **Standardized Trigger Binding**: Provides standardized ClusterTriggerBindings to ensure consistency across platforms.
+- **Flexible Parameter Mapping**: Automatically extracts key information from Harbor events for pipeline parameters.
+- **Multi-artifact Type Support**: Supports both container images and OCI charts.
+
+## Supported Event Types
+
+### Basic Event Information
+
+All output variables can be used for pipeline parameter mapping. You can access parameter values using `$(tt.params.<param name>)`.
+
+#### Basic Variables (Common to All Events)
+
+| Variable Name            | Description              | Example Value                                    |
+| ----------------------- | ------------------------ | ------------------------------------------------ |
+| event-type              | Event Type               | `PUSH_ARTIFACT`, `PULL_ARTIFACT`, `DELETE_ARTIFACT`, `SCANNING_COMPLETED` |
+| occur-at                | Event Occurrence Time     | `1763369448`                                     |
+| operator                | Who triggered the event   | `admin`                                          |
+| repository-name         | Repository Name           | `alpine`                                         |
+| repository-namespace    | Repository Namespace      | `library`                                        |
+| repository-full-name    | Repository Full Name      | `library/alpine`                                 |
+| repository-type         | Repository Type           | `public`, `private`, `chart`                     |
+| artifact-digest         | Artifact Digest           | `sha256:c4975008127577bfc34169439e890db7cfb1cedccabe49c059c88f913cb27edd` |
+| artifact-tag            | Artifact Tag              | `latest`, `v1.0.0` (optional, may be empty if artifact is referenced by digest only) |
+| artifact-resource-url   | Artifact Resource URL     | `192.168.0.117/library/alpine:latest`           |
+
+:::warning
+**Handling Optional Fields**: The `artifact-tag` field is optional and may be missing in the payload if the artifact is referenced by digest only. The `repository-date-created` field is available for push and pull events, but not for delete and scanning events.
+
+**Important**: If a field referenced in the TriggerBinding may be missing from the payload, you **must** set a `default` value for that parameter in the TriggerTemplate. Otherwise, the trigger will fail when the field is missing. For example, if `artifact-tag` might be missing, add `default: ""` to the parameter definition in your TriggerTemplate.
+:::
+
+### 1. Push Artifact Event
+
+Triggered when an artifact (container image or OCI chart) is pushed to a Harbor repository. Suitable for:
+
+- Automated image builds and deployments
+- Image validation and testing
+- Automated tagging and versioning
+- Multi-stage build pipelines
+
+#### Push Artifact Event Variables
+
+| Variable Name            | Description              | Example Value                                    |
+| ----------------------- | ------------------------ | ------------------------------------------------ |
+| repository-date-created | Repository Creation Time | `1763369448`                                     |
+
+All basic variables listed above are also available.
+
+### 2. Pull Artifact Event
+
+Triggered when an artifact is pulled from a Harbor repository. Suitable for:
+
+- Usage tracking and analytics
+- Security monitoring
+- Resource consumption tracking
+- Deployment verification
+
+#### Pull Artifact Event Variables
+
+| Variable Name            | Description              | Example Value                                    |
+| ----------------------- | ------------------------ | ------------------------------------------------ |
+| repository-date-created | Repository Creation Time | `1763369448`                                     |
+
+All basic variables listed above are also available.
+
+### 3. Delete Artifact Event
+
+Triggered when an artifact is deleted from a Harbor repository. Suitable for:
+
+- Cleanup automation
+- Audit logging
+- Resource management
+- Compliance tracking
+
+#### Delete Artifact Event Variables
+
+All basic variables listed above are available. Note that `repository-date-created` is not available for delete events.
+
+### 4. Scanning Completed Event
+
+Triggered when a vulnerability scan of an artifact is completed. Suitable for:
+
+- Security policy enforcement
+- Automated security checks
+- Vulnerability reporting
+- Automated remediation workflows
+
+#### Scanning Completed Event Variables
+
+All basic variables listed above are available. Note that `repository-date-created` is not available for scanning events.
+
+:::warning
+The `scan_overview` field structure varies depending on the scan type (SBOM, vulnerability check). The structure uses dynamic MIME type keys (e.g., `application/vnd.security.vulnerability.report; version=1.1`), which cannot be directly parsed using JSONPath in TriggerBindings. If you need to extract detailed scan results (such as vulnerability counts, scan status), consider using CEL interceptors or creating separate bindings for different scan types.
+:::
+
+:::tip
+Refer to [Harbor's official webhook documentation](https://goharbor.io/docs/main/working-with-projects/project-configuration/configure-webhooks/) for more details about event structures.
+:::
+
+## Configuration Guide
+
+### Handling Optional Fields
+
+Some fields in Harbor events may be optional or missing depending on the event type or how the artifact is referenced. For example:
+
+- **`artifact-tag`**: May be missing if the artifact is referenced by digest only
+- **`repository-date-created`**: Available in push and pull events, but not in delete and scanning events
+
+**Important**: When using ClusterTriggerBindings that reference optional fields, you **must** provide default values in your TriggerTemplate for those parameters. If a field is missing from the payload and no default is provided, the trigger will fail with a JSONPath parsing error.
+
+**Example**: To handle an optional `artifact-tag` field, configure your TriggerTemplate like this:
+
+```yaml
+spec:
+  params:
+    - name: artifact-tag
+      default: ""  # Empty string default for optional field
+```
+
+This ensures that if the `tag` field is missing from the Harbor event payload, the trigger will use an empty string instead of failing.
+
+### Prerequisites
+
+1. An `EventListener` has been created in the environment and is capable of processing `Trigger` in the target namespace. Please contact your platform administrator for more information.
+2. Harbor can access the `EventListener` mentioned above.
+3. The required `Pipeline`, as well as the necessary running configurations, have been created.
+4. You have permissions to modify the Webhook settings of the Harbor project.
+
+### Configure Webhook via Harbor UI
+
+1. Visit your Harbor project settings.
+2. Navigate to **Webhooks**.
+3. Click **New Webhook**.
+4. Configure the webhook:
+   - **Name**: Enter a descriptive name (e.g., `tekton-webhook`)
+   - **Endpoint URL**: Enter the EventListener URL, for example:
+     ```
+     http://<your-eventlistener-url>
+     ```
+     or
+     ```
+     https://<your-eventlistener-url>
+     ```
+   - **Auth Header**: (Optional) Configure authentication header if required.
+   - **Skip Certificate Verification**: Enable if using self-signed certificates.
+5. Select the event types as needed:
+   - **Push Artifact**: Triggered when artifacts are pushed
+   - **Pull Artifact**: Triggered when artifacts are pulled
+   - **Delete Artifact**: Triggered when artifacts are deleted
+   - **Scanning Completed**: Triggered when vulnerability scanning is completed
+6. Click **Save**.
+
+### Pipeline Trigger Configuration Example
+
+If the goal is to implement continuous integration through the trigger with the following requirements:
+
+- Automatically trigger automated build and deployment when an image is pushed.
+- Automatically trigger security checks when scanning is completed.
+
+:::warning
+**Event Type Filtering**: If your Harbor webhook is configured to send multiple event types (e.g., both Push Artifact and Pull Artifact), you **must** configure CEL interceptors in your Triggers to filter events by type. Without interceptors, all configured event types will trigger the same pipeline, which may cause unintended executions.
+
+For example, if your webhook sends both `PUSH_ARTIFACT` and `PULL_ARTIFACT` events to the same EventListener, and you have a Trigger without an interceptor, both events will trigger the pipeline. Use interceptors to route different event types to different Triggers or pipelines.
+:::
+
+To simplify this documentation, we assume the pipeline is ready with the following parameters provided:
+
+| Parameter Name         | Description                                    | Example Value                                    |
+| --------------------- | ---------------------------------------------- | ------------------------------------------------ |
+| repository-full-name  | Repository full name for the target pipeline   | `library/alpine`                                 |
+| artifact-tag          | Artifact tag                                   | `latest`                                         |
+| artifact-digest       | Artifact digest                                | `sha256:c4975008127577bfc34169439e890db7cfb1cedccabe49c059c88f913cb27edd` |
+
+:::tip
+Please replace with your actual pipeline information.
+:::
+
+| Information         | Description                                        |
+| ------------------- | ------------------------------------------------- |
+| `my-namespace`      | Namespace Name                                   |
+| `my-pipeline`       | Pipeline Name                                     |
+| `workspaces`        | Workspace configuration, modify based on actual pipeline workspace configuration and requirements |
+
+Next, we only need to configure the two triggers below:
+
+<Steps>
+  ### Create Push Artifact Trigger
+
+  Save the following YAML as `harbor-push-trigger.yaml`:
+
+  ```yaml
+  apiVersion: triggers.tekton.dev/v1beta1
+  kind: Trigger
+  metadata:
+      name: my-pipeline-push   # It is suggested to modify the prefix based on the pipeline name
+      namespace: my-namespace  # Change to actual namespace
+  spec:
+      bindings:
+      - ref:
+          kind: ClusterTriggerBinding
+          name: harbor-push-artifact
+      interceptors: # Filter to only process PUSH_ARTIFACT events
+      - ref:
+          kind: ClusterInterceptor
+          name: cel
+        params:
+        - name: filter
+          value: body.type == "PUSH_ARTIFACT"  # Only trigger on push events
+      template:
+        spec:
+          params:
+          - name: repository-full-name
+          - name: artifact-tag
+            default: ""  # Optional field: may be empty if artifact is referenced by digest only
+          - name: artifact-digest
+          resourcetemplates:
+          - apiVersion: tekton.dev/v1
+            kind: PipelineRun
+            metadata:
+                generateName: my-pipeline-push- # It is suggested to modify the prefix based on the pipeline name
+            spec:
+                pipelineRef:
+                  name: my-pipeline  # Change to actual pipeline name
+                params:
+                - name: repository-full-name
+                  value: $(tt.params.repository-full-name)
+                - name: artifact-tag
+                  value: $(tt.params.artifact-tag)
+                - name: artifact-digest
+                  value: $(tt.params.artifact-digest)
+                workspaces: # Workspaces need to be modified based on pipeline requirements and environment configuration
+                - name: output
+                  emptyDir: {}
+  ```
+
+  Create the resource in the environment:
+
+  ```bash
+  kubectl apply -f harbor-push-trigger.yaml
+  ```
+
+  :::tip
+  **Event Type Filtering Example**: If your Harbor webhook is configured to send both Push and Pull events, and you want to handle them differently, you can create separate Triggers with CEL interceptors to filter by event type:
+
+  **Push Event Trigger** (shown above):
+  ```yaml
+  interceptors:
+  - ref:
+      kind: ClusterInterceptor
+      name: cel
+    params:
+    - name: filter
+      value: body.type == "PUSH_ARTIFACT"
+  ```
+
+  **Pull Event Trigger** (if needed):
+  ```yaml
+  interceptors:
+  - ref:
+      kind: ClusterInterceptor
+      name: cel
+    params:
+    - name: filter
+      value: body.type == "PULL_ARTIFACT"
+  ```
+
+  This ensures that push events only trigger the push pipeline, and pull events only trigger the pull pipeline, even if both event types are sent to the same EventListener.
+  :::
+
+  ### Create Scanning Completed Trigger
+
+  Save the following YAML as `harbor-scanning-trigger.yaml`:
+
+  ```yaml
+  apiVersion: triggers.tekton.dev/v1beta1
+  kind: Trigger
+  metadata:
+    name: my-pipeline-scanning # It is suggested to modify the prefix based on the pipeline name
+    namespace: my-namespace # Change to actual namespace
+  spec:
+    bindings:
+      - ref:
+          kind: ClusterTriggerBinding
+          name: harbor-scanning-completed
+    interceptors: # Add Interceptor to filter successful scans only, or filter by vulnerability severity
+    - ref:
+        kind: ClusterInterceptor
+        name: cel
+      params:
+      - name: filter
+        value: |
+          # Filter for successful scans only
+          # Note: scan_overview structure varies by scan type, adjust the path accordingly
+          # For vulnerability scans, the structure is: body.event_data.resources[0].scan_overview["application/vnd.security.vulnerability.report; version=1.1"].scan_status == "Success"
+    template:
+      spec:
+        params:
+          - name: repository-full-name
+          - name: artifact-tag
+            default: ""  # Optional field: may be empty if artifact is referenced by digest only
+          - name: artifact-digest
+        resourcetemplates:
+        - apiVersion: tekton.dev/v1
+          kind: PipelineRun
+          metadata:
+            generateName: my-pipeline-scan- # It is suggested to modify the prefix based on the pipeline name
+          spec:
+            pipelineRef:
+              name: my-pipeline # Modify based on the pipeline name
+            params:
+              - name: repository-full-name
+                value: $(tt.params.repository-full-name)
+              - name: artifact-tag
+                value: $(tt.params.artifact-tag)
+              - name: artifact-digest
+                value: $(tt.params.artifact-digest)
+            workspaces: # Workspaces need to be modified based on pipeline requirements and environment configuration
+              - name: output
+                emptyDir: {}
+  ```
+
+  :::tip
+  Please adjust the Interceptor configuration as needed. You can filter based on scan status, vulnerability severity, etc. Note that the `scan_overview` structure uses dynamic MIME type keys, so you may need to adjust the JSONPath expression based on your scan type.
+  :::
+
+  Create the resource in the environment:
+
+  ```bash
+  kubectl apply -f harbor-scanning-trigger.yaml
+  ```
+
+  ### Validate Triggers
+
+  Validate by pushing an image to Harbor and triggering a vulnerability scan.
+
+  **CLI:**
+
+  You can obtain the pipeline execution status using `kubectl -n <namespace> get pipelinerun`.
+
+  **Console:**
+
+  Access `Pipelines` > `PipelineRuns` to view the triggered pipelines.
+</Steps>
+
+## Use Cases
+
+### Use Case 1: Automated Image Deployment
+
+**Scenario**: Automatically deploy container images to staging or production environments when they are pushed to Harbor.
+
+**Configuration**:
+- Create a Trigger using `harbor-push-artifact` binding
+- Configure the pipeline to pull the image using `artifact-resource-url` and deploy it to the target environment
+- Optionally filter by repository namespace or tag pattern using CEL interceptors
+
+**Example Use Cases**:
+- Deploy images tagged with `production` to production environment
+- Deploy images from specific namespaces to staging environment
+- Trigger deployment only for images matching certain naming patterns
+
+### Use Case 2: Security Policy Enforcement
+
+**Scenario**: Enforce security policies by blocking deployments of images with critical vulnerabilities.
+
+**Configuration**:
+- Create a Trigger using `harbor-scanning-completed` binding
+- Use CEL interceptor to filter scans with critical vulnerabilities
+- Configure the pipeline to:
+  - Check vulnerability counts from scan results
+  - Block deployment if critical vulnerabilities exceed threshold
+  - Send notifications to security team
+
+**Example Use Cases**:
+- Prevent deployment of images with critical vulnerabilities
+- Automatically quarantine images with high-risk vulnerabilities
+- Generate security reports for compliance
+
+### Use Case 3: Artifact Lifecycle Management
+
+**Scenario**: Automatically manage artifact lifecycle based on usage patterns and retention policies.
+
+**Configuration**:
+- Create Triggers for `harbor-pull-artifact` and `harbor-delete-artifact` events
+- Track artifact usage and age
+- Automatically delete old or unused artifacts based on policies
+
+**Example Use Cases**:
+- Archive old artifacts that haven't been pulled in 90 days
+- Clean up development artifacts after deployment to production
+- Maintain compliance with data retention policies
+
+### Use Case 4: Multi-Stage CI/CD Pipeline
+
+**Scenario**: Build a complete CI/CD pipeline that triggers on image push, runs tests, performs security scans, and deploys based on scan results.
+
+**Configuration**:
+- Create multiple Triggers:
+  1. `harbor-push-artifact` trigger: Start build and test pipeline
+  2. `harbor-scanning-completed` trigger: Continue to deployment if scan passes
+- Use pipeline dependencies and workspaces to share artifacts between stages
+
+**Example Use Cases**:
+- Build → Test → Scan → Deploy workflow
+- Parallel testing and scanning for faster feedback
+- Conditional deployment based on test and scan results
