@@ -175,7 +175,7 @@ The trigger-wrapper automatically exposes EventListeners externally based on exp
   Create the file `hello-task.yaml`:
 
   ```yaml
-  apiVersion: tekton.dev/v1beta1
+  apiVersion: tekton.dev/v1
   kind: Task
   metadata:
     name: hello-task
@@ -209,7 +209,7 @@ The trigger-wrapper automatically exposes EventListeners externally based on exp
         description: Message to print
         default: "Hello World!"
     resourcetemplates:
-      - apiVersion: tekton.dev/v1beta1
+      - apiVersion: tekton.dev/v1
         kind: TaskRun
         metadata:
           generateName: hello-run-

@@ -16,12 +16,14 @@ A TriggerTemplate is a resource used to define a blueprint for resources that ca
 
 TriggerTemplate currently supports the following Tekton Pipelines resources:
 
-| v1beta1 Resource Type | Description         |
-| --------------------- | ------------------- |
-| Pipeline              | Pipeline definition  |
-| PipelineRun           | Pipeline run instance |
-| Task                  | Task definition      |
-| TaskRun               | Task run instance    |
+> Recommendation: use `tekton.dev/v1` for the following resources; `tekton.dev/v1beta1` is still accepted but is deprecated and will be removed in a future release.
+
+| Resource Type | Description           |
+|---------------|-----------------------|
+| Pipeline      | Pipeline definition   |
+| PipelineRun   | Pipeline run instance |
+| Task          | Task definition       |
+| TaskRun       | Task run instance     |
 
 ## Basic Structure
 
@@ -43,7 +45,7 @@ spec:
       description: Print message
       default: This is the default message
   resourcetemplates:              # Resource template definition
-    - apiVersion: tekton.dev/v1beta1
+    - apiVersion: tekton.dev/v1
       kind: PipelineRun
       metadata:
         generateName: simple-pipeline-run-  # Name prefix for generation
@@ -161,7 +163,7 @@ spec:
     - name: git-repo-url
       description: Git repository URL
   resourcetemplates:
-    - apiVersion: tekton.dev/v1beta1
+    - apiVersion: tekton.dev/v1
       kind: PipelineRun
       metadata:
         generateName: ci-run-
@@ -190,7 +192,7 @@ spec:
     - name: image-tag
       description: Image tag
   resourcetemplates:
-    - apiVersion: tekton.dev/v1beta1
+    - apiVersion: tekton.dev/v1
       kind: PipelineRun
       metadata:
         generateName: deploy-$(tt.params.environment)-

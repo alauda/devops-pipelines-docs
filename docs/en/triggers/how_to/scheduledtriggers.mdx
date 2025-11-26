@@ -1,0 +1,163 @@
+---
+weight: 80
+---
+
+# Run Pipelines with ScheduledTrigger
+
+:::tip
+For the architecture, motivations, and design background of ScheduledTrigger, see the [ScheduledTrigger Concepts](../concepts/scheduledtrigger_concept) page.
+:::
+
+## Overview
+
+ScheduledTrigger lets you execute a TriggerTemplate on a cron-style cadence without relying on inbound webhooks. Each tick of the schedule renders the template, injects any static or time-based parameters, and creates the Tekton resources (for example PipelineRuns) you defined. This how-to walks you through preparing the prerequisites, writing the manifest, and validating the automation end to end.
+
+## Supported Resource Types
+
+ScheduledTrigger currently supports the following Tekton Pipelines resources in TriggerTemplate:
+
+> Recommendation: use `tekton.dev/v1` for the following resources; `tekton.dev/v1beta1` is still accepted but is deprecated and will be removed in a future release.
+
+| Resource Type | Description           |
+|---------------|-----------------------|
+| PipelineRun   | Pipeline run instance |
+| TaskRun       | Task run instance     |
+
+## Typical Workflow
+
+1. Confirm the TriggerTemplate you want to run periodically (reusable reference or inline spec).
+2. Decide on the cadence, time zone, and any contextual parameters the automation needs.
+3. Create a `ScheduledTrigger` manifest that binds the template to the schedule.
+4. Apply the manifest and monitor the resource status/events to ensure executions occur.
+
+## Basic Manifest Structure
+
+```yaml
+apiVersion: tekton.alaudadevops.io/v1alpha1
+kind: ScheduledTrigger
+metadata:
+  name: nightly-security-scan
+spec:
+  schedule: "0 2 * * *"                # Cron expression
+  timeZone: "Asia/Shanghai"            # Optional, defaults to controller time
+  params:                               # Optional static/context parameters
+    - name: scan_date
+      value: "$(context.date)"
+    - name: severity
+      value: "high"
+  triggerTemplate:
+    ref: security-scan-template         # Reference an existing TriggerTemplate
+```
+
+## Step-by-Step Configuration
+
+### 1. Choose the cadence and time zone
+
+- Use standard cron syntax (minute hour day-of-month month day-of-week). Example: `15 1 * * 1-5` runs at 01:15 Monday through Friday.
+- Set `spec.timeZone` to an Olson time zone string (for example `Europe/Paris`). If omitted, the controller uses its own time zone.
+- Prefer explicit time zones when business hours differ from the cluster default or when daylight-saving changes matter.
+
+### 2. Point to the TriggerTemplate
+
+You can reference a reusable template via `spec.triggerTemplate.ref`, or embed a full template inline under `spec.triggerTemplate.spec`. References keep multiple ScheduledTriggers in sync, while inline specs make each manifest self-contained.
+
+### 3. Pass parameters
+
+- Use `spec.params` to feed static values into the template (`$(tt.params.<name>)`). Context placeholders (for example `$(context.date)` and `$(context.datetime)`) are only valid in this section.
+- Combine those placeholders with your own params to generate deterministic run names, tags, or report partitions, then reference them inside the template as `$(tt.params.<name>)`.
+- Because Tekton Trigger parameters are strings, serialize complex objects (for example JSON) before passing them.
+
+### 4. Apply the manifest
+
+```bash
+# Replace with your namespace and file name which contains the ScheduledTrigger manifest
+kubectl -n <namespace> apply -f <scheduled-trigger-file>
+```
+
+Target the namespace where the TriggerTemplate lives. Kubernetes RBAC must allow the controller to resolve and execute that template.
+
+### 5. Validate the resource
+
+```bash
+# Replace with your ScheduledTrigger name and namespace
+kubectl get scheduledtrigger <scheduled-trigger-name> -n <namespace>
+# NAME                    AGE
+# nightly-security-scan   10s
+
+# Replace with your ScheduledTrigger name and namespace
+kubectl describe scheduledtrigger <scheduled-trigger-name> -n <namespace>
+# Status:
+#   Last Schedule Time:  2025-11-25T07:42:00Z
+# Events:
+#   Type    Reason     Age      From               Message
+#   ----    ------     ----     ----               -------
+#   Normal  Scheduled  5s       scheduled-trigger  Scheduled security-scan-template for 2025-11-25T07:42:00Z
+```
+
+Check the `LAST SCHEDULETIME` column (or the `.status.lastScheduleTime` field) to confirm the controller is firing. Kubernetes events surfaced by `kubectl describe` will indicate successful runs or scheduling errors (for example invalid cron expressions or missing templates).
+
+If executions still do not start as expected, review the [ScheduledTrigger troubleshooting guide](../trouble_shooting/scheduledtrigger_not_triggered) for detailed investigation steps.
+
+## Managing ScheduledTrigger Over Time
+
+- **Update cadence**: Edit the resource (`kubectl edit` or apply a new manifest) to change `spec.schedule` or `spec.timeZone`. The next tick recalculates automatically.
+- **Rotate parameters**: Modify `spec.params` to update static values such as environment names, feature flags, or recipients.
+- **Switch templates**: Point `spec.triggerTemplate.ref` to a new template, or update the inline spec. Subsequent executions use the new logic immediately.
+- **Pause or remove**: Delete the ScheduledTrigger to stop future runs. Recreate it later with the same name if you need to resume the cadence.
+
+## Inline Template Example
+
+```yaml
+apiVersion: tekton.alaudadevops.io/v1alpha1
+kind: ScheduledTrigger
+metadata:
+  name: refresh-demo-data
+spec:
+  schedule: "0 */6 * * *"
+  params:
+    - name: run_timestamp
+      value: "$(context.datetime)"
+  triggerTemplate:
+    spec:
+      params:
+        - name: target_cluster
+          default: "demo"
+        - name: run_timestamp
+          description: Timestamp passed from ScheduledTrigger
+      resourcetemplates:
+        - apiVersion: tekton.dev/v1
+          kind: PipelineRun
+          metadata:
+            generateName: refresh-demo-
+          spec:
+            pipelineRef:
+              name: refresh-pipeline
+            params:
+              - name: cluster
+                value: "$(tt.params.target_cluster)"
+              - name: timestamp
+                value: "$(tt.params.run_timestamp)"
+```
+
+## Time-Zone-Aware Weekly Example
+
+```yaml
+apiVersion: tekton.alaudadevops.io/v1alpha1
+kind: ScheduledTrigger
+metadata:
+  name: monday-report
+spec:
+  schedule: "0 9 * * 1"
+  timeZone: "America/New_York"
+  params:
+    - name: report_date
+      value: "$(context.date)"
+  triggerTemplate:
+    ref: weekly-report-template
+```
+
+## Reference Links
+
+- [ScheduledTrigger Concepts](../concepts/scheduledtrigger_concept)
+- [TriggerTemplate API](https://tekton.dev/docs/triggers/triggertemplates/)
+- [Cron Syntax Reference](https://en.wikipedia.org/wiki/Cron)

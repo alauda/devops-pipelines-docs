@@ -1,0 +1,132 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.19.0
+  name: scheduledtriggers.tekton.alaudadevops.io
+spec:
+  group: tekton.alaudadevops.io
+  names:
+    kind: ScheduledTrigger
+    listKind: ScheduledTriggerList
+    plural: scheduledtriggers
+    singular: scheduledtrigger
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: ScheduledTrigger is the Schema for the scheduledtriggers API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of ScheduledTrigger
+            properties:
+              params:
+                items:
+                  description: Param defines a string value to be used for a ParamSpec
+                    with the same name.
+                  properties:
+                    name:
+                      type: string
+                    value:
+                      type: string
+                  required:
+                  - name
+                  - value
+                  type: object
+                type: array
+              schedule:
+                description: The schedule in Cron format, see https://en.wikipedia.org/wiki/Cron.
+                type: string
+              timeZone:
+                description: |-
+                  The time zone name for the given schedule, see https://en.wikipedia.org/wiki/List_of_tz_database_time_zones.
+                  If not specified, this will default to the time zone of the kube-controller-manager process.
+                  The set of valid time zone names and the time zone offset is loaded from the system-wide time zone
+                  database by the API server during CronJob validation and the controller manager during execution.
+                  If no system-wide time zone database can be found a bundled version of the database is used instead.
+                  If the time zone name becomes invalid during the lifetime of a CronJob or due to a change in host
+                  configuration, the controller will stop creating new new Jobs and will create a system event with the
+                  reason UnknownTimeZone.
+                  More information can be found in https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/#time-zones
+                type: string
+              triggerTemplate:
+                properties:
+                  apiversion:
+                    type: string
+                  ref:
+                    type: string
+                  spec:
+                    description: TriggerTemplateSpec holds the desired state of TriggerTemplate
+                    properties:
+                      params:
+                        items:
+                          description: |-
+                            ParamSpec defines an arbitrary named  input whose value can be supplied by a
+                            `Param`.
+                          properties:
+                            default:
+                              description: Default is the value a parameter takes
+                                if no input value via a Param is supplied.
+                              type: string
+                            description:
+                              description: |-
+                                Description is a user-facing description of the parameter that may be
+                                used to populate a UI.
+                              type: string
+                            name:
+                              description: Name declares the name by which a parameter
+                                is referenced.
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      resourcetemplates:
+                        items:
+                          description: TriggerResourceTemplate describes a resource
+                            to create
+                          type: object
+                          x-kubernetes-preserve-unknown-fields: true
+                        type: array
+                        x-kubernetes-list-type: atomic
+                    type: object
+                type: object
+            required:
+            - triggerTemplate
+            type: object
+          status:
+            description: status defines the observed state of ScheduledTrigger
+            properties:
+              lastScheduleTime:
+                description: Information when was the last time the job was successfully
+                  scheduled.
+                format: date-time
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

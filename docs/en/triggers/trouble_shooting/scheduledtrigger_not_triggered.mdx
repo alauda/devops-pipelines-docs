@@ -1,0 +1,78 @@
+---
+weight: 20
+---
+
+# ScheduledTrigger does not fire on schedule
+
+## Problem Description
+
+After creating a `ScheduledTrigger`, no `PipelineRun` (or other resources inside the TriggerTemplate) appears at the expected time.
+
+## Root Cause Analysis
+
+Common reasons include:
+
+1. The cron expression or optional `timeZone` is invalid, or the next tick has not yet occurred in the expected region.
+2. The referenced `TriggerTemplate` (or inline template content) cannot be resolved, often because of a wrong name/namespace or missing permissions.
+3. Rendering succeeds but creating the Tekton resources fails due to RBAC issues or validation errors in the template.
+
+For a field-by-field explanation of the ScheduledTrigger spec, see the [ScheduledTrigger API](../../apis/kubernetes_apis/triggers/scheduledtriggers) and [Important Parameter Explanations](../concepts/scheduledtrigger_concept#important-parameter-explanations).
+
+## Problem Investigation
+
+Always start with:
+
+```bash
+# Replace with your ScheduledTrigger name and namespace
+kubectl describe scheduledtrigger <name> -n <namespace>
+# Events:
+#   Type     Reason                  Age               From               Message
+#   ----     ------                  ----              ----               -------
+#   Warning  UnknownTriggerTemplate  2s (x11 over 7s)  scheduled-trigger  failed to resolve TriggerTemplate: error getting TriggerTemplate missing-trigger-template: TriggerTemplate.triggers.tekton.dev "missing-trigger-template" not found
+```
+
+The `Events` section shows warnings such as `UnknownTimeZone`, `UnparseableSchedule`, `InvalidSchedule`, `UnknownTriggerTemplate`, or `FailedCreate`. Use those event types to pick the right fix from the sections below.
+
+Follow these checks to narrow down the issue:
+
+### Validate the schedule and time zone
+
+1. Inspect the schedule with `kubectl get scheduledtrigger <name> -n <namespace> -o jsonpath='{.spec.schedule}'` and confirm it is the intended [cron expression](https://en.wikipedia.org/wiki/Cron) (minute hour day-of-month month day-of-week).
+2. If `spec.timeZone` is set, confirm that it is a valid [time zone](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) (for example `Asia/Shanghai`). Typos cause the controller to emit `UnknownTimeZone` warnings and skip executions. When cron syntax is wrong the controller creates `UnparseableSchedule` or `InvalidSchedule` events; correct the expression and reapply.
+3. Compare `kubectl get scheduledtrigger <name> -n <namespace> -o jsonpath='{.status.lastScheduleTime}'` with the current time to verify whether the most recent run is actually overdue. Remember that cron expressions are evaluated in the chosen time zone, not the viewer's local clock.
+
+### Confirm the TriggerTemplate reference
+
+1. When using `spec.triggerTemplate.ref`, ensure the referenced `TriggerTemplate` exists in the same namespace: `kubectl get triggertemplate <ref> -n <namespace>`.
+2. For inline templates, run `kubectl describe scheduledtrigger <name>` and look for validation errors that mention missing fields inside `triggerTemplate`.
+3. Make sure any placeholders like `$(context.datetime)` are only used in `spec.params`. The rendered template must reference them via `$(tt.params.<name>)`; using context placeholders elsewhere causes rendering to fail and surfaces as `UnknownTriggerTemplate` warnings.
+
+### Check events for apply or permission failures
+
+1. Run `kubectl describe scheduledtrigger <name> -n <namespace>` and review the Events section. Messages such as `FailedCreate`, `ResourceApplyFailed`, or RBAC `forbidden` errors indicate the controller tried to fire but was blocked.
+2. `FailedCreate` warnings typically mean Tekton rejected the rendered resource. Inspect the message, adjust the template, and reapply the ScheduledTrigger.
+3. To isolate template issues, try instantiating a `PipelineRun` or `TaskRun` directly from the `TriggerTemplate` content. Manually replace every `$(tt.params.<name>)` placeholder with a concrete value, apply the resource, and confirm whether it creates successfully.
+
+## Additional Tips
+
+- When debugging, temporarily change `spec.schedule` to run every minute (for example `*/1 * * * *`) to confirm whether executions start after adjustments.
+- Keep the `ScheduledTrigger` and `TriggerTemplate` in the same namespace to avoid confusion with cross-namespace references.
+- Use the `tekton.alaudadevops.io/scheduled-trigger-name` label to list all resources created by a ScheduledTrigger. For example:
+
+  ```bash
+  # Replace with your ScheduledTrigger name and namespace
+  kubectl get pipelinerun -n <namespace> -l tekton.alaudadevops.io/scheduled-trigger-name=<scheduled-trigger-name>
+  # NAME          SUCCEEDED   REASON      STARTTIME   COMPLETIONTIME
+  # demo-pr-225j6    True        Succeeded   19h         19h
+  # demo-pr-22j8w    True        Succeeded   151m        151m
+  # demo-pr-22jxp    True        Succeeded   4h39m       4h39m
+
+  # Replace with your ScheduledTrigger name and namespace
+  kubectl get taskrun -n <namespace> -l tekton.alaudadevops.io/scheduled-trigger-name=<scheduled-trigger-name>
+  # NAME          SUCCEEDED   REASON      STARTTIME   COMPLETIONTIME
+  # demo-tr-hbbk8    True        Succeeded   40d         40d
+  # demo-tr-jddi2    True        Succeeded   14d         14d
+  # demo-tr-kdq5w    True        Succeeded   14d         14d
+  ```
+
+  Replace `<scheduled-trigger-name>` with the name of your resource to see every PipelineRun or TaskRun emitted by that ScheduledTrigger.

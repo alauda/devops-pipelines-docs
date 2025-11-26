@@ -1,0 +1,205 @@
+---
+weight: 60
+---
+
+# ScheduledTrigger
+
+ScheduledTrigger adds cron-like automation to Tekton Triggers. Instead of waiting for external webhooks, you can ask the platform to render a TriggerTemplate on a repeating schedule, optionally honoring a specific timezone and injecting time-aware parameters into every run.
+
+## Terminology Explanation
+
+| Term               | Description                                                                                                                                    |
+|--------------------|------------------------------------------------------------------------------------------------------------------------------------------------|
+| ScheduledTrigger   | A Kubernetes custom resource that defines when and how a TriggerTemplate should run on a schedule.                                             |
+| TriggerTemplate    | The Tekton template that creates PipelineRuns, TaskRuns, or other resources.                                                                   |
+| Schedule           | A cron expression that describes the desired cadence (minute, hour, day, month, weekday).                                                      |
+| TimeZone           | An optional Olson timezone string (for example `Asia/Shanghai`) that adjusts how the cron expression is evaluated.                             |
+| Context Parameters | Built-in placeholders (`$(context.date)` and `$(context.datetime)`) that resolve to the scheduled firing time before the TriggerTemplate runs. |
+
+## Why We Need ScheduledTrigger
+
+### Challenges of Time-Based Automation
+
+- Teams often pair Tekton with ad-hoc CronJobs, shell scripts, or external schedulers just to trigger periodic pipelines.
+- Operational tasks (nightly scans, weekly cleanups, end-of-month reports) require consistent timing and visibility.
+- Overlapping cron jobs and manual scripts increase maintenance costs and make auditing difficult.
+
+### How ScheduledTrigger Helps
+
+ScheduledTrigger keeps scheduling and pipeline execution in the same system:
+
+1. **Single definition** – declare the cadence, timezone, and template in one manifest.
+2. **Event parity** – TriggerTemplates run exactly as if they were invoked by an EventListener, so downstream tooling, RBAC, and observability behave the same.
+3. **Context awareness** – every run receives structured timestamps, enabling deterministic naming, reporting, or data partitioning.
+4. **Built-in catch-up** – if the controller restarts, it can replay missed ticks up to a reasonable limit, reducing manual intervention.
+
+## Advantages
+
+- **Declarative scheduling** using Kubernetes-native CRDs.
+- **Timezone control** to ensure nightly jobs align with business hours anywhere in the world.
+- **Consistent parameterization** via context placeholders and user-defined params.
+- **Reduced glue code** because no extra CronJobs or webhook shims are required.
+- **Unified observability**: events, status, and logs live alongside other Tekton resources.
+- **Safer retries** thanks to controlled catch-up behavior for missed executions.
+
+## Applicable Scenarios
+
+1. **Nightly regression tests or security scans** that must run even when no Git activity occurs.
+2. **Maintenance workflows** such as cache cleanup, asset rotation, or database exports.
+3. **Compliance and auditing jobs** that must fire on a fixed calendar cadence.
+4. **Hybrid automation** where webhook-triggered pipelines are supplemented with periodic baseline runs.
+5. **Environment synchronization** tasks that keep staging or demo environments fresh.
+
+## Constraints and Limitations
+
+- ScheduledTrigger accepts cron expressions supported by `robfig/cron` (standard five-field form).
+- Only string parameters are supported in TriggerTemplates; convert complex data to strings before passing it.
+- Excessive missed ticks are intentionally capped to protect clusters from bursts of backlogged executions.
+- Timezone names must match entries in the TZ database available inside the controller container.
+- ScheduledTrigger focuses on TriggerTemplate execution. For generic Pods without Tekton context, Kubernetes CronJobs may still be preferable.
+
+## How ScheduledTrigger Works
+
+1. **Define the schedule** – provide a cron expression and (optionally) a timezone. The controller evaluates the next firing time based on those values.
+2. **Attach a TriggerTemplate** – reference an existing template or embed one inline. Every tick renders the template with the latest specification, so updates take effect automatically.
+3. **Pass parameters** – use static values or context placeholders. `$(context.date)` resolves to `YYYY-MM-DD`, and `$(context.datetime)` resolves to an RFC3339 timestamp of the scheduled execution.
+4. **Controller execution** – at each tick, the controller creates the resources defined in the TriggerTemplate and records the last schedule time in the resource status.
+5. **Observability** – Kubernetes events report success or failure, enabling standard tooling (kubectl, dashboards) to track scheduled runs.
+
+## Configuration Examples
+
+### Basic ScheduledTrigger
+
+```yaml
+apiVersion: tekton.alaudadevops.io/v1alpha1
+kind: ScheduledTrigger
+metadata:
+  name: nightly-security-scan
+  namespace: cicd
+spec:
+  schedule: "0 2 * * *"          # Every day at 02:00
+  triggerTemplate:
+    ref: security-scan-template
+  params:
+    - name: scan_date
+      value: "$(context.date)"
+    - name: environment
+      value: "production"
+```
+
+### Timezone-Aware Schedule
+
+```yaml
+apiVersion: tekton.alaudadevops.io/v1alpha1
+kind: ScheduledTrigger
+metadata:
+  name: weekly-cleanup
+spec:
+  schedule: "30 3 * * 1"         # Mondays at 03:30
+  timeZone: "Europe/Paris"
+  triggerTemplate:
+    ref: cleanup-template
+```
+
+### Inline TriggerTemplate
+
+```yaml
+apiVersion: tekton.alaudadevops.io/v1alpha1
+kind: ScheduledTrigger
+metadata:
+  name: refresh-demo-data
+spec:
+  schedule: "0 */6 * * *"        # Every 6 hours
+  triggerTemplate:
+    spec:
+      params:
+        - name: target_cluster
+          default: "demo"
+      resourcetemplates:
+        - apiVersion: tekton.dev/v1
+          kind: PipelineRun
+          metadata:
+            generateName: refresh-demo-
+          spec:
+            pipelineRef:
+              name: refresh-pipeline
+            params:
+              - name: cluster
+                value: "$(tt.params.target_cluster)"
+```
+
+## Important Parameter Explanations
+
+### schedule
+
+Uses the standard cron format `minute hour day-of-month month day-of-week`. The value of this field follows the [Cron](https://en.wikipedia.org/wiki/Cron) syntax. 
+
+```
+# ┌───────────── minute (0 - 59)
+# │ ┌───────────── hour (0 - 23)
+# │ │ ┌───────────── day of the month (1 - 31)
+# │ │ │ ┌───────────── month (1 - 12)
+# │ │ │ │ ┌───────────── day of the week (0 - 6) (Sunday to Saturday)
+# │ │ │ │ │                                   OR sun, mon, tue, wed, thu, fri, sat
+# │ │ │ │ │
+# │ │ │ │ │
+# * * * * *
+```
+
+For example, `0 3 * * 1` means this task is scheduled to run weekly on a Monday at 3 AM.
+
+The format also includes extended "Vixie cron" step values. As explained in the
+[FreeBSD manual](https://www.freebsd.org/cgi/man.cgi?crontab%285%29):
+
+> Step values can be used in conjunction with ranges. Following a range
+> with `/<number>` specifies skips of the number's value through the
+> range. For example, `0-23/2` can be used in the hours field to specify
+> command execution every other hour (the alternative in the V7 standard is
+> `0,2,4,6,8,10,12,14,16,18,20,22`). Steps are also permitted after an
+> asterisk, so if you want to say "every two hours", just use `*/2`.
+
+A question mark (`?`) in the schedule has the same meaning as an asterisk `*`, that is,
+it stands for any of available value for a given field.
+
+Other than the standard syntax, some macros like `@monthly` can also be used:
+
+| Entry                  | Description                                                | Equivalent to |
+|------------------------|------------------------------------------------------------|---------------|
+| @yearly (or @annually) | Run once a year at midnight of 1 January                   | 0 0 1 1 *     |
+| @monthly               | Run once a month at midnight of the first day of the month | 0 0 1 * *     |
+| @weekly                | Run once a week at midnight on Sunday morning              | 0 0 * * 0     |
+| @daily (or @midnight)  | Run once a day at midnight                                 | 0 0 * * *     |
+| @hourly                | Run once an hour at the beginning of the hour              | 0 * * * *     |
+
+### timeZone
+
+For ScheduledTriggers with no time zone specified, the controller interprets schedules relative to its local time zone.
+
+You can specify a time zone for a ScheduledTrigger by setting `.spec.timeZone` to the name
+of a valid [time zone](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones).
+For example, setting `.spec.timeZone: "Etc/UTC"` instructs to interpret
+the schedule relative to Coordinated Universal Time.
+
+A time zone database from the Go standard library is included in the binaries and used as a fallback in case an external database is not available on the system.
+
+### params
+
+Key/value list passed down to the TriggerTemplate. They behave exactly like Tekton Trigger params, so each entry can be used inside the template via `$(tt.params.<name>)`. Combine static values with context placeholders to keep runs self-describing.
+
+### Context placeholders
+
+You can use the following context placeholders in `spec.params`
+
+- `$(context.date)` → `YYYY-MM-DD`
+- `$(context.datetime)` → RFC3339 timestamp, such as `2006-01-02T15:04:05Z`
+
+Use them for consistent labels, artifact names, or date partitioning regardless of when the controller actually processes the event.
+
+### triggerTemplate
+
+Either reference a reusable TriggerTemplate (`ref`) or embed a full template (`spec`). Use references when multiple ScheduledTriggers should share the same behavior; use inline specs for self-contained jobs or when you want all configuration in a single manifest.
+
+## Reference Materials
+
+- [TriggerTemplate Documentation](https://tekton.dev/docs/triggers/triggertemplates/)
+- [CronJob](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/)

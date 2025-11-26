@@ -103,7 +103,7 @@ spec:
       description: Description of parameter 1
       default: default-value  # Optional default value
   resourcetemplates:
-    - apiVersion: tekton.dev/v1beta1
+    - apiVersion: tekton.dev/v1
       kind: PipelineRun
       metadata:
         generateName: example-pipeline-run-
@@ -184,7 +184,7 @@ spec:
     - name: git-repo-name
       description: The name of the git repository
   resourcetemplates:
-    - apiVersion: tekton.dev/v1beta1
+    - apiVersion: tekton.dev/v1
       kind: PipelineRun
       metadata:
         generateName: $(tt.params.git-repo-name)-ci-
@@ -218,7 +218,7 @@ spec:
     - name: app-name
       description: Application name
   resourcetemplates:
-    - apiVersion: tekton.dev/v1beta1
+    - apiVersion: tekton.dev/v1
       kind: PipelineRun
       metadata:
         generateName: deploy-$(tt.params.app-name)-$(tt.params.environment)-
@@ -246,7 +246,7 @@ spec:
     - name: git-revision
       description: The git commit SHA
   resourcetemplates:
-    - apiVersion: tekton.dev/v1beta1
+    - apiVersion: tekton.dev/v1
       kind: PipelineRun
       metadata:
         generateName: build-pipeline-
@@ -256,7 +256,7 @@ spec:
         params:
           - name: revision
             value: $(tt.params.git-revision)
-    - apiVersion: tekton.dev/v1beta1
+    - apiVersion: tekton.dev/v1
       kind: PipelineRun
       metadata:
         generateName: test-pipeline-
@@ -330,7 +330,7 @@ params:
   - name: git-revision
     description: The git commit SHA
 resourcetemplates:
-  - apiVersion: tekton.dev/v1beta1
+  - apiVersion: tekton.dev/v1
     kind: PipelineRun
     spec:
       params:
