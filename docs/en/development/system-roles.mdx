@@ -119,45 +119,45 @@ Developers should modify system roles when:
 
 2. **Edit the Role Definition**: Update the ClusterRole rules with the new permissions:
 
-```yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  labels:
-    rbac.cpaas.io/aggregate-to-cluster-admin: "true"
-    # ... other aggregation labels
-  name: cpaas:tekton-new-resource:business-ns:admin
-rules:
-  - apiGroups:
-      - your.api.group
-    resources:
-      - yourresource
-      - yourresource/status
-    verbs:
-      - '*'  # or specific verbs: get, list, watch, create, update, delete
-```
+   ```yaml
+   apiVersion: rbac.authorization.k8s.io/v1
+   kind: ClusterRole
+   metadata:
+     labels:
+       rbac.cpaas.io/aggregate-to-cluster-admin: "true"
+       # ... other aggregation labels
+     name: cpaas:tekton-new-resource:business-ns:admin
+   rules:
+     - apiGroups:
+         - your.api.group
+       resources:
+         - yourresource
+         - yourresource/status
+       verbs:
+         - '*'  # or specific verbs: get, list, watch, create, update, delete
+   ```
 
 3. **Update kustomization.yaml**: If adding a new role file, add it to `config/system-roles/kustomization.yaml`:
 
-```yaml
-resources:
-- tekton-cluster-admin.yaml
-- tekton-deployment-admin.yaml
-- tekton-pipelines.yaml
-- tekton-triggers-admin.yaml
-- tekton-triggers.yaml
-- your-new-role.yaml  # Add new file here
-```
+   ```yaml
+   resources:
+   - tekton-cluster-admin.yaml
+   - tekton-deployment-admin.yaml
+   - tekton-pipelines.yaml
+   - tekton-triggers-admin.yaml
+   - tekton-triggers.yaml
+   - your-new-role.yaml  # Add new file here
+   ```
 
 4. **Test Locally**: Build and test the changes locally:
 
-```bash
-# Generate the bundle
-make bundle
+   ```bash
+   # Generate the bundle
+   make bundle
 
-# Verify the roles are included
-cat upstream/operatorhub/kubernetes/release-artifacts/bundle/manifests/*.yaml | grep -A 20 "kind: ClusterRole"
-```
+   # Verify the roles are included
+   cat upstream/operatorhub/kubernetes/release-artifacts/bundle/manifests/*.yaml | grep -A 20 "kind: ClusterRole"
+   ```
 
 5. **Commit and Create PR**: Submit your changes following the standard Git workflow.
 

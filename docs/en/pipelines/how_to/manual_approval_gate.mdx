@@ -45,6 +45,7 @@ spec:
       taskRef:
         apiVersion: openshift-pipelines.org/v1alpha1
         kind: ApprovalTask
+      timeout: "24h"
       params:
         - name: approvers
           value:
@@ -52,8 +53,6 @@ spec:
             - group:release-managers
         - name: numberOfApprovalsRequired
           value: "1"
-        - name: timeout
-          value: "24h"
         - name: description
           value: "Approve promotion into production"
     - name: deploy
