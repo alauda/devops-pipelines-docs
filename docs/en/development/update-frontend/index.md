@@ -45,6 +45,12 @@ The specific steps are as follows:
   /test to-all-in-one branch:main overwrite_artifacts=".global.images.ui.tag=v1.0.0-rc.1"
   ```
 
+  When you only need to update the UI image and want to quickly generate a bundle without rebuilding any operator images, use the `to-build-bundle-image` pipeline with explicit tags for all required operator artifacts:
+
+  ```shell
+  /test to-build-bundle-image overwrite_artifacts=".global.images.ui.tag=v1.0.0-rc.1,.global.images.operator.tag=v4.6.0-g6caa198,.global.images.proxy-webhook.tag=v4.6.0-g6caa198,.global.images.webhook.tag=v4.6.0-g6caa198,.global.images.tkn.tag=v4.6.0-g6caa198"
+  ```
+
   Where:
 
   - `/test` is the command prefix for `pac`
@@ -56,6 +62,8 @@ The specific steps are as follows:
   - `".global.images.ui.tag=v1.0.0-rc.1"` is the parameter value for `overwrite_artifacts`.
     - `.global.images.ui.tag` is the `key` for the frontend image in `values.yaml`
     - `v1.0.0-rc.1` is the tag of the latest frontend artifact to be replaced
+  - Use the `to-build-bundle-image` example only when you need to refresh the UI image; this pipeline skips building operator images, so you must pin the operator-related tags explicitly as shown above.
+  - You can obtain the operator-related tags by running `make download-release-from-nexus` locally to fetch the latest `values.yaml`, or download the latest release file directly from `https://build-nexus.alauda.cn/repository/alauda/devops/tektoncd-releases/tektoncd-operator/main/values/release.yaml` and reuse the existing operator image tags.
 
 - 4. Check the execution status of the pipeline in the [`Tekton-Dashboard`](https://tekton-dashboard-edge.alauda.cn/#/namespaces/devops/pipelineruns) and wait for it to finish.
   - Pay attention to the `modify-values-yaml` Task in the execution phase of the pipeline, to see if the Tag of the frontend image in `values.yaml` is correctly updated.
