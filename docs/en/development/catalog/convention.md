@@ -204,3 +204,81 @@ When adding a new Task, cover the following cases:
 - Allow skipping certificate verification for HTTPS: expose a toggle parameter and clearly document the risks and when to use it.
 - Trust HTTPS via user-provided certificates: expose a workspace for mounting custom CAs/truststores.
 - If the tool uses a “full replacement” trust-store strategy: implement append/merge logic in the Task so user certificates are added to the default trust chain rather than overwriting it, preventing breaks to other HTTPS endpoints and improving UX.
+
+### 10. Task Overview Templates (ConfigMap + Template)
+
+We support two overview rendering paths as described in [TEP-0003: PipelineRun Support Markdown Output](../../teps/0003_pipelinerun_markdown_output.md) and [TEP-0004: Task Overview Template Rendering](../../teps/catalog/0004-task-result-template.md) :
+
+1. A `overview-markdown` Task result containing fully-rendered markdown.
+2. A ConfigMap-backed template (for example, using the EJS engine) that consumes structured Task results.
+
+For catalog contributors, we adopt the following conventions:
+
+- **Platform-provided / curated overview templates MUST use the ConfigMap + template path.**
+  - Do **not** let catalog Tasks we own write to a `overview-markdown` result by default.
+  - Tasks that support user-defined scripts should, where possible, provide an empty `overview-markdown` result for users to use.
+  - Treat `overview-markdown` as a user extension point: if a Pipeline or Task wants to override the UI, it can emit this result and the UI will prefer it over any ConfigMap template.
+
+- **ConfigMap location and labels**
+
+  - ConfigMaps that contain EJS overview templates MUST be stored under the [catalog](https://github.com/AlaudaDevops/catalog) repository's `config/catalog/` directory, and be shipped together with other catalog manifests.
+  - Templates are deployed into the `kube-public` namespace so any dashboard instance can read them.
+  - Each ConfigMap corresponds to one Task (and version) that owns the overview template and MUST carry the following labels so the UI can discover it:
+
+    ```yaml
+    # config/catalog/sonarqube-scanner-0.5-overview-template.yaml
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: sonarqube-scanner-0.5-overview-template
+      namespace: kube-public
+      annotations:
+        # keep namespace hardcoded to kube-public even when InstallerSets perform ReplaceNamespace
+        operator.tekton.dev/preserve-namespace: "true"
+      labels:
+        # task name
+        style.tekton.dev/overview-template-task: sonarqube-scanner
+        # task version
+        style.tekton.dev/overview-template-task-version: "0.5"
+        # template engine
+        style.tekton.dev/overview-template-engine: ejs
+    data:
+      # main EJS template entry
+      template.ejs: |
+        <!-- EJS template content -->
+    ```
+
+- **Task annotations for template binding**
+
+  - Tasks that use a ConfigMap-based overview MUST declare which template to use and which result(s) provide the data.
+  - Use annotations on the Task to tell the UI how to find the template and which results to merge:
+
+    ```yaml
+    apiVersion: tekton.dev/v1
+    kind: Task
+    metadata:
+      name: sonarqube-scanner
+      annotations:
+        # label selector to find the ConfigMap under kube-public
+        style.tekton.dev/overview-template-selector: "style.tekton.dev/overview-template-task=sonarqube-scanner,style.tekton.dev/overview-template-task-version=0.5"
+  
+        # one or more result names that provide structured metrics
+        # single result:
+        style.tekton.dev/overview-template-result-key: CODE_SCAN_METRICS
+  
+        # optional: multiple results and aliasing (advanced)
+        # style.tekton.dev/overview-template-result-key: CODE_SCAN_METRICS:metrics,SCAN_RESULT_URL,SCAN_PROJECT
+    ```
+
+  - `overview-template-selector` tells the UI which ConfigMap to fetch (via label selector).
+  - `overview-template-result-key` identifies the Task result (or comma-separated list of results) that carries the structured metrics.
+
+- **Result contract and `overview-markdown` usage**
+
+  - The result should be:
+    - Compact enough to stay within the effective per-container termination-message budget.
+    - Stable and documented in the Task's `README.md` so template authors and other consumers know which keys are available.
+  - Do **not** store rendered HTML in results or annotations; only store structured data (metrics, URLs, labels).
+  - `overview-markdown` is reserved for user-authored or downstream custom views. The UI always prefers `overview-markdown` over ConfigMap templates so that:
+    - Catalog contributors use ConfigMap templates for pre-baked views.
+    - Users can still override the overview by emitting their own `overview-markdown` result from Pipelines or Tasks that they control.

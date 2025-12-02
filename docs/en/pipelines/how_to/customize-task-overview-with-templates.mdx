@@ -1,0 +1,323 @@
+---
+weight: 11
+i18n:
+  title:
+    en: Customize Task Overview with Templates
+title: Customize Task Overview with Templates
+---
+
+# Customize Task Overview with Templates
+
+This guide shows you how to use **ConfigMap-backed templates** to render rich HTML reports in the **Overview** tab for your `TaskRuns` and `PipelineRuns`.
+
+Instead of writing a full HTML or Markdown report into a single `Task` result, your `Tasks` emit **small structured metrics**, and the UI uses a template from a **ConfigMap** to render the final overview.
+
+Use this guide when:
+
+- You want a **consistent, polished overview** for a `Task` (for example, a code scan summary).
+- Your Markdown overview is **close to or beyond** the effective size limit of a `Task` result.
+- You want to **re-use** the same layout across many `Tasks` or clusters.
+
+> Template rendering is an **alternative** to [overview-markdown](./output-markdown-to-the-overview-tab.mdx). If a `Task` still outputs a result named `overview-markdown`, the UI will **prefer that Markdown** and skip template rendering.
+
+## Prerequisites
+
+- **Tekton Pipelines** installed on your cluster.
+- Permissions to create **ConfigMaps** in the shared template namespace `kube-public`.
+
+## How it works
+
+1. Your `Task` emits one or more results that contain metrics or summary data.
+2. Your `Task` metadata includes **annotations** that tell the UI:
+   - Which **ConfigMap** should be used as the template (via a label selector).
+   - Which **`Task` results** should be read and passed into the template.
+3. The UI:
+   - Checks whether the `TaskRun` has a result named `overview-markdown`. If yes, it renders that Markdown and **stops**.
+   - Otherwise, reads the template annotations from the `TaskRun`.
+   - Finds a matching **ConfigMap** and loads `template.ejs`.
+   - Reads the declared results from the `TaskRun` and merges them into a single JSON payload.
+   - Evaluates the [EJS](https://ejs.co/) template with that payload and renders the generated HTML in the **Overview** tab.
+
+## Steps
+
+### 1. Choose between Markdown and templates
+
+**Use [overview-markdown](./output-markdown-to-the-overview-tab.mdx) result when:**
+
+- The content is short and easy to keep under the result-size limits.
+- You only need very simple formatting.
+
+**Use a template `ConfigMap` when:**
+
+- You want more complex layout (columns, badges, progress bars, etc.).
+- You already have structured metrics and want a nicer presentation.
+- You want one overview layout to be shared by multiple `Tasks`.
+
+> If both paths are configured, `overview-markdown` wins. You can view the template output simply by not writing anything to `overview-markdown` result.
+
+### 2. Create a template ConfigMap
+
+Create a `ConfigMap` that contains your [EJS](https://ejs.co/) template and labels that identify which `Task` it belongs to.
+
+[EJS](https://ejs.co/) is a simple templating language that lets you generate HTML markup with plain JavaScript.
+No religiousness about how to organize things. No reinvention of iteration and control-flow. It's just plain JavaScript.
+For more details, see:
+
+- [EJS](https://ejs.co/)
+- [EJS docs](https://ejs.co/#docs)
+- [mde/ejs in Github](https://github.com/mde/ejs)
+
+**Example:**
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: my-task-0.1-overview-template
+  # configmap should be in kube-public namespace
+  namespace: kube-public
+  labels:
+    # Which Task this template is for
+    style.tekton.dev/overview-template-task: my-task
+    # Version of the Task/template pairing
+    style.tekton.dev/overview-template-task-version: "0.1"
+    # Which engine the UI should use
+    style.tekton.dev/overview-template-engine: ejs
+data:
+  template.ejs: |
+    <%
+      const m = metrics || {};
+      const asNumber = (value, fallback = 0) => {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : fallback;
+      };
+    %>
+
+    <div style="font:12px sans-serif;margin:8px 0">
+      <div style="display:flex;align-items:center;margin-bottom:6px">
+        <strong>My Task Summary</strong>
+        <% if (m.report_url) { %>
+          <a href="<%= m.report_url %>" target="_blank" rel="noreferrer" style="margin-left:8px">
+            View report
+          </a>
+        <% } %>
+        <span style="margin-left:auto;color:#5c1">
+          Status: <%= m.status || "UNKNOWN" %>
+        </span>
+      </div>
+
+      <div style="display:flex;flex-wrap:wrap;gap:6px;color:#666">
+        <div style="flex:1;min-width:110px">
+          <b><%= asNumber(m.total) %></b> Total
+        </div>
+        <div style="flex:1;min-width:110px">
+          <b><%= asNumber(m.passed) %></b> Passed
+        </div>
+        <div style="flex:1;min-width:110px">
+          <b><%= asNumber(m.failed) %></b> Failed
+        </div>
+      </div>
+    </div>
+```
+
+Key points:
+
+- The template filename is always **`template.ejs`**.
+- The UI will inject variables from results into the template.
+- You can use normal **[EJS](https://ejs.co/) syntax** (`<% %>`, `<%= %>`) for simple logic and formatting.
+
+### 3. Add a result to your Task
+
+Define a **result** on your `Task` that will carry the metrics used by the template.
+
+**Example `Task`:**
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: my-task
+spec:
+  results:
+    - name: TASK_METRICS
+      type: object
+      description: Summary metrics for the overview template.
+      properties:
+        total: {}
+        passed: {}
+        failed: {}
+        status: {}
+        report_url: {}
+  steps:
+    - name: run-and-collect-metrics
+      image: <your-image>
+      script: |
+        #!/usr/bin/env sh
+        set -eu
+
+        # TODO: replace these with real values
+        total=10
+        passed=9
+        failed=1
+        status="OK"
+        report_url="https://example.com/report/123"
+
+        printf '{"total": "%s", "passed": "%s", "failed": "%s", "status": "%s", "report_url": "%s"}' \
+          "$total" \
+          "$passed" \
+          "$failed" \
+          "$status" \
+          "$report_url" \
+          > "$(results.TASK_METRICS.path)"
+```
+
+Guidelines:
+
+- Keep the result **small and flat**. Use simple fields like counts, percentages, status, and URLs.
+- Do not embed huge text blobs.
+- If you use object result, ensure the step writes **valid JSON** (no trailing commas, correct quoting).
+
+### 4. Annotate the Task to bind it to the template
+
+Use annotations on the `Task` to tell the UI which template to use and which results to pass into it.
+
+**Single-result example:**
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: my-task
+  annotations:
+    # 1) Where to find the template ConfigMap
+    style.tekton.dev/overview-template-selector: >
+      style.tekton.dev/overview-template-task=my-task,
+      style.tekton.dev/overview-template-task-version=0.1
+
+    # 2) Which Task result(s) to read from the TaskRun
+    #    Here: expose TASK_METRICS as "metrics" in template.ejs
+    #    If you do not specify an alias key, the result name is used (TASK_METRICS).
+    style.tekton.dev/overview-template-result-key: TASK_METRICS:metrics
+    
+spec:
+  results:
+    - name: TASK_METRICS
+      type: object
+  steps:
+    - name: run-and-collect-metrics
+      image: <your-image>
+      # ...
+```
+
+Conceptually, the UI will construct a payload like:
+
+```json
+{
+  "metrics": {
+    "total": "10",
+    "passed": "9",
+    "failed": "1",
+    "status": "OK",
+    "report_url": "https://example.com/report/123"
+  }
+}
+```
+
+Then it evaluates `template.ejs` with that payload so you can use `metrics.total`, `metrics.status`, and so on.
+
+You can combine multiple `Task` results into one template rendering. This is useful when:
+
+- One result holds metrics.
+- Another result holds a URL to a full report.
+
+**Example:**
+
+```yaml
+metadata:
+  annotations:
+    style.tekton.dev/overview-template-selector: >
+      style.tekton.dev/overview-template-task=sonarqube-scanner,
+      style.tekton.dev/overview-template-task-version=0.5
+
+    # Multiple results, separated by commas
+    # Aliases:
+    # - CODE_SCAN_METRICS -> metrics
+    # - SCAN_RESULT_URL   -> SCAN_RESULT_URL (no alias)
+    # - SCAN_PROJECT      -> SCAN_PROJECT (no alias)
+    style.tekton.dev/overview-template-result-key: |
+      CODE_SCAN_METRICS:metrics,SCAN_RESULT_URL,SCAN_PROJECT
+```
+
+The UI will build a payload similar to:
+
+```json
+{
+  "metrics": {
+    "bugs": "2",
+    "vulnerabilities": "1"
+  },
+  "SCAN_RESULT_URL": "https://devops-sonar.example.net/dashboard?id=project&branch=main",
+  "SCAN_PROJECT": ["foo", "bar"]
+}
+```
+
+---
+
+### 5. Run the Task and check the Overview tab
+
+1. Apply the `ConfigMap` and `Task` to your cluster.
+2. Create a `TaskRun` or `PipelineRun` that uses the `Task`, for example:
+
+   ```yaml
+   apiVersion: tekton.dev/v1
+   kind: TaskRun
+   metadata:
+     name: my-task-run
+   spec:
+     taskRef:
+       name: my-task
+   ```
+
+3. Wait for the run to complete.
+4. Open the run in the UI and select the **Overview** tab.
+
+If everything is wired correctly, you should see the HTML produced by your template.
+
+> If the `Task` also emits `overview-markdown`, the Markdown will be shown instead of the template.
+
+## Tips and conventions
+
+- **Prefer small metrics result.** Treat results as a compact summary.
+- **Keep template logic simple.** Focus on presentation, not business logic. Avoid heavy computations in the template.
+- **Handle missing data defensively.** Use default values in the template so missing fields do not crash rendering.
+
+## Troubleshooting
+
+### Nothing appears in the Overview tab
+
+- Does the `Task` emit empty `overview-markdown`?
+  - If yes, the UI will show that empty Markdown and ignore templates. You can view the template output simply by not writing anything to `overview-markdown` result.
+- Does the `TaskRun` contain the result(s) listed in `overview-template-result-key`?
+  - Inspect the `TaskRun` YAML and check `.status.results`.
+- Does the selector in `overview-template-selector` match exactly one `ConfigMap` in `kube-public` namespace?
+  - Test it with `kubectl get configmap -l <your-selector> -n kube-public`.
+
+### Template renders but data is empty or wrong
+
+- If you are using object result, confirm the result is valid and contains the fields your template expects.
+- Check that `overview-template-result-key` names match the `Task` result names exactly.
+
+### Result size or termination message limits
+
+- Remove non-essential fields from your results.
+- Push detailed per-file reports to logs or an external system, and include only summary numbers and URLs in the result.
+- Remember that each `Task` still shares a single termination-message budget across all steps and results.
+- [Modify result limit](../trouble_shooting/result-limit-exceeded.mdx)
+
+### Wrong template is picked
+
+- Ensure `overview-template-selector` is specific enough (for example, include both `Task` name and version).
+- Avoid reusing the same labels for unrelated templates.
+- If multiple `ConfigMaps` match the selector, tighten the labels so only one `ConfigMap` is selected.
+
+Once you have a **template ConfigMap**, **metric results**, and the correct **Task annotations**, you can build reusable, versioned `Task` overview layouts without modifying the UI itself.
