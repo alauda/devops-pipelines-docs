@@ -226,13 +226,11 @@ Required labels (example keys shown above):
   ```yaml
   global:
     images:
-      python-3.13:
+      python-3_13:
         repository: devops/tektoncd/hub/python
-        digest: sha256:c603e490c552823f9361cbd7fde2f2b374ec66f2b1175b3871ec9dc474c36bff
         tag: v3.13
       python-latest:
         repository: devops/tektoncd/hub/python
-        digest: sha256:c603e490c552823f9361cbd7fde2f2b374ec66f2b1175b3871ec9dc474c36bff
         tag: latest
   ```
 
