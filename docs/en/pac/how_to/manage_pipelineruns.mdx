@@ -1,0 +1,621 @@
+---
+weight: 65
+i18n:
+  title:
+    en: Manage Pipeline Runs
+    zh: 管理流水线运行
+title: Manage Pipeline Runs
+---
+
+# Manage Pipeline Runs
+
+:::info For Regular Users
+
+This guide is for **regular users** to monitor and manage their PipelineRuns. It covers viewing status, checking logs, and cleaning up completed runs.
+
+:::
+
+This guide explains how to create, run, monitor, and clean up PipelineRuns using Pipelines as Code (PAC), including using incoming webhooks to trigger pipelines.
+
+## Prerequisites
+
+- PAC component deployed and running
+- A Repository CR configured (see [Configure Repository](./configure_gitlab_repo.mdx))
+- Pipeline definitions in your Git repository
+- kubectl and tkn CLI installed
+
+## Creating Pipeline Runs
+
+PipelineRuns are automatically created by PAC when Git events occur. However, understanding the creation process helps with troubleshooting and manual testing.
+
+### Automatic Creation
+
+PAC automatically creates PipelineRuns when:
+
+1. **Push events** occur on configured branches
+2. **Merge Request events** are created or updated
+3. **Comment commands** are detected in Merge Requests
+
+### Creation Process
+
+When a Git event triggers PAC:
+
+1. **Webhook received**: PAC webhook receives the event from Git provider
+2. **Repository lookup**: PAC controller finds the matching Repository CR
+3. **Pipeline fetch**: Controller fetches pipeline definitions from the repository
+4. **PipelineRun creation**: Controller creates a PipelineRun resource in Kubernetes
+5. **Execution starts**: Tekton Pipeline controller picks up the PipelineRun and starts execution
+
+### Verify PipelineRun Creation
+
+Check if a PipelineRun was created:
+
+    ```bash
+    kubectl get pipelineruns -n <namespace>
+    ```
+
+Example output:
+
+    ```
+    NAME                    STARTED        DURATION   STATUS
+    simple-pipeline-xxxxx   2 minutes ago  30s        Succeeded
+    test-pipeline-yyyyy     5 minutes ago  45s        Running
+    ```
+
+View PipelineRun details:
+
+    ```bash
+    kubectl get pipelinerun <pipelinerun-name> -n <namespace> -o yaml
+    ```
+
+Example output (abbreviated):
+
+    ```yaml
+    apiVersion: tekton.dev/v1
+    kind: PipelineRun
+    metadata:
+      name: simple-pipeline-xxxxx
+      namespace: project-pipelines
+    spec:
+      pipelineSpec:
+        tasks:
+        - name: hello
+          taskSpec:
+            steps:
+            - name: echo
+              image: alpine:latest
+    status:
+      conditions:
+      - status: "True"
+        type: Succeeded
+      startTime: "2024-01-01T12:00:00Z"
+      completionTime: "2024-01-01T12:00:30Z"
+    ```
+
+## Running Pipeline Runs
+
+Once created, PipelineRuns are automatically executed by the Tekton Pipeline controller.
+
+### Execution Flow
+
+1. **PipelineRun created**: PAC creates the PipelineRun in the target namespace
+2. **Controller picks up**: Tekton Pipeline controller detects the new PipelineRun
+3. **Tasks execute**: Tasks run in the order defined in the pipeline
+4. **Status updates**: PAC Watcher monitors execution and updates status
+5. **Completion**: PipelineRun completes with success or failure status
+
+### Check PipelineRun Status
+
+View PipelineRun status:
+
+    ```bash
+    kubectl get pipelinerun <pipelinerun-name> -n <namespace>
+    ```
+
+Example output:
+
+    ```
+    NAME                    STARTED        DURATION   STATUS
+    simple-pipeline-xxxxx   2 minutes ago  30s        Succeeded
+    ```
+
+Status values:
+- **Pending**: PipelineRun is queued
+- **Running**: PipelineRun is executing
+- **Succeeded**: All tasks completed successfully
+- **Failed**: One or more tasks failed
+- **Cancelled**: PipelineRun was cancelled
+
+### View PipelineRun Logs
+
+View logs for a PipelineRun:
+
+    ```bash
+    tkn pipelinerun logs <pipelinerun-name> -n <namespace>
+    ```
+
+View logs for a specific task:
+
+    ```bash
+    tkn taskrun logs <taskrun-name> -n <namespace>
+    ```
+
+**To find TaskRun names**:
+
+    ```bash
+    # List all TaskRuns for a PipelineRun
+    kubectl get taskruns -n <namespace> -l tekton.dev/pipelineRun=<pipelinerun-name>
+    
+    # Or use tkn to list tasks in a PipelineRun
+    tkn pipelinerun describe <pipelinerun-name> -n <namespace>
+    ```
+
+Example output for `kubectl get taskruns`:
+
+    ```
+    NAME                              STARTED        DURATION   STATUS
+    simple-pipeline-xxxxx-hello      2 minutes ago  25s        Succeeded
+    ```
+
+Example output for `tkn pipelinerun describe`:
+
+    ```
+    Tasks:
+      NAME   TASKREF   STARTED        DURATION   STATUS
+      hello  hello     2 minutes ago  25s        Succeeded
+    ```
+
+The TaskRun name is typically `<pipelinerun-name>-<task-name>`.
+
+## Monitoring Pipeline Run Status
+
+PAC provides multiple ways to monitor PipelineRun status.
+
+### Using kubectl
+
+List all PipelineRuns:
+
+    ```bash
+    kubectl get pipelineruns -n <namespace>
+    ```
+
+Example output:
+
+    ```
+    NAME                    STARTED        DURATION   STATUS
+    simple-pipeline-xxxxx   2 minutes ago  30s        Succeeded
+    test-pipeline-yyyyy     5 minutes ago  45s        Running
+    ```
+
+Watch PipelineRuns in real-time:
+
+    ```bash
+    kubectl get pipelineruns -n <namespace> -w
+    ```
+
+Example output (updates in real-time):
+
+    ```
+    NAME                    STARTED        DURATION   STATUS
+    simple-pipeline-xxxxx   2 minutes ago  30s        Succeeded
+    test-pipeline-yyyyy     5 minutes ago  45s        Running
+    test-pipeline-yyyyy     5 minutes ago  1m         Running
+    test-pipeline-yyyyy     5 minutes ago  1m         Succeeded
+    ```
+
+Describe a PipelineRun:
+
+    ```bash
+    kubectl describe pipelinerun <pipelinerun-name> -n <namespace>
+    ```
+
+Example output:
+
+    ```
+    Name:         simple-pipeline-xxxxx
+    Namespace:    project-pipelines
+    Status:       Succeeded
+    Start Time:   Mon, 01 Jan 2024 12:00:00 +0000
+    Duration:     30s
+
+    Conditions:
+      Type           Status  Reason
+      ----           ------  ------
+      Succeeded      True    Succeeded
+
+    Events:
+      Type    Reason     Age   From     Message
+      ----    ------     ----  ----     -------
+      Normal  Started    2m    Pipeline PipelineRun started
+      Normal  Succeeded  2m    Pipeline PipelineRun completed successfully
+    ```
+
+### Using tkn CLI
+
+List PipelineRuns:
+
+    ```bash
+    tkn pipelinerun list -n <namespace>
+    ```
+
+Example output:
+
+    ```
+    NAME                    STARTED        DURATION   STATUS
+    simple-pipeline-xxxxx   2 minutes ago  30s        Succeeded
+    test-pipeline-yyyyy     5 minutes ago  45s        Running
+    ```
+
+Describe a PipelineRun:
+
+    ```bash
+    tkn pipelinerun describe <pipelinerun-name> -n <namespace>
+    ```
+
+Example output:
+
+    ```
+    Name:        simple-pipeline-xxxxx
+    Namespace:   project-pipelines
+    Status:      Succeeded
+    Started:     2 minutes ago
+    Duration:    30s
+    
+    Tasks:
+      NAME   TASKREF   STARTED        DURATION   STATUS
+      hello  hello     2 minutes ago  25s        Succeeded
+    
+    Params:
+      NAME   VALUE
+      url    https://gitlab.com/user/repo.git
+    ```
+
+View logs:
+
+    ```bash
+    tkn pipelinerun logs <pipelinerun-name> -n <namespace>
+    ```
+
+Example output:
+
+    ```
+    [hello : echo] Hello from PAC pipeline!
+    [hello : echo] Repository: https://gitlab.com/user/repo.git
+    [hello : echo] Revision: abc1234
+    ```
+
+### Status in Git Provider
+
+PAC automatically reports PipelineRun status back to the Git provider:
+
+- **Commit status**: Status appears on commits
+- **Pull/Merge Request checks**: Status appears in Pull Request or Merge Request checks
+- **Status details**: Click on status to see detailed information
+
+### Monitor Multiple PipelineRuns
+
+Watch all PipelineRuns for a repository:
+
+    ```bash
+    kubectl get pipelineruns -n <namespace> -l pipelinesascode.tekton.dev/repository=<repo-name> -w
+    ```
+
+Filter by status using labels:
+
+    ```bash
+    # Filter by status using label selector (recommended)
+    kubectl get pipelineruns -n <namespace> -l tekton.dev/pipelineRun=my-pipeline
+    
+    # Or filter by status condition using JSONPath
+    kubectl get pipelineruns -n <namespace> -o jsonpath='{range .items[?(@.status.conditions[0].status=="True" && @.status.conditions[0].type=="Succeeded")]}{.metadata.name}{"\n"}{end}'
+    ```
+
+**Note**: Kubernetes field-selector doesn't support nested fields like `status.conditions`. Use label selectors or JSONPath for filtering by status.
+
+## Cleaning Up Pipeline Runs
+
+PAC can automatically clean up old PipelineRuns to prevent resource accumulation.
+
+### Automatic Cleanup
+
+Configure automatic cleanup using the `max-keep-runs` annotation:
+
+    ```yaml
+    apiVersion: tekton.dev/v1
+    kind: PipelineRun
+    metadata:
+      name: my-pipeline
+      annotations:
+        pipelinesascode.tekton.dev/on-target-branch: "[refs/heads/main]"
+        pipelinesascode.tekton.dev/on-event: "[push]"
+        pipelinesascode.tekton.dev/max-keep-runs: "5"
+    spec:
+      # ... pipeline definition
+    ```
+
+**Behavior**:
+- Keeps the last N PipelineRuns for each event
+- Automatically deletes older PipelineRuns
+- Applies per event type (push, merge request, etc.)
+
+### Manual Cleanup
+
+Delete a specific PipelineRun:
+
+    ```bash
+    kubectl delete pipelinerun <pipelinerun-name> -n <namespace>
+    ```
+
+Example output:
+
+    ```
+    pipelinerun.tekton.dev "simple-pipeline-xxxxx" deleted
+    ```
+
+Delete all PipelineRuns in a namespace:
+
+    ```bash
+    kubectl delete pipelineruns --all -n <namespace>
+    ```
+
+Example output:
+
+    ```
+    pipelinerun.tekton.dev "simple-pipeline-xxxxx" deleted
+    pipelinerun.tekton.dev "test-pipeline-yyyyy" deleted
+    ```
+
+Delete PipelineRuns by label:
+
+    ```bash
+    kubectl delete pipelineruns -l pipelinesascode.tekton.dev/repository=<repo-name> -n <namespace>
+    ```
+
+Example output:
+
+    ```
+    pipelinerun.tekton.dev "simple-pipeline-xxxxx" deleted
+    pipelinerun.tekton.dev "test-pipeline-yyyyy" deleted
+    ```
+
+### Cleanup Best Practices
+
+1. **Set appropriate limits**: Use `max-keep-runs` to balance history and storage
+2. **Regular cleanup**: Periodically clean up old PipelineRuns
+3. **Archive important runs**: Export important PipelineRuns before cleanup
+4. **Monitor storage**: Watch for storage issues from accumulated PipelineRuns
+
+## Using Incoming Webhooks
+
+Incoming webhooks allow you to trigger pipelines directly via HTTP POST requests, without requiring Git events.
+
+### Overview
+
+Incoming webhooks provide a way to:
+- Trigger pipelines from external systems
+- Integrate with CI/CD tools that don't use Git
+- Trigger pipelines manually or via API calls
+- Support custom payloads and parameters
+
+:::info How Incoming Webhooks Work
+
+1. **HTTP POST request**: Send a POST request to the PAC controller's `/incoming` endpoint
+2. **Authentication**: PAC validates the request using the secret (from header or query parameter)
+3. **Repository lookup**: PAC finds the Repository CR based on the repository name and namespace
+4. **Pipeline trigger**: PAC processes the payload and triggers matching pipelines, similar to Git webhook events
+5. **PipelineRun creation**: PAC creates PipelineRuns based on the payload and pipeline definitions
+
+**Key differences from Git webhooks**:
+- No Git provider involved - direct HTTP requests
+- Custom payload format - you control the structure
+- Can trigger pipelines without actual Git commits
+- Useful for external integrations and manual triggers
+
+:::
+
+### Configure Incoming Webhook
+
+1. **Enable in Repository CR**: Add incoming webhook configuration to your Repository CR:
+
+    ```yaml
+    apiVersion: pipelinesascode.tekton.dev/v1alpha1
+    kind: Repository
+    metadata:
+      name: my-repo
+      namespace: project-pipelines
+    spec:
+      url: "https://gitlab.com/user/repo.git"
+      git_provider:
+        type: gitlab
+        url: "https://gitlab.com"
+        secret:
+          name: gitlab-secret
+          key: token
+        webhook_secret:
+          name: webhook-secret
+          key: secret
+      # Incoming webhook configuration
+      incoming:
+      - type: webhook-url
+        secret:
+          name: incoming-webhook-secret
+          key: secret
+    ```
+
+2. **Create incoming webhook secret**:
+
+    ```bash
+    kubectl create secret generic incoming-webhook-secret \
+      --from-literal=secret=your-incoming-webhook-secret \
+      -n project-pipelines
+    ```
+
+3. **Get incoming webhook URL**:
+
+The incoming webhook endpoint is:
+
+    ```
+    http://<pac-controller-url>/incoming
+    ```
+
+**URL Parameters** (optional, can also be passed via headers):
+- `repository`: Repository CR name
+- `namespace`: Namespace where Repository CR is located
+- `secret`: Incoming webhook secret value
+
+**Example with query parameters**:
+    ```
+    http://pac.example.com/incoming?repository=my-repo&namespace=project-pipelines&secret=your-secret
+    ```
+
+**Example with headers** (recommended for security):
+    ```
+    http://pac.example.com/incoming
+    ```
+With headers: `X-Repository`, `X-Namespace`, `X-Secret`
+
+
+:::tip Security Best Practice
+
+Use headers (`X-Repository`, `X-Namespace`, `X-Secret`) instead of query parameters to avoid exposing secrets in URLs and logs.
+
+:::
+
+## Trigger Pipeline via Incoming Webhook
+
+Send a POST request to the incoming webhook endpoint:
+
+    ```bash
+    curl -X POST \
+      http://pac.example.com/incoming \
+      -H "Content-Type: application/json" \
+      -H "X-Repository: my-repo" \
+      -H "X-Namespace: project-pipelines" \
+      -H "X-Secret: your-incoming-webhook-secret" \
+      -d '{
+    "ref": "refs/heads/main",
+    "sha": "abc123def456...",
+    "repository": {
+      "url": "https://gitlab.com/user/repo.git"
+    }
+      }'
+    ```
+
+## Incoming Webhook Payload
+
+The incoming webhook accepts a JSON payload with the following structure:
+
+    ```json
+    {
+      "ref": "refs/heads/main",
+      "sha": "commit-sha",
+      "repository": {
+        "url": "https://gitlab.com/user/repo.git",
+        "name": "repo-name",
+        "full_name": "user/repo"
+      },
+      "sender": {
+        "login": "username"
+      },
+      "head_commit": {
+        "message": "Commit message",
+        "author": {
+          "name": "Author Name",
+          "email": "author@example.com"
+        }
+      }
+    }
+    ```
+
+## Custom Parameters
+
+You can pass custom parameters in the webhook payload:
+
+    ```json
+    {
+      "ref": "refs/heads/main",
+      "sha": "abc123...",
+      "repository": {
+        "url": "https://gitlab.com/user/repo.git"
+      },
+      "params": {
+        "environment": "production",
+        "deploy": "true"
+      }
+    }
+    ```
+
+These parameters are available in your pipeline as `$(params.environment)` and `$(params.deploy)`.
+
+## Security Considerations
+
+1. **Use secrets**: Always use webhook secrets to validate requests
+2. **HTTPS**: Use HTTPS for webhook endpoints in production
+3. **Network policies**: Restrict access to incoming webhook endpoints
+4. **Rate limiting**: Implement rate limiting to prevent abuse
+5. **Validate payloads**: Validate incoming payloads before processing
+
+## Troubleshooting Incoming Webhooks
+
+1. **Check webhook URL**: Verify the URL is correct and accessible
+2. **Verify secret**: Ensure the secret matches in both request and Repository CR
+3. **Check PAC logs**:
+
+    ```bash
+    kubectl logs -n <pac-namespace> -l app=pipelines-as-code-controller --tail=100 | grep incoming  # Replace <pac-namespace> with your actual namespace (default: tekton-pipelines)
+    ```
+
+4. **Verify Repository CR**: Ensure incoming webhook is configured correctly
+5. **Test with curl**: Use curl to test the webhook endpoint
+
+## Best Practices
+
+### 1. PipelineRun Management
+
+- **Set cleanup limits**: Use `max-keep-runs` to prevent accumulation
+- **Monitor resources**: Watch for resource usage from PipelineRuns
+- **Archive important runs**: Export important PipelineRuns before cleanup
+
+### 2. Monitoring
+
+- **Use labels**: Label PipelineRuns for easier filtering
+- **Set up alerts**: Configure alerts for failed PipelineRuns
+- **Regular reviews**: Periodically review PipelineRun status and logs
+
+### 3. Incoming Webhooks
+
+- **Secure endpoints**: Always use HTTPS and secrets
+- **Validate payloads**: Validate incoming webhook payloads
+- **Document usage**: Document webhook endpoints and payload formats
+- **Test thoroughly**: Test webhook triggers before production use
+
+## Troubleshooting
+
+### PipelineRun Not Created
+
+1. **Check webhook**: Verify webhook is configured and receiving events
+2. **Review Repository CR**: Ensure Repository CR is correctly configured
+3. **Check PAC logs**: Review PAC controller logs for errors
+4. **Verify pipeline file**: Ensure pipeline definition file exists in repository
+
+### PipelineRun Not Running
+
+1. **Check status**: Review PipelineRun status and conditions
+2. **Review logs**: Check PipelineRun and TaskRun logs
+3. **Verify resources**: Ensure sufficient cluster resources
+4. **Check permissions**: Verify ServiceAccount has required permissions
+
+### Status Not Reported
+
+1. **Verify Git provider token**: Ensure token has required scopes
+2. **Check PAC Watcher**: Verify PAC Watcher is running
+3. **Review logs**: Check PAC Watcher logs for errors
+4. **Test connectivity**: Ensure PAC can reach Git provider API
+
+## Next Steps
+
+- [Trigger Pipelines](./trigger_pipeline.mdx) - Learn about different trigger methods
+- [Maintain Pipeline Code](./maintain_pipeline_code.mdx) - Pipeline definition guide
+- [Configure Repository](./configure_gitlab_repo.mdx) - Repository setup
+- [Common Issues](../trouble_shooting/common_issues.mdx) - Troubleshooting guide
+

@@ -1,0 +1,488 @@
+---
+weight: 43
+i18n:
+  title:
+    en: Configure Custom Certificates
+    zh: 配置自定义证书
+title: Configure Custom Certificates
+---
+
+# Configure Custom Certificates
+
+:::info For Administrators
+
+This guide is for **cluster administrators** who need to configure PAC to trust self-signed certificates or custom CA certificates for Git providers.
+
+**Note**: Throughout this document, `<pac-namespace>` or `tekton-pipelines` refers to the namespace where PAC is deployed. The default namespace is `tekton-pipelines`, but you can customize it via `targetNamespace` in the `OpenShiftPipelinesAsCode` CR. Replace `<pac-namespace>` or `tekton-pipelines` with your actual namespace name if different.
+
+:::
+
+This guide explains how to configure PAC to work with Git hosting services that use self-signed certificates or custom CA certificates. This configuration applies to all Git providers (GitHub Enterprise, GitLab self-hosted, Bitbucket Server, etc.).
+
+## Prerequisites
+
+Before configuring custom certificates, ensure you have:
+
+- PAC component deployed
+- Administrator access to the cluster
+- Access to the CA certificate file
+- Ability to modify the `OpenShiftPipelinesAsCode` CR or the `TektonConfig` CR
+
+## Overview
+
+When your Git hosting service uses self-signed certificates or certificates signed by a custom CA, PAC's controller pods need to trust these certificates to successfully connect to the Git service. This requires:
+
+1. Creating a ConfigMap with the CA certificate
+2. Mounting the certificate in PAC controller pods
+3. Configuring Git to use the certificate
+
+## Step 1: Prepare the CA Certificate
+
+Obtain the CA certificate file from your Git hosting service administrator or from your organization's certificate authority.
+
+**Common locations for CA certificates**:
+- Self-hosted GitLab: Usually available in the GitLab installation or from your organization's CA
+- GitHub Enterprise: Available from your GitHub Enterprise Server administrator
+- Bitbucket Server: Available from your Bitbucket Server administrator
+
+The certificate file should be in PEM format:
+
+    ```
+    -----BEGIN CERTIFICATE-----
+    <certificate-content>
+    -----END CERTIFICATE-----
+    ```
+
+## Step 2: Create ConfigMap with CA Certificate
+
+Create a ConfigMap containing the CA certificate in the PAC namespace (default: `tekton-pipelines`, replace with your actual PAC namespace if different):
+
+### Method 1: From File
+
+    ```bash
+    kubectl create configmap git-ca-cert \
+      --from-file=ca.crt=/path/to/ca.crt \
+      -n <pac-namespace>  # Default: tekton-pipelines
+    ```
+
+Example output:
+
+    ```
+    configmap/git-ca-cert created
+    ```
+
+### Method 2: Manual Creation
+
+Create a YAML file `git-ca-cert-configmap.yaml`:
+
+    ```yaml
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: git-ca-cert
+      namespace: <pac-namespace>  # Default: tekton-pipelines
+    data:
+      ca.crt: |
+        -----BEGIN CERTIFICATE-----
+        <your-ca-certificate-content>
+        -----END CERTIFICATE-----
+    ```
+
+Apply it:
+
+    ```bash
+    kubectl apply -f git-ca-cert-configmap.yaml
+    ```
+
+Example output:
+
+    ```
+    configmap/git-ca-cert created
+    ```
+
+**Note**: Replace `<your-ca-certificate-content>` with the actual certificate content.
+
+## Step 3: Mount Certificate in PAC Controller
+
+Mount the certificate in the PAC controller pods by updating the `OpenShiftPipelinesAsCode` CR or the `TektonConfig` CR.
+
+### For `OpenShiftPipelinesAsCode` CR
+
+If you're using the `OpenShiftPipelinesAsCode` CR:
+
+    ```yaml
+    apiVersion: operator.tekton.dev/v1alpha1
+    kind: OpenShiftPipelinesAsCode
+    metadata:
+      name: pipelines-as-code
+    spec:
+      settings:
+        application-name: Pipelines as Code CI
+        hub-url: http://tekton-hub-api.tekton-pipelines:8000/v1
+      targetNamespace: tekton-pipelines  # Default namespace, you can customize this
+      options:
+        deployments:
+          pipelines-as-code-controller:
+            spec:
+              template:
+                spec:
+                  containers:
+                  - name: pac-controller
+                    volumeMounts:
+                    - name: git-ca-cert
+                      mountPath: /etc/ssl/certs/git-ca.crt
+                      subPath: ca.crt
+                      readOnly: true
+                    env:
+                    - name: GIT_SSL_CAINFO
+                      value: /etc/ssl/certs/git-ca.crt
+                    - name: SSL_CERT_FILE
+                      value: /etc/ssl/certs/git-ca.crt
+                  volumes:
+                  - name: git-ca-cert
+                    configMap:
+                      name: git-ca-cert
+    ```
+
+### For TektonConfig CR
+
+If you're using `TektonConfig` CR (for OpenShift deployments):
+
+    ```yaml
+    apiVersion: operator.tekton.dev/v1alpha1
+    kind: TektonConfig
+    metadata:
+      name: config
+    spec:
+      platforms:
+        openshift:
+          pipelinesAsCode:
+          enable: true
+          options:
+            deployments:
+              pipelines-as-code-controller:
+                spec:
+                  template:
+                    spec:
+                      containers:
+                      - name: pac-controller
+                        volumeMounts:
+                        - name: git-ca-cert
+                          mountPath: /etc/ssl/certs/git-ca.crt
+                          subPath: ca.crt
+                          readOnly: true
+                        env:
+                        - name: GIT_SSL_CAINFO
+                          value: /etc/ssl/certs/git-ca.crt
+                        - name: SSL_CERT_FILE
+                          value: /etc/ssl/certs/git-ca.crt
+                      volumes:
+                      - name: git-ca-cert
+                        configMap:
+                          name: git-ca-cert
+    ```
+
+**Important**: 
+- The certificate is mounted at `/etc/ssl/certs/git-ca.crt` in the container
+- Environment variables `GIT_SSL_CAINFO` and `SSL_CERT_FILE` tell Git to use this certificate
+- After updating the CR, the Operator will automatically restart the PAC controller pods
+
+## Step 4: Apply Configuration
+
+Apply the updated CR:
+
+    ```bash
+    kubectl apply -f your-cr-file.yaml
+    ```
+
+Example output:
+
+    ```
+    openshiftpipelinesascode.operator.tekton.dev/pipelines-as-code configured
+    ```
+
+Wait for the PAC controller pods to restart:
+
+    ```bash
+    kubectl rollout status deployment/pipelines-as-code-controller -n <pac-namespace>  # Replace <pac-namespace> with your actual namespace (default: tekton-pipelines)
+    ```
+
+Example output:
+
+    ```
+    Waiting for deployment "pipelines-as-code-controller" rollout to finish: 0 of 1 updated replicas are available...
+    deployment "pipelines-as-code-controller" successfully rolled out
+    ```
+
+## Step 5: Verify Certificate Configuration
+
+### Check Certificate is Mounted
+
+Verify the certificate is mounted in the PAC controller pod:
+
+    ```bash
+    # Set your PAC namespace (default: tekton-pipelines)
+    PAC_NAMESPACE="tekton-pipelines"
+
+    kubectl exec -n ${PAC_NAMESPACE} \
+      $(kubectl get pod -n ${PAC_NAMESPACE} -l app=pipelines-as-code-controller -o jsonpath='{.items[0].metadata.name}') \
+      -- ls -la /etc/ssl/certs/git-ca.crt
+    ```
+
+Example output:
+
+    ```
+    -rw-r--r-- 1 root root 1234 Jan  1 12:00 /etc/ssl/certs/git-ca.crt
+    ```
+
+You should see the certificate file listed.
+
+### Check Environment Variables
+
+Verify the environment variables are set:
+
+    ```bash
+    # Set your PAC namespace (default: tekton-pipelines)
+    PAC_NAMESPACE="tekton-pipelines"
+
+    kubectl exec -n ${PAC_NAMESPACE} \
+      $(kubectl get pod -n ${PAC_NAMESPACE} -l app=pipelines-as-code-controller -o jsonpath='{.items[0].metadata.name}') \
+      -- env | grep -E "GIT_SSL_CAINFO|SSL_CERT_FILE"
+    ```
+
+Example output:
+
+    ```
+    GIT_SSL_CAINFO=/etc/ssl/certs/git-ca.crt
+    SSL_CERT_FILE=/etc/ssl/certs/git-ca.crt
+    ```
+
+### Test Git Operations
+
+Test that Git can access your Git hosting service:
+
+    ```bash
+    # Set your PAC namespace (default: tekton-pipelines)
+    PAC_NAMESPACE="tekton-pipelines"
+
+    kubectl exec -n ${PAC_NAMESPACE} \
+      $(kubectl get pod -n ${PAC_NAMESPACE} -l app=pipelines-as-code-controller -o jsonpath='{.items[0].metadata.name}') \
+      -- git config --global http.sslCAInfo /etc/ssl/certs/git-ca.crt
+    ```
+
+Example output (no output on success):
+
+    ```bash
+    # no output on success
+    ```
+
+### Check PAC Controller Logs
+
+Check for SSL/certificate errors in the PAC controller logs:
+
+    ```bash
+    kubectl logs -n <pac-namespace> -l app=pipelines-as-code-controller --tail=100 | grep -i ssl  # Replace <pac-namespace> with your actual namespace (default: tekton-pipelines)
+    ```
+
+Example output (if configured correctly, should be empty or show no SSL errors):
+
+    ```
+    (no output or no SSL errors)
+    ```
+
+If configured correctly, you should not see SSL certificate errors.
+
+### Test with a Repository
+
+Trigger a test pipeline from a repository hosted on your Git service:
+
+    ```bash
+    # Push a commit to trigger the pipeline
+    git commit --allow-empty -m "Test certificate configuration"
+    git push origin main
+    ```
+
+Example output:
+
+    ```
+    [main abc1234] Test certificate configuration
+    Enumerating objects: 3, done.
+    Writing objects: 100% (2/2), 240 bytes | 240.00 KiB/s, done.
+    To https://gitlab.example.com/user/repo.git
+       def5678..abc1234  main -> main
+    ```
+
+Check if the PipelineRun is created successfully:
+
+    ```bash
+    kubectl get pipelineruns -n <your-namespace>
+    ```
+
+Example output:
+
+    ```
+    NAME                    STARTED        DURATION   STATUS
+    test-pipeline-xxxxx     1 minute ago  25s        Succeeded
+    ```
+
+## Troubleshooting
+
+### Check if Certificate is Not Trusted
+
+**Problem**: PAC still cannot connect to your Git service due to certificate issues.
+
+**Solutions**:
+1. **Verify certificate format**: Ensure the certificate is in PEM format with proper BEGIN/END markers
+2. **Check certificate path**: Verify the certificate is mounted at the correct path
+3. **Verify environment variables**: Ensure `GIT_SSL_CAINFO` and `SSL_CERT_FILE` are set correctly
+4. **Check ConfigMap**: Verify the ConfigMap exists and contains the certificate:
+    ```bash
+    kubectl get configmap git-ca-cert -n <pac-namespace> -o yaml  # Replace <pac-namespace> with your actual namespace (default: tekton-pipelines)
+    ```
+
+Example output:
+
+    ```yaml
+    apiVersion: v1
+    data:
+      ca.crt: |
+        -----BEGIN CERTIFICATE-----
+        MIIDXTCCAkWgAwIBAgIJAK...
+        -----END CERTIFICATE-----
+    kind: ConfigMap
+    metadata:
+      name: git-ca-cert
+      namespace: tekton-pipelines
+    ```
+
+### Check if Certificate is Expired
+
+**Problem**: The CA certificate has expired.
+
+**Solutions**:
+1. Obtain a new CA certificate from your certificate authority
+2. Update the ConfigMap:
+    ```bash
+    # Replace <pac-namespace> with your actual namespace (default: tekton-pipelines)
+    kubectl create configmap git-ca-cert \
+      --from-file=ca.crt=/path/to/new-ca.crt \
+      -n <pac-namespace> \
+      --dry-run=client -o yaml | kubectl apply -f -
+    ```
+
+   Example output:
+
+    ```
+    configmap/git-ca-cert configured
+    ```
+3. Restart PAC controller pods:
+    ```bash
+    kubectl rollout restart deployment/pipelines-as-code-controller -n <pac-namespace>  # Replace <pac-namespace> with your actual namespace (default: tekton-pipelines)
+    ```
+
+### Wrong Certificate
+
+**Problem**: Using the wrong CA certificate for your Git service.
+
+**Solutions**:
+1. Verify you're using the correct CA certificate for your Git hosting service
+2. For self-hosted services, obtain the certificate directly from the service
+3. For enterprise services, contact your administrator for the correct certificate
+
+### Pod Not Restarting
+
+**Problem**: PAC controller pods are not restarting after updating the CR.
+
+**Solutions**:
+1. Check CR status:
+    ```bash
+    kubectl get openshiftpipelinesascodes -n <pac-namespace>  # Replace <pac-namespace> with your actual namespace (default: tekton-pipelines)
+    ```
+
+   Example output:
+
+    ```
+    NAME                  VERSION   READY   REASON
+    pipelines-as-code    0.x.x     True    Ready
+    ```
+2. Check Operator logs:
+    ```bash
+    kubectl logs -n <pac-namespace> -l app.kubernetes.io/name=operator --tail=100  # Replace <pac-namespace> with your actual namespace (default: tekton-pipelines)
+    ```
+
+Example output (example log entries):
+
+    ```
+    {"level":"info","ts":"2024-01-01T12:00:00Z","logger":"operator","msg":"Processing OpenShiftPipelinesAsCode CR"}
+    ```
+3. Manually restart the deployment:
+    ```bash
+    kubectl rollout restart deployment/pipelines-as-code-controller -n <pac-namespace>  # Replace <pac-namespace> with your actual namespace (default: tekton-pipelines)
+    ```
+
+## Multiple Certificates
+
+If you need to trust multiple CA certificates (e.g., multiple Git hosting services), you can:
+
+### Option 1: Combine Certificates in Single ConfigMap
+
+Combine multiple certificates in a single file:
+
+    ```yaml
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: git-ca-cert
+      namespace: <pac-namespace>  # Default: tekton-pipelines
+    data:
+      ca.crt: |
+        -----BEGIN CERTIFICATE-----
+        <certificate-1-content>
+        -----END CERTIFICATE-----
+        -----BEGIN CERTIFICATE-----
+        <certificate-2-content>
+        -----END CERTIFICATE-----
+    ```
+
+### Option 2: Use Separate ConfigMaps
+
+Use separate ConfigMaps and mount them in different locations, then configure Git to use a certificate bundle:
+
+    ```yaml
+    env:
+    - name: GIT_SSL_CAINFO
+      value: /etc/ssl/certs/ca-bundle.crt
+    - name: SSL_CERT_FILE
+      value: /etc/ssl/certs/ca-bundle.crt
+    ```
+
+Create a certificate bundle by combining all certificates into a single file.
+
+## Best Practices
+
+### 1. Certificate Management
+
+- **Store securely**: Keep CA certificates in secure storage
+- **Version control**: Track certificate changes in version control (if not sensitive)
+- **Documentation**: Document which certificates are used and their sources
+- **Expiration tracking**: Monitor certificate expiration dates
+
+### 2. Security
+
+- **Least privilege**: Only grant access to necessary certificates
+- **Rotation**: Rotate certificates regularly
+- **Validation**: Validate certificates before deploying
+
+### 3. Troubleshooting
+
+- **Test first**: Test certificate configuration with a test repository before applying to production
+- **Monitor logs**: Regularly check PAC controller logs for certificate errors
+- **Backup**: Keep backup copies of working certificate configurations
+
+## Next Steps
+
+- [Configure Authentication for Private Repositories](../how_to/configure_private_repo_auth.mdx) - Configure authentication for private repositories
+- [Manage PAC Component](./manage_pac.mdx) - Learn about managing PAC deployment
+- [Configure GitLab Repository](../how_to/configure_gitlab_repo.mdx) - GitLab-specific configuration guide
+- [Common Issues](../trouble_shooting/common_issues.mdx) - Troubleshooting guide
+

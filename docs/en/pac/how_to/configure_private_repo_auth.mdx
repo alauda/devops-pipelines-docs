@@ -1,0 +1,312 @@
+---
+weight: 42
+i18n:
+  title:
+    en: Configure Authentication for Private Repositories
+    zh: 配置私有仓库认证
+title: Configure Authentication for Private Repositories
+---
+
+# Configure Authentication for Private Repositories
+
+:::info For All Users
+
+This guide is specifically for **GitLab** repositories. The configuration steps are tailored for GitLab's authentication and API requirements.
+
+:::
+
+This guide explains how to configure authentication for private repositories in PAC. Private repositories require authentication credentials to allow PAC to access and clone repository contents.
+
+:::tip Understanding Authentication in PAC
+
+PAC uses authentication for private repositories:
+- **Git Provider API Authentication** (`git_provider.secret`): Used for API operations like creating webhooks, updating PR status, and accessing repository metadata. PAC also automatically creates a git clone authentication secret from this token for use in PipelineRuns.
+
+:::
+
+## Prerequisites
+
+Before configuring authentication for private repositories, ensure you have:
+
+- PAC component deployed and running
+- A Repository CR (Custom Resource) created for your repository. A Repository CR is a Kubernetes resource that tells PAC which Git repository to monitor and how to configure it
+- Admin access to create Kubernetes Secrets
+- Access tokens for your Git provider
+
+:::info What is a Repository CR?
+
+A Repository CR is a Kubernetes Custom Resource that defines:
+- The Git repository URL to monitor
+- Git provider configuration (GitHub, GitLab, etc.)
+- Authentication credentials
+- Webhook settings
+- Pipeline execution settings
+
+PAC watches Repository CRs and automatically creates PipelineRuns when events occur in the configured Git repository.
+
+:::
+
+## Overview
+
+PAC supports authentication for private GitLab repositories using **Personal Access Tokens (PAT)** with HTTPS URLs.
+
+## Configuration Steps
+
+Follow these steps to configure authentication for private repositories.
+
+### Step 1: Create Access Token in GitLab
+
+1. Go to GitLab → User Settings → Access Tokens
+2. Create a token with `api` scope
+3. Generate and copy the token
+
+### Step 2: Create Kubernetes Secret
+
+Create a secret containing your GitLab access token:
+
+    ```bash
+    kubectl create secret generic gitlab-secret \
+      --from-literal=token=your-gitlab-token-here \
+      -n <your-namespace>
+    ```
+
+Example output:
+
+    ```
+    secret/gitlab-secret created
+    ```
+
+**Note**: PAC will use this token for Git provider API operations (webhook management, PR status updates, etc.) and automatically create a git clone authentication secret from it.
+
+#### Create Webhook Secret (Optional)
+
+If you plan to configure webhooks, create a secret for webhook validation:
+
+    ```bash
+    kubectl create secret generic webhook-secret \
+      --from-literal=secret=your-webhook-secret-here \
+      -n <your-namespace>
+    ```
+
+**Security Best Practices**: 
+- Store tokens securely and use separate secrets for different repositories or environments
+- PAC automatically creates git clone authentication secrets, so you don't need to create them manually
+
+### Step 3: Update Repository CR
+
+Update your Repository CR to reference the authentication secret:
+
+    ```yaml
+    apiVersion: pipelinesascode.tekton.dev/v1alpha1
+    kind: Repository
+    metadata:
+      name: my-private-repo
+      namespace: project-pipelines
+    spec:
+      url: "https://gitlab.com/user/private-repo.git"
+      git_provider:
+        type: gitlab
+        url: "https://gitlab.com"
+        secret:
+          name: gitlab-secret
+          key: token
+        webhook_secret:
+          name: webhook-secret
+          key: secret
+    ```
+
+**Note**: PAC uses the `git_provider.secret` for API operations and automatically creates a git clone authentication secret from it for use in PipelineRuns.
+
+## Verifying Private Repository Access
+
+After configuring authentication, verify that PAC can access your private repository:
+
+### Check Repository CR Status
+
+    ```bash
+    kubectl get repository <repo-name> -n <your-namespace> -o yaml
+    ```
+
+Example output (abbreviated, showing authentication section):
+
+    ```yaml
+    apiVersion: pipelinesascode.tekton.dev/v1alpha1
+    kind: Repository
+    metadata:
+      name: my-repo
+      namespace: project-pipelines
+    spec:
+      url: "https://gitlab.com/user/private-repo.git"
+      git_provider:
+        type: gitlab
+        url: "https://gitlab.com"
+        secret:
+          name: gitlab-secret
+          key: token
+    status:
+      conditions:
+      - status: "True"
+        type: RepositoryValidated
+    ```
+
+Look for any status errors or authentication issues.
+
+### Check PAC Controller Logs
+
+    ```bash
+    kubectl logs -n <pac-namespace> -l app=pipelines-as-code-controller --tail=100 | grep -i auth  # Replace <pac-namespace> with your actual namespace (default: pipelines-as-code)
+    ```
+
+Example output (example log entries):
+
+    ```
+    {"level":"info","ts":"2024-01-01T12:00:00Z","logger":"controller","msg":"Authenticated successfully","repository":"my-repo"}
+    ```
+
+Look for authentication errors or successful access messages.
+
+### Test Pipeline Trigger
+
+Trigger a test pipeline to verify access:
+
+    ```bash
+    # Push a commit to trigger the pipeline
+    git commit --allow-empty -m "Test private repo access"
+    git push origin main
+    ```
+
+Example output:
+
+    ```
+    [main abc1234] Test private repo access
+    Enumerating objects: 3, done.
+    Writing objects: 100% (2/2), 240 bytes | 240.00 KiB/s, done.
+    To https://gitlab.com/user/private-repo.git
+       def5678..abc1234  main -> main
+    ```
+
+Check if the PipelineRun is created successfully:
+
+    ```bash
+    kubectl get pipelineruns -n <your-namespace>
+    ```
+
+Example output:
+
+    ```
+    NAME                    STARTED        DURATION   STATUS
+    simple-pipeline-xxxxx   1 minute ago  25s        Succeeded
+    ```
+
+## Troubleshooting
+
+### Check for Authentication Errors
+
+**Problem**: PAC cannot access the private repository.
+
+**Solutions**:
+1. **Verify token permissions**: Ensure the GitLab access token has the `api` scope
+
+2. **Check secret exists**: Verify the GitLab secret exists in the correct namespace:
+    ```bash
+    kubectl get secret gitlab-secret -n <your-namespace>
+    ```
+
+   Example output:
+
+    ```
+    NAME              TYPE     DATA   AGE
+    gitlab-secret     Opaque   1      5m
+    ```
+
+3. **Verify secret key**: Ensure the secret contains the token key:
+    ```bash
+    kubectl get secret gitlab-secret -n <your-namespace> -o yaml
+    ```
+
+   Example output (abbreviated, token is base64 encoded):
+
+    ```yaml
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: gitlab-secret
+      namespace: project-pipelines
+    data:
+      token: Z2xwYXQt...
+    ```
+
+4. **Check Repository CR**: Verify the secret reference in the Repository CR is correct:
+    ```bash
+    kubectl get repository <repo-name> -n <your-namespace> -o yaml | grep -A 5 git_provider
+    ```
+
+   Example output:
+
+    ```yaml
+    git_provider:
+      type: gitlab
+      url: "https://gitlab.com"
+      secret:
+        name: gitlab-secret
+        key: token
+    ```
+
+### Token Expired
+
+**Problem**: Access token has expired.
+
+**Solutions**:
+1. Generate a new access token from your Git provider
+2. Update the Kubernetes Secret:
+    ```bash
+    kubectl create secret generic gitlab-secret \
+      --from-literal=token=new-token-here \
+      -n <your-namespace> \
+      --dry-run=client -o yaml | kubectl apply -f -
+    ```
+
+   Example output:
+
+    ```
+    secret/gitlab-secret configured
+    ```
+3. Restart PAC controller pods if needed:
+    ```bash
+    kubectl rollout restart deployment pipelines-as-code-controller -n <pac-namespace>  # Replace <pac-namespace> with your actual namespace (default: pipelines-as-code)
+    ```
+
+   Example output:
+
+    ```
+       deployment.apps/pipelines-as-code-controller restarted
+    ```
+
+## Best Practices
+
+### 1. Token Management
+
+- **Use separate tokens**: Use different tokens for different repositories or environments
+- **Set expiration**: Set expiration dates on tokens for better security
+- **Rotate regularly**: Rotate access tokens periodically
+- **Limit scopes**: Only grant minimum required permissions
+
+### 2. Secret Management
+
+- **Use namespaces**: Store secrets in appropriate namespaces
+- **RBAC**: Use RBAC to control who can access secrets
+- **External secrets**: Consider using external secret management tools (e.g., Sealed Secrets, Vault)
+
+### 3. Security
+
+- **Least privilege**: Grant minimum required permissions
+- **Audit access**: Regularly audit who has access to repositories
+- **Monitor logs**: Monitor PAC controller logs for authentication issues
+
+## Next Steps
+
+- [Configure Custom Certificates](../configure/configure_custom_certificates.mdx) - Configure custom CA certificates for self-signed certificates
+- [Advanced Repository Configuration](./advanced_repository_config.mdx) - Learn about advanced repository configuration options
+- [Configure GitLab Repository](./configure_gitlab_repo.mdx) - GitLab-specific configuration guide
+- [Common Issues](../trouble_shooting/common_issues.mdx) - Troubleshooting guide
+

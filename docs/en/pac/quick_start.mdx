@@ -1,0 +1,401 @@
+---
+weight: 50
+---
+
+# Quick Start
+
+:::info Target Audience
+
+This guide covers both administrator and user tasks:
+- **Administrators**: Steps 1-2 (Deploy PAC Component, Configure Access)
+- **Regular Users**: Steps 2-4 (Configure Repository, Create Pipeline, Test)
+
+:::
+
+This guide helps you quickly deploy PAC component and configure your first Git repository integration.
+
+## Introduction
+
+This quick start guide covers:
+- Deploying PAC component on Kubernetes
+- Configuring a Git repository using `tkn pac` CLI
+  - [Install tkn pac Plugin](./how_to/tkn_pac_commands.mdx#installing-tkn-pac-plugin)
+- Creating your first pipeline in code
+
+### Estimated Reading Time
+
+20-30 minutes
+
+## Prerequisites
+
+- Kubernetes cluster (1.24+)
+- Tekton Operator installed
+- Cluster administrator permissions
+- kubectl installed and configured
+- tkn CLI installed with pac plugin
+- A Git repository with admin access
+
+## Step 1: Deploy PAC Component
+
+:::tip For Administrators
+
+This section is for cluster administrators. If PAC is already deployed in your cluster, skip to [Step 2: Configure Repository](#step-2-configure-repository).
+
+:::
+
+### Create `OpenShiftPipelinesAsCode` CR
+
+Although the resource name contains "OpenShift", PAC can be deployed on Kubernetes platforms through the Tekton Operator.
+
+Create a file named `pac.yaml`:
+
+    ```yaml
+    apiVersion: operator.tekton.dev/v1alpha1
+    kind: OpenShiftPipelinesAsCode
+    metadata:
+      name: pipelines-as-code
+    spec:
+      settings:
+        application-name: Pipelines as Code CI
+        hub-url: http://tekton-hub-api.tekton-pipelines:8000/v1
+        remote-tasks: "true"
+        
+        # (Optional) Custom Console Integration
+        # Uncomment and configure to integrate with your custom console
+        # Replace 'my-cluster' with your actual cluster name
+        # custom-console-name: "My Console"
+        # custom-console-url: "https://console.example.com"
+        # custom-console-url-pr-details: "https://console.example.com/console-acp/workspace/{{ namespace }}~my-cluster~{{ namespace }}/pipeline/pipelineRuns/detail/{{ pr }}"
+        # custom-console-url-pr-tasklog: "https://console.example.com/console-acp/workspace/{{ namespace }}~my-cluster~{{ namespace }}/pipeline/pipelineRuns/detail/{{ pr }}?tab=task_overview&id={{ task }}"
+        # custom-console-url-namespace: "https://console.example.com/console-acp/workspace/{{ namespace }}~my-cluster~{{ namespace }}/pipeline/pipelineRuns"
+        
+      targetNamespace: tekton-pipelines  # Default namespace, you can customize this
+    ```
+
+**Note**: The `targetNamespace` field specifies where PAC components will be deployed. The default is `tekton-pipelines`, but you can use any namespace name. Make sure the namespace exists before applying the configuration.
+
+**Custom Console Integration**: The commented custom console settings allow you to integrate PAC with your custom dashboard. When configured, pipeline status links in Git providers will point to your console. **Important**: Replace `my-cluster` in the URLs with your actual cluster name (ask your cluster administrator if unsure). For detailed configuration guide, step-by-step instructions, and troubleshooting, see [Configure Custom Console Links](./configure/manage_pac.mdx#configure-custom-console-links).
+
+Apply the configuration:
+
+    ```bash
+    kubectl apply -f pac.yaml
+    ```
+
+Example output:
+
+    ```
+    openshiftpipelinesascode.operator.tekton.dev/pipelines-as-code created
+    ```
+
+### Verify Deployment
+
+Check the PAC component status:
+
+    ```bash
+    kubectl get openshiftpipelinesascodes.operator.tekton.dev
+    ```
+
+Example output:
+
+    ```
+    NAME                  VERSION   READY   REASON
+    pipelines-as-code    0.x.x     True    Ready
+    ```
+
+Check the PAC pods (replace `tekton-pipelines` with your actual namespace if different):
+
+    ```bash
+    kubectl get pods -n tekton-pipelines | grep pipelines-as-code
+    ```
+
+Example output:
+
+    ```
+    NAME                                      READY   STATUS    RESTARTS   AGE
+    pipelines-as-code-controller-xxxxx        1/1     Running   0          2m
+    pipelines-as-code-watcher-xxxxx          1/1     Running   0          2m
+    pipelines-as-code-webhook-xxxxx          1/1     Running   0          2m
+    ```
+
+**Note**: Throughout this guide, `tekton-pipelines` is used as the default namespace example. If you deployed PAC in a different namespace, replace `tekton-pipelines` with your actual namespace name.
+
+You should see three pods in `Running` state:
+- `pipelines-as-code-controller-*`
+- `pipelines-as-code-watcher-*`
+- `pipelines-as-code-webhook-*`
+
+### Configure Access
+
+:::tip For Administrators
+
+This section is for cluster administrators. Regular users can skip this and proceed to Step 2.
+
+:::
+
+Expose the PAC controller so that GitLab webhooks can reach it. You can use Ingress or NodePort. See [Manage PAC Component](./configure/manage_pac.mdx#configure-access) for detailed configuration options.
+
+**Important**: The PAC controller URL must be accessible from your GitLab server. Make sure to configure the correct URL when setting up the repository.
+
+### Get PAC Controller URL
+
+After exposing the PAC controller, you can get the URL using the following methods. **Regular users** can use these commands to query the URL if needed:
+
+#### Query Ingress (if configured)
+
+Check if PAC controller is exposed via Ingress (replace `<pac-namespace>` with your PAC namespace, default is `tekton-pipelines`):
+
+    ```bash
+    kubectl get ingress -n <pac-namespace> | grep pipelines-as-code
+    ```
+
+Example output (if Ingress is configured):
+
+    ```
+    NAME                  CLASS    HOSTS              ADDRESS        PORTS   AGE
+    pipelines-as-code     nginx    pac.example.com    192.168.1.10   80      5m
+    ```
+
+If found, get the Ingress host:
+
+    ```bash
+    kubectl get ingress pipelines-as-code -n <pac-namespace> -o jsonpath='{.spec.rules[0].host}'
+    ```
+
+Example output:
+
+    ```
+    pac.example.com
+    ```
+
+#### Query NodePort Service (if configured)
+
+Check if PAC controller is exposed via NodePort (replace `<pac-namespace>` with your PAC namespace, default is `tekton-pipelines`):
+
+    ```bash
+    kubectl get svc -n <pac-namespace> pipelines-as-code-controller-nodeport
+    ```
+
+Example output (if NodePort is configured):
+
+    ```
+    NAME                                      TYPE       CLUSTER-IP      EXTERNAL-IP   PORT(S)          AGE
+    pipelines-as-code-controller-nodeport    NodePort   10.96.123.45    <none>        8080:30080/TCP   5m
+    ```
+
+If found, get the NodePort and node IP:
+
+    ```bash
+    # Set your PAC namespace (default: tekton-pipelines)
+    PAC_NAMESPACE="tekton-pipelines"
+
+    # Get NodePort
+    NODEPORT=$(kubectl get service -n ${PAC_NAMESPACE} pipelines-as-code-controller-nodeport -o jsonpath='{.spec.ports[?(@.name=="http-listener")].nodePort}')
+
+    # Get Node IP
+    NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+
+    echo "PAC Controller URL: http://${NODE_IP}:${NODEPORT}"
+    ```
+
+Example output:
+
+    ```
+    PAC Controller URL: http://192.168.1.100:30080
+    ```
+
+#### If You Cannot Find the URL
+
+If none of the above methods work or you don't have permission to query cluster resources, **contact your PAC administrator** to get the PAC controller URL.
+
+## Step 2: Configure Repository
+
+:::tip For Regular Users
+
+This section is for regular users to configure their Git repositories. If you need the PAC controller URL, see the [query instructions](#get-pac-controller-url) in Step 1 above, or contact your PAC administrator.
+
+:::
+
+:::info Understanding Namespaces
+
+In this guide, we use two different namespaces:
+- **PAC namespace**: The namespace where PAC components (controller, watcher, webhook) are deployed. Default is `tekton-pipelines`, but can be customized via `targetNamespace` in the `OpenShiftPipelinesAsCode` CR.
+- **Pipeline namespace**: The namespace where PipelineRuns are created. This is specified when creating the Repository CR and can be any namespace in your cluster.
+
+The `--pac-namespace` parameter in `tkn pac create repo` specifies the PAC namespace (where PAC is deployed), not the pipeline namespace (where pipelines will run).
+
+:::
+
+:::tip If PAC is Already Deployed
+
+If PAC is already deployed in your cluster, you can skip Step 1 and start from this step. To verify PAC is running, check the pods:
+
+```bash
+kubectl get pods -n tekton-pipelines | grep pipelines-as-code
+```
+
+You should see three pods in `Running` state. If not, contact your PAC administrator or refer to [Manage PAC Component](./configure/manage_pac.mdx).
+
+:::
+
+### Install tkn pac Plugin
+
+Ensure you have the tkn pac plugin installed:
+
+    ```bash
+    tkn pac version
+    ```
+
+Example output:
+
+    ```
+    0.39.2
+    ```
+
+If the command fails or shows an error, see the installation steps in [tkn pac Command Reference](./how_to/tkn_pac_commands.mdx#installing-tkn-pac-plugin).
+
+### Create GitLab Personal Access Token
+
+1. Go to GitLab → Settings → Access Tokens
+2. Create a token with `api` scope
+3. Save the token securely
+
+### Configure Repository with tkn pac
+
+**Important**: Navigate to your Git repository directory before running the command. The `.tekton` directory will be created in the current working directory.
+
+    ```bash
+    cd /path/to/your/gitlab/repo
+    tkn pac create repo --pac-namespace tekton-pipelines
+    ```
+
+**Note**: Replace `tekton-pipelines` with your actual PAC namespace if you deployed PAC in a different namespace. The `--pac-namespace` parameter specifies where the PAC controller is deployed.
+
+Follow the interactive prompts:
+1. Enter Git repository URL (auto-detected from current directory, or enter manually)
+2. Enter namespace for pipelines (default: `default`, enter `project-pipelines` or your preferred namespace)
+   - **Note**: The namespace must exist. Create it first: `kubectl create namespace project-pipelines`
+3. Repository CR will be created at this point
+4. Enter GitLab project ID (found in project settings → General)
+5. Enter PAC controller URL (auto-detected, or enter manually if detection fails)
+6. Enter webhook secret (or press Enter to use auto-generated default)
+7. Enter GitLab access token (the Personal Access Token you created)
+8. Enter GitLab API URL (default: `https://gitlab.com`, or enter your self-hosted GitLab URL)
+
+The command will:
+- Create Repository CR in the cluster
+- Configure GitLab webhook automatically
+- Create Kubernetes Secret with credentials
+- Generate `.tekton/pipelinerun.yaml` template in your repository
+
+## Step 3: Create Your First Pipeline
+
+The `tkn pac create repo` command creates a basic template at `.tekton/pipelinerun.yaml`. Edit it to define your pipeline:
+
+    ```yaml
+    apiVersion: tekton.dev/v1
+    kind: PipelineRun
+    metadata:
+      name: simple-pipeline
+      annotations:
+        pipelinesascode.tekton.dev/on-target-branch: "[refs/heads/main]"
+        pipelinesascode.tekton.dev/on-event: "[push]"
+    spec:
+      pipelineSpec:
+        tasks:
+        - name: hello
+          taskSpec:
+            steps:
+            - name: echo
+              image: alpine:latest
+              script: |
+                echo "Hello from Pipelines as Code!"
+    ```
+
+Commit and push to your repository:
+
+    ```bash
+    git add .tekton/pipelinerun.yaml
+    git commit -m "Add PAC pipeline"
+    git push origin <your-branch-name>
+    ```
+
+**Note**: 
+- Replace `<your-branch-name>` with your branch name (e.g., `main`, `master`, or `develop`)
+- Make sure the annotation `pipelinesascode.tekton.dev/on-target-branch` matches your branch name. For example, if your branch is `main`, use `"[refs/heads/main]"`; if it's `test`, use `"[refs/heads/test]"`
+- To match multiple branches, use comma-separated values: `"[main, develop]"` or `"[refs/heads/main,refs/heads/develop]"`
+- To match all branches, use: `"[refs/heads/*]"`
+
+## Step 4: Test the Pipeline
+
+### Trigger via Push
+
+Push a commit to the branch specified in your pipeline annotation to trigger the pipeline:
+
+    ```bash
+    echo "test" >> README.md
+    git add README.md
+    git commit -m "Test pipeline trigger"
+    git push origin <your-branch-name>
+    ```
+
+### Trigger via Merge Request
+
+Create a Merge Request to trigger the pipeline:
+
+    ```bash
+    git checkout -b feature/test
+    echo "feature" >> feature.txt
+    git add feature.txt
+    git commit -m "Add feature"
+    git push origin feature/test
+    ```
+
+Then create a Merge Request in GitLab.
+
+### Check Pipeline Status
+
+View PipelineRuns in the namespace:
+
+    ```bash
+    kubectl get pipelineruns -n project-pipelines
+    ```
+
+Example output:
+
+    ```
+    NAME                    STARTED        DURATION   STATUS
+    simple-pipeline-xxxxx   2 minutes ago  30s        Succeeded
+    ```
+
+View pipeline logs:
+
+    ```bash
+    # List all PipelineRuns
+    tkn pipelinerun list -n project-pipelines
+    ```
+
+Example output:
+
+    ```
+    NAME                    STARTED        DURATION   STATUS
+    simple-pipeline-xxxxx   2 minutes ago  30s        Succeeded
+    ```
+
+    ```bash
+    # View logs for a specific PipelineRun
+    tkn pipelinerun logs <pipelinerun-name> -n project-pipelines
+    ```
+
+Example output:
+
+    ```
+    [hello : echo] Hello from Pipelines as Code!
+    ```
+
+## Next Steps
+
+- [Manage PAC Component](./configure/manage_pac.mdx) - Deploy, update, and uninstall guide
+- [Configure Repository](./how_to/configure_gitlab_repo.mdx) - Advanced repository configuration
+- [Maintain Pipeline Code](./how_to/maintain_pipeline_code.mdx) - Pipeline definition guide
+- [Trigger Pipelines](./how_to/trigger_pipeline.mdx) - Event triggering guide

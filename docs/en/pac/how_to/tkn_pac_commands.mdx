@@ -1,0 +1,831 @@
+---
+weight: 70
+i18n:
+  title:
+    en: tkn pac Command Reference
+    zh: tkn pac 命令参考
+title: tkn pac Command Reference
+---
+
+# tkn pac Command Reference
+
+:::info For Regular Users and Administrators
+
+This guide covers `tkn pac` CLI commands:
+- **Regular Users**: Repository management, pipeline generation, and resolution commands
+- **Administrators**: Logging configuration commands (requires cluster access)
+
+:::
+
+This guide provides a comprehensive reference for the `tkn pac` CLI plugin commands, including repository management, pipeline generation, resolution, and logging configuration.
+
+## Prerequisites
+
+- `tkn` CLI installed
+- `tkn pac` plugin installed
+- kubectl configured to access your cluster
+- PAC component deployed
+
+## Installing tkn CLI
+
+See [tkn CLI Releases](https://github.com/tektoncd/cli/releases) for the latest version.
+
+### Install on macOS
+
+Download and install the tkn CLI:
+
+    ```bash
+    brew install tektoncd-cli
+    ```
+
+### Install on Linux
+
+#### Install using DEB package (Debian/Ubuntu)
+
+    ```bash
+    # Download DEB package
+    VERSION=0.43.0
+    curl -L https://github.com/tektoncd/cli/releases/download/v${VERSION}/tektoncd-cli-${VERSION}_Linux-64bit.deb -o tektoncd-cli.deb
+
+    # Install
+    sudo dpkg -i tektoncd-cli.deb
+
+    # Verify installation
+    tkn version
+    ```
+
+#### Install using RPM package (Red Hat/CentOS/Fedora)
+
+    ```bash
+    # Download RPM package
+    VERSION=0.43.0
+    curl -L https://github.com/tektoncd/cli/releases/download/v${VERSION}/tektoncd-cli-${VERSION}_Linux-64bit.rpm -o tektoncd-cli.rpm
+
+    # Install
+    sudo rpm -i tektoncd-cli.rpm
+
+    # Verify installation
+    tkn version
+    ```
+
+## Installing tkn pac Plugin
+
+See [tkn pac Releases](https://github.com/openshift-pipelines/pipelines-as-code/releases) for the latest version.
+
+### Install on macOS
+
+Download and extract the tkn-pac plugin:
+
+    ```bash
+    # Download tkn-pac for macOS
+    curl -L https://mirror.openshift.com/pub/openshift-v4/clients/pipelines/latest/tkn-macos-amd64.tar.gz -o tkn-pac.tar.gz
+
+    # Extract
+    tar -xzf tkn-pac.tar.gz
+
+    # Move to PATH (ensure tkn is also in the extracted files)
+    sudo mv tkn /usr/local/bin/tkn
+    sudo mv tkn-pac /usr/local/bin/tkn-pac
+
+    # Make executable
+    chmod +x /usr/local/bin/tkn-pac
+
+    # Verify installation
+    tkn pac version
+    ```
+
+### Install on Linux
+
+Download and extract the tkn-pac plugin:
+
+    ```bash
+    # Download tkn-pac for Linux
+    curl -L https://mirror.openshift.com/pub/openshift-v4/clients/pipelines/latest/tkn-linux-amd64.tar.gz -o tkn-pac.tar.gz
+
+    # Extract
+    tar -xzf tkn-pac.tar.gz
+
+    # Move to PATH (ensure tkn is also in the extracted files)
+    sudo mv tkn /usr/local/bin/tkn
+    sudo mv tkn-pac /usr/local/bin/tkn-pac
+
+    # Make executable
+    chmod +x /usr/local/bin/tkn-pac
+
+    # Verify installation
+    tkn pac version
+    ```
+
+### Verify Installation
+
+    ```bash
+    # Verify tkn CLI
+    tkn version
+    ```
+
+Example output:
+
+    ```
+    Client version: 0.43.0
+    Chains version: v0.25.1-0b01ff8
+    Pipeline version: v1.0.0-39dbf36
+    Triggers version: v0.32.0-e70810d
+    Operator version: v0.76.0-92ee817
+    Hub version: v1.20.0-f15375e
+    ```
+
+    ```bash
+    # Verify tkn-pac plugin
+    tkn pac version
+    ```
+
+Example output:
+
+    ```
+    0.39.2
+    ```
+
+## Repository Commands
+
+### tkn pac create repository
+
+Creates a new Pipelines as Code repository and namespace based on the pipeline run template.
+
+**Basic Syntax**:
+
+    ```bash
+    tkn pac create repo
+    ```
+
+**Interactive Mode**:
+
+The command will prompt you for:
+1. Git repository URL (auto-detected from current directory)
+2. Namespace for pipelines (default: `project-pipelines`)
+3. Git provider specific information (e.g., project ID for GitLab)
+4. PAC controller URL (auto-detected)
+5. Webhook secret (auto-generated)
+6. Git provider access token
+7. Git provider API URL (varies by provider)
+
+**What it does**:
+- Creates a Repository CR in your Kubernetes cluster
+- Configures Git provider webhook automatically
+- Creates Kubernetes Secret with Git provider credentials
+- Generates `.tekton/pipelinerun.yaml` template in your repository
+
+**Example**:
+
+    ```bash
+    cd /path/to/your/repo
+    tkn pac create repo
+    ```
+
+Example output (interactive prompts):
+
+    ```
+    ? Enter the Git repository URL: https://gitlab.com/user/repo.git
+    ? Enter the namespace where the pipeline should run (default: default): project-pipelines
+    ? Enter the GitLab project ID: 12345678
+    ? Enter the Pipelines as Code controller URL (default: http://pac.example.com): 
+    ? Enter the webhook secret (default: auto-generated): 
+    ? Enter the GitLab access token: glpat-xxxxxxxxxxxxxxxxxxxx
+    ? Enter the GitLab API URL (default: https://gitlab.com): 
+    ✓ Repository CR created successfully
+    ✓ Webhook configured in GitLab
+    ✓ Secret created
+    ✓ Template generated at .tekton/pipelinerun.yaml
+    ```
+
+For detailed usage, see [Configure Repository](./configure_gitlab_repo.mdx).
+
+### tkn pac list
+
+Lists all Pipelines as Code repositories and displays the last status of associated runs.
+
+**Basic Syntax**:
+
+    ```bash
+    tkn pac list
+    ```
+
+**List in Specific Namespace**:
+
+    ```bash
+tkn pac list -n <namespace>
+    ```
+
+**Output Format**:
+
+    ```
+REPOSITORY          NAMESPACE          URL                                    LAST RUN STATUS
+my-repo            project-pipelines  https://gitlab.com/user/repo.git       Succeeded
+another-repo       production         https://gitlab.com/user/another.git    Running
+    ```
+
+**Options**:
+
+- `-n, --namespace <namespace>`: Specify namespace to list repositories (default: current kubectl context namespace)
+- `-A, --all-namespaces`: List repositories in all namespaces
+- `-o, --output <format>`: Output format (default, json, yaml, wide)
+
+**Example**:
+
+    ```bash
+    # List all repositories in current namespace
+    tkn pac list
+
+    # List repositories in specific namespace
+    tkn pac list -n project-pipelines
+
+    # List repositories in all namespaces
+    tkn pac list -A
+    ```
+
+### tkn pac repo describe
+
+Describes a Pipelines as Code repository and associated runs.
+
+**Basic Syntax**:
+
+    ```bash
+    tkn pac repo describe <repository-name>
+    ```
+
+**Options**:
+
+- `-n, --namespace <namespace>`: Specify namespace where the repository is located (default: current kubectl context namespace)
+- `-o, --output <format>`: Output format (default, json, yaml)
+
+**Output Includes**:
+- Repository CR details
+- Git provider configuration
+- Webhook configuration
+- Recent PipelineRun status
+- Last run information
+
+**Example**:
+
+    ```bash
+    # Describe repository in current namespace
+    tkn pac repo describe my-repo
+
+    # Describe repository in specific namespace
+    tkn pac repo describe my-repo -n project-pipelines
+    ```
+
+Example output:
+
+    ```
+    Repository: my-repo
+    Namespace: project-pipelines
+    URL: https://gitlab.com/user/repo.git
+    Git Provider: gitlab
+    Status: Ready
+
+    Recent Runs:
+      - pipelinerun-abc123: Succeeded (2 minutes ago)
+      - pipelinerun-def456: Running (5 minutes ago)
+      - pipelinerun-ghi789: Failed (10 minutes ago)
+    ```
+
+## Generate Command
+
+### tkn pac generate
+
+Generates a simple PipelineRun template.
+
+**Basic Syntax**:
+
+    ```bash
+    tkn pac generate
+    ```
+
+**Features**:
+- Automatically detects current Git information from the directory
+- Uses basic language detection capability
+- Adds extra tasks depending on the detected language
+- Creates `.tekton/pipelinerun.yaml` template
+
+**Language Detection**:
+
+The command detects the project language and adds appropriate tasks:
+
+- **Python**: Detects `setup.py` or `requirements.txt`, adds `pylint` task
+- **Go**: Detects `go.mod`, adds `golangci-lint` task
+- **Node.js**: Detects `package.json`, adds `npm` tasks
+- **Java**: Detects `pom.xml`, adds `maven` tasks
+
+**Example**:
+
+    ```bash
+    # Navigate to your repository
+    cd /path/to/your/repo
+
+    # Generate pipeline template
+    tkn pac generate
+    ```
+
+Example output:
+
+    ```
+    ✓ Pipeline template generated at .tekton/pipelinerun.yaml
+    ```
+
+**Generated Template Example**:
+
+    ```yaml
+    apiVersion: tekton.dev/v1
+    kind: PipelineRun
+    metadata:
+      name: generated-pipeline
+      annotations:
+        pipelinesascode.tekton.dev/on-target-branch: "[refs/heads/main]"
+        pipelinesascode.tekton.dev/on-event: "[push]"
+    spec:
+      pipelineSpec:
+        tasks:
+        - name: hello
+          taskSpec:
+            steps:
+            - name: echo
+              image: alpine:latest
+              script: |
+                echo "Hello from generated pipeline!"
+    ```
+
+## Resolve Command
+
+### tkn pac resolve
+
+Executes a pipeline run as if it is owned by the Pipelines as Code service. This is useful for testing pipeline definitions locally without creating a new commit.
+
+:::info What Does "Resolve" Mean?
+
+The `resolve` command processes your PipelineRun definition and:
+- Replaces PAC variables (like `{{repo_url}}`, `{{revision}}`) with actual values
+- Resolves task annotations (fetches tasks from Tekton Hub if needed)
+- Validates the pipeline structure
+- Shows you what the final PipelineRun would look like
+
+**Important**: This command does **not** create a PipelineRun in your cluster. It only processes and validates the pipeline definition locally.
+
+:::
+
+**Basic Syntax**:
+
+    ```bash
+    tkn pac resolve -f <pipeline-file>
+    ```
+
+**Options**:
+- `-f, --file`: Path to pipeline file or directory (required)
+- `-p, --param`: Override parameter values (format: `key=value`)
+- `-o, --output`: Output format (yaml, json, or default)
+
+**Resolve from File**:
+
+    ```bash
+    tkn pac resolve -f .tekton/pull-request.yaml
+    ```
+
+**Resolve from Directory**:
+
+    ```bash
+    tkn pac resolve -f .tekton/
+    ```
+
+The command processes all `.yaml` and `.yml` files in the directory.
+
+**Override Parameters**:
+
+You can override default parameter values derived from the Git repository:
+
+    ```bash
+    tkn pac resolve -f .tekton/pipelinerun.yaml \
+      -p revision=main \
+      -p repo_name=my-repo
+    ```
+
+**Multiple Files**:
+
+You can use the `-f` flag multiple times:
+
+    ```bash
+    tkn pac resolve -f .tekton/pipeline1.yaml -f .tekton/pipeline2.yaml
+    ```
+
+**Auto-Detection**:
+
+When run from a source code repository, the command attempts to:
+- Detect current Git information
+- Automatically resolve parameters such as:
+  - Current revision (commit SHA)
+  - Branch name
+  - Repository URL
+  - Repository name
+
+**Example**:
+
+    ```bash
+    # Resolve pipeline from current directory
+    cd /path/to/your/repo
+    tkn pac resolve -f .tekton/pipelinerun.yaml
+    ```
+
+Example output:
+
+    ```
+    Resolved pipeline:
+    - revision: abc1234
+    - repo_url: https://gitlab.com/user/repo.git
+    - branch: main
+    ✓ Pipeline resolved successfully
+    ```
+
+**Output Format**:
+
+The command outputs the resolved PipelineRun YAML to stdout. You can:
+- Save it to a file: `tkn pac resolve -f .tekton/pipelinerun.yaml > resolved.yaml`
+- View it directly: `tkn pac resolve -f .tekton/pipelinerun.yaml`
+- Use it for validation: Check if variables are resolved correctly before committing
+
+    ```bash
+    # Resolve with custom parameters
+    tkn pac resolve -f .tekton/pipelinerun.yaml \
+      -p revision=feature-branch \
+      -p repo_name=custom-repo
+    ```
+
+Example output:
+
+    ```
+    Resolved pipeline:
+    - revision: feature-branch
+    - repo_url: https://gitlab.com/user/custom-repo.git
+    - branch: feature-branch
+    ✓ Pipeline resolved successfully
+    ```
+
+**Use Cases**:
+- Test pipeline definitions locally
+- Debug pipeline issues without creating commits
+- Validate pipeline syntax before committing
+- Test parameter resolution
+
+## Configuring PAC Logging
+
+:::warning For Administrators Only
+
+Logging configuration requires cluster administrator permissions and access to the `OpenShiftPipelinesAsCode` CR. Regular users should contact their cluster administrator for logging configuration changes.
+
+:::
+
+You can configure Pipelines as Code logging by editing the logging configuration in the `OpenShiftPipelinesAsCode` CR.
+
+### Configure Log Levels
+
+Edit the `OpenShiftPipelinesAsCode` CR to set log levels:
+
+    ```yaml
+    apiVersion: operator.tekton.dev/v1alpha1
+    kind: OpenShiftPipelinesAsCode
+    metadata:
+      name: pipelines-as-code
+    spec:
+      settings:
+        application-name: Pipelines as Code CI
+        hub-url: http://tekton-hub-api.tekton-pipelines:8000/v1
+      targetNamespace: tekton-pipelines  # Default namespace, you can customize this
+      options:
+        configMaps:
+          pac-config-logging:
+            data:
+              loglevel.pac-watcher: warn
+              loglevel.pipelines-as-code-webhook: warn
+              loglevel.pipelinesascode: warn
+              zap-logger-config: |
+                {
+                  "level": "info",
+                  "development": false,
+                  "sampling": {
+                    "initial": 100,
+                    "thereafter": 100
+                  },
+                  "outputPaths": ["stdout"],
+                  "errorOutputPaths": ["stderr"],
+                  "encoding": "json",
+                  "encoderConfig": {
+                    "timeKey": "ts",
+                    "levelKey": "level",
+                    "nameKey": "logger",
+                    "callerKey": "caller",
+                    "messageKey": "msg",
+                    "stacktraceKey": "stacktrace",
+                    "lineEnding": "",
+                    "levelEncoder": "",
+                    "timeEncoder": "iso8601",
+                    "durationEncoder": "",
+                    "callerEncoder": ""
+                  }
+                }
+    ```
+
+### Log Level Options
+
+Available log levels:
+- `debug`: Detailed debugging information
+- `info`: General informational messages
+- `warn`: Warning messages
+- `error`: Error messages
+
+### Component-Specific Log Levels
+
+You can set different log levels for each PAC component:
+
+- `loglevel.pac-watcher`: Log level for the pipelines-as-code-watcher component
+- `loglevel.pipelines-as-code-webhook`: Log level for the pipelines-as-code-webhook component
+- `loglevel.pipelinesascode`: Log level for the pipelines-as-code-controller component
+
+### Custom Logging Config Map
+
+You can create a custom logging config map and reference it in the deployment:
+
+    ```yaml
+    apiVersion: operator.tekton.dev/v1alpha1
+    kind: OpenShiftPipelinesAsCode
+    metadata:
+      name: pipelines-as-code
+    spec:
+      settings:
+        application-name: Pipelines as Code CI
+      targetNamespace: tekton-pipelines  # Default namespace, you can customize this
+      options:
+        configMaps:
+          custom-pac-config-logging:
+            data:
+              loglevel.pac-watcher: warn
+              loglevel.pipelines-as-code-webhook: warn
+              loglevel.pipelinesascode: warn
+              zap-logger-config: |
+                {
+                  "level": "info",
+                  "development": false,
+                  "sampling": {
+                    "initial": 100,
+                    "thereafter": 100
+                  },
+                  "outputPaths": ["stdout"],
+                  "errorOutputPaths": ["stderr"],
+                  "encoding": "json",
+                  "encoderConfig": {
+                    "timeKey": "ts",
+                    "levelKey": "level",
+                    "nameKey": "logger",
+                    "callerKey": "caller",
+                    "messageKey": "msg",
+                    "stacktraceKey": "stacktrace",
+                    "lineEnding": "",
+                    "levelEncoder": "",
+                    "timeEncoder": "iso8601",
+                    "durationEncoder": "",
+                    "callerEncoder": ""
+                  }
+                }
+        deployments:
+          pipelines-as-code-controller:
+            spec:
+              template:
+                spec:
+                  containers:
+                  - name: pac-controller
+                    env:
+                    - name: CONFIG_LOGGING_NAME
+                      value: custom-pac-config-logging
+          pipelines-as-code-watcher:
+            spec:
+              template:
+                spec:
+                  containers:
+                  - name: pac-watcher
+                    env:
+                    - name: CONFIG_LOGGING_NAME
+                      value: custom-pac-config-logging
+          pipelines-as-code-webhook:
+            spec:
+              template:
+                spec:
+                  containers:
+                  - name: pac-webhook
+                    env:
+                    - name: CONFIG_LOGGING_NAME
+                      value: custom-pac-config-logging
+    ```
+
+### Apply Logging Configuration
+
+After editing the `OpenShiftPipelinesAsCode` CR:
+
+    ```bash
+    kubectl apply -f pac-config.yaml
+    ```
+
+Example output:
+
+    ```
+    openshiftpipelinesascode.operator.tekton.dev/pipelines-as-code configured
+    ```
+
+The operator will automatically update the PAC components with the new logging configuration.
+
+### Verify Logging Configuration
+
+Check the ConfigMap:
+
+    ```bash
+    kubectl get configmap pac-config-logging -n <pac-namespace> -o yaml  # Replace <pac-namespace> with your actual namespace (default: tekton-pipelines)
+    ```
+
+Example output:
+
+    ```yaml
+    apiVersion: v1
+    data:
+      loglevel.pac-watcher: info
+      loglevel.pipelines-as-code-webhook: info
+      loglevel.pipelinesascode: info
+      zap-logger-config: |
+        {
+          "level": "info",
+          "development": false,
+          "sampling": {
+            "initial": 100,
+            "thereafter": 100
+          },
+          "outputPaths": ["stdout"],
+          "errorOutputPaths": ["stderr"],
+          "encoding": "json",
+          "encoderConfig": {
+            "timeKey": "ts",
+            "levelKey": "level",
+            "nameKey": "logger",
+            "callerKey": "caller",
+            "messageKey": "msg",
+            "stacktraceKey": "stacktrace",
+            "lineEnding": "",
+            "levelEncoder": "",
+            "timeEncoder": "iso8601",
+            "durationEncoder": "",
+            "callerEncoder": ""
+          }
+        }
+    kind: ConfigMap
+    metadata:
+      name: pac-config-logging
+      namespace: tekton-pipelines
+    ```
+
+Check pod environment variables:
+
+    ```bash
+    kubectl get pod -n <pac-namespace> -l app=pipelines-as-code-controller -o jsonpath='{.items[0].spec.containers[0].env}'  # Replace <pac-namespace> with your actual namespace (default: tekton-pipelines)
+    ```
+
+Example output:
+
+    ```json
+    [
+      {
+        "name": "CONFIG_LOGGING_NAME",
+        "value": "pac-config-logging"
+      },
+      {
+        "name": "KUBERNETES_SERVICE_HOST",
+        "value": "10.96.0.1"
+      }
+    ]
+    ```
+
+## Splitting Logs by Namespace
+
+PAC logs contain namespace information, making it possible to filter logs or split logs by a particular namespace.
+
+### View Logs for Specific Namespace
+
+To view PAC controller logs related to a specific namespace:
+
+    ```bash
+    kubectl logs pipelines-as-code-controller-<unique-id> -n <pac-namespace> | grep <namespace>  # Replace <pac-namespace> with your actual namespace (default: tekton-pipelines)
+    ```
+
+Example output:
+
+    ```
+    {"level":"info","ts":"2024-01-01T12:00:00Z","logger":"controller","msg":"Processing event","namespace":"project-pipelines","repository":"my-repo"}
+    {"level":"info","ts":"2024-01-01T12:00:01Z","logger":"controller","msg":"PipelineRun created","namespace":"project-pipelines"}
+    ```
+
+Replace `<unique-id>` with the actual controller pod name, `<pac-namespace>` with your PAC namespace (default: `tekton-pipelines`), and `<namespace>` with your target namespace.
+
+### Filter Logs by Namespace
+
+    ```bash
+    # Set your PAC namespace (default: tekton-pipelines)
+    PAC_NAMESPACE="tekton-pipelines"
+
+    # Get controller pod name
+    CONTROLLER_POD=$(kubectl get pods -n ${PAC_NAMESPACE} -l app=pipelines-as-code-controller -o jsonpath='{.items[0].metadata.name}')
+
+    # View logs for specific namespace (replace <namespace> with your target namespace)
+    kubectl logs $CONTROLLER_POD -n ${PAC_NAMESPACE} | grep '"namespace":"<namespace>"'
+    ```
+
+Example output (same format as above):
+
+    ```
+    {"level":"info","ts":"2024-01-01T12:00:00Z","logger":"controller","msg":"Processing event","namespace":"project-pipelines","repository":"my-repo"}
+    {"level":"info","ts":"2024-01-01T12:00:01Z","logger":"controller","msg":"PipelineRun created","namespace":"project-pipelines"}
+    ```
+
+### Log Format
+
+PAC logs include namespace information in the log messages, allowing you to filter by namespace:
+
+    ```
+    {"level":"info","ts":"2024-01-01T12:00:00Z","logger":"controller","msg":"Processing event","namespace":"project-pipelines","repository":"my-repo"}
+    ```
+
+## Global Options
+
+All `tkn pac` commands support the following global options:
+
+- `-h, --help`: Show help for the command
+- `-v, --version`: Show version information
+- `--kubeconfig`: Path to kubeconfig file
+- `--context`: Kubernetes context to use
+
+## Best Practices
+
+### 1. Repository Management
+
+- **Use descriptive names**: Choose clear repository names
+- **Organize by namespace**: Group related repositories in namespaces
+- **Regular monitoring**: Use `tkn pac list` to monitor repository status
+
+### 2. Pipeline Generation
+
+- **Review generated templates**: Always review and customize generated pipelines
+- **Test locally**: Use `tkn pac resolve` to test pipelines before committing
+- **Version control**: Commit pipeline definitions to Git
+
+### 3. Logging
+
+- **Set appropriate levels**: Use `warn` or `error` in production
+- **Monitor logs**: Regularly review logs for errors
+- **Filter by namespace**: Use namespace filtering for large clusters
+
+## Troubleshooting
+
+### Command Not Found
+
+If `tkn pac` command is not found:
+
+1. **Verify installation**:
+
+    ```bash
+    tkn pac version
+    ```
+
+    Example output:
+
+    ```
+    0.39.2
+    ```
+
+2. **Check PATH**: Ensure `tkn-pac` is in your PATH
+3. **Reinstall**: Reinstall the plugin if needed
+
+### Connection Issues
+
+If commands fail to connect to the cluster:
+
+1. **Verify kubectl**: Test kubectl connection
+2. **Check context**: Verify Kubernetes context
+3. **Review permissions**: Ensure you have required permissions
+
+### Logging Not Applied
+
+If logging configuration is not applied:
+
+1. **Verify CR**: Check `OpenShiftPipelinesAsCode` CR status
+2. **Check ConfigMap**: Verify ConfigMap exists
+3. **Review pod logs**: Check if pods are using the config
+4. **Restart pods**: Restart PAC pods if needed
+
+## Next Steps
+
+- [Configure Repository](./configure_gitlab_repo.mdx) - Repository setup guide
+- [Manage Pipeline Runs](./manage_pipelineruns.mdx) - PipelineRun management
+- [Manage PAC Component](../configure/manage_pac.mdx) - PAC component management
+- [Common Issues](../trouble_shooting/common_issues.mdx) - Troubleshooting guide
+

@@ -1,0 +1,1264 @@
+---
+weight: 10
+i18n:
+  title:
+    en: Common Issues
+    zh: 常见问题
+title: Common Issues
+---
+
+# Common Issues
+
+:::info For All Users
+
+This troubleshooting guide covers issues for both **administrators** (component deployment, configuration) and **regular users** (repository setup, pipeline execution).
+
+**Important**: Throughout this document, we use two different namespaces:
+- **`<pac-namespace>`**: The namespace where PAC components (controller, watcher, webhook) are deployed. Default is `tekton-pipelines`, but can be customized via `targetNamespace` in the `OpenShiftPipelinesAsCode` CR.
+- **`<namespace>`**: The namespace where PipelineRuns are created. This is specified when creating the Repository CR and can be any namespace in your cluster.
+
+Replace these placeholders with your actual namespace names.
+
+:::
+
+This document provides troubleshooting steps for common issues encountered when using Pipelines-as-Code (PAC).
+
+## Before You Start
+
+Before troubleshooting specific issues, verify these basics:
+
+### 1. Check PAC Components Are Running
+
+Verify all PAC pods are running (replace `<pac-namespace>` with your PAC namespace, default is `tekton-pipelines`):
+
+```bash
+kubectl get pods -n <pac-namespace> | grep pipelines-as-code
+```
+
+Example output (all pods should be `Running`):
+
+```
+NAME                                      READY   STATUS    RESTARTS   AGE
+pipelines-as-code-controller-xxxxx        1/1     Running   0          5m
+pipelines-as-code-watcher-xxxxx           1/1     Running   0          5m
+pipelines-as-code-webhook-xxxxx           1/1     Running   0          5m
+```
+
+### 2. Determine Your Namespaces
+
+**Get PAC namespace** (where PAC components are deployed):
+
+```bash
+kubectl get openshiftpipelinesascodes.operator.tekton.dev pipelines-as-code -o jsonpath='{.spec.targetNamespace}'
+```
+
+If the command fails or returns empty, use the default: `tekton-pipelines`
+
+**Get Pipeline namespace** (where PipelineRuns are created):
+
+```bash
+kubectl get repository -A
+```
+
+This shows all Repository CRs and their namespaces. The namespace column shows where PipelineRuns will be created.
+
+### 3. Get Resource Names
+
+**Get pod names**:
+
+```bash
+kubectl get pods -n <pac-namespace> | grep pipelines-as-code
+```
+
+**Get Repository CR names**:
+
+```bash
+kubectl get repository -n <namespace>
+```
+
+**Get PipelineRun names**:
+
+```bash
+kubectl get pipelinerun -n <namespace>
+```
+
+### 4. Common Placeholders Used in This Document
+
+- `<pac-namespace>`: PAC deployment namespace (default: `tekton-pipelines`)
+- `<namespace>`: PipelineRun namespace (varies by repository)
+- `<repo-name>`: Repository CR name (use `kubectl get repository -n <namespace>` to list)
+- `<pod-name>`: Pod name (use `kubectl get pods -n <pac-namespace>` to list)
+- `<name>`: PipelineRun name (use `kubectl get pipelinerun -n <namespace>` to list)
+- `<gitlab-secret>`: GitLab token secret name (check Repository CR spec)
+
+## PAC Component Not Deploying
+
+### Symptom
+
+`OpenShiftPipelinesAsCode` CR shows `Ready: False` or pods are not starting.
+
+### Troubleshooting Steps
+
+1. **Check CR Status**:
+
+    ```bash
+    kubectl get openshiftpipelinesascodes.operator.tekton.dev pipelines-as-code -o yaml
+    ```
+
+Example output (abbreviated):
+
+    ```yaml
+    apiVersion: operator.tekton.dev/v1alpha1
+    kind: OpenShiftPipelinesAsCode
+    metadata:
+      name: pipelines-as-code
+    status:
+      conditions:
+      - status: "False"
+        type: Ready
+        reason: DeploymentFailed
+    ```
+
+2. **Check CR Events**:
+
+    ```bash
+    kubectl describe openshiftpipelinesascodes.operator.tekton.dev pipelines-as-code
+    ```
+
+Example output (abbreviated):
+
+    ```
+    Name:         pipelines-as-code
+    Status:       False
+    Events:
+    Type     Reason           Age   From              Message
+    ----     ------           ----  ----              -------
+    Warning  DeploymentFailed 5m    tekton-operator   Failed to deploy PAC component
+    ```
+
+3. **Check TektonInstallerSet** (replace `<pac-namespace>` with your PAC namespace):
+
+    ```bash
+    kubectl get tektoninstallersets -n <pac-namespace> | grep pipelines-as-code
+    kubectl describe tektoninstallerset <name> -n <pac-namespace>
+    ```
+
+   **Note**: `TektonInstallerSet` is an internal operator resource. This is a read-only check for troubleshooting. Do not modify or delete it directly. If issues persist, troubleshoot through the `OpenShiftPipelinesAsCode` CR.
+
+Example output:
+
+    ```
+    NAME                              AGE
+    pipelines-as-code-installer-set   5m
+    ```
+
+4. **Check Operator Logs**:
+
+    ```bash
+    kubectl logs -n <pac-namespace> -l app.kubernetes.io/name=tekton-operator --tail=100
+    ```
+
+Example output (example log entries):
+
+    ```
+    {"level":"error","ts":"2024-01-01T12:00:00Z","logger":"operator","msg":"Failed to deploy PAC","error":"..."}
+    ```
+
+### Common Causes
+
+- **Incorrect CR name**: Must be exactly `pipelines-as-code`
+- **Operator not running**: Check Tekton Operator status
+- **Namespace issues**: Verify `targetNamespace` exists
+- **Resource conflicts**: Check for existing resources
+
+### Solution
+
+1. Verify the CR name is `pipelines-as-code`
+2. Ensure Tekton Operator is running
+3. Check namespace exists (replace `<pac-namespace>` with your actual PAC namespace): `kubectl get namespace <pac-namespace>`
+4. Delete and recreate the CR if needed
+
+## PAC Pods Not Starting
+
+### Symptom
+
+PAC pods are in `Pending` or `CrashLoopBackOff` state.
+
+### Troubleshooting Steps
+
+1. **Check Pod Status** (replace `<pac-namespace>` with your PAC namespace):
+
+    ```bash
+    kubectl get pods -n <pac-namespace> | grep pipelines-as-code
+    ```
+
+Example output:
+
+    ```
+    NAME                                      READY   STATUS             RESTARTS   AGE
+    pipelines-as-code-controller-xxxxx        0/1     CrashLoopBackOff   5          5m
+    pipelines-as-code-watcher-xxxxx          0/1     Pending            0          5m
+    ```
+
+2. **Check Pod Logs**:
+
+    First, get the pod name (replace `<pac-namespace>` with your PAC namespace):
+
+    ```bash
+    kubectl get pods -n <pac-namespace> | grep pipelines-as-code
+    ```
+
+    Then check logs (replace `<pod-name>` with the actual pod name):
+
+    ```bash
+    kubectl logs -n <pac-namespace> <pod-name>
+    ```
+
+Example output (example error):
+
+    ```
+    Error: failed to start controller: cannot connect to database
+    ```
+
+3. **Check Pod Events**:
+
+    Get the pod name first, then describe it (replace `<pod-name>` with the actual pod name):
+
+    ```bash
+    kubectl describe pod <pod-name> -n <pac-namespace>
+    ```
+
+Example output (abbreviated):
+
+    ```
+    Name:         pipelines-as-code-controller-xxxxx
+    Status:       CrashLoopBackOff
+    Events:
+    Type     Reason     Age   From               Message
+    ----     ------     ----  ----               -------
+    Warning  Failed     5m    kubelet            Error: ImagePullBackOff
+    ```
+
+4. **Check Resource Limits**:
+
+    ```bash
+    kubectl get pod <pod-name> -n <pac-namespace> -o yaml | grep -A 5 resources
+    ```
+
+Example output:
+
+    ```yaml
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+    ```
+
+### Common Causes
+
+- **Insufficient resources**: CPU or memory limits too low
+- **Image pull errors**: Cannot pull container images
+- **ConfigMap/Secret missing**: Required configuration not found
+- **RBAC issues**: ServiceAccount lacks permissions
+
+### Solution
+
+1. Check node resources: 
+
+    ```bash
+    kubectl top nodes
+    ```
+
+Example output:
+
+    ```
+    NAME       CPU(cores)   MEMORY(bytes)
+    node-1     500m         2Gi
+    node-2     300m         1.5Gi
+    ```
+
+2. Verify image pull secrets (replace `<pac-namespace>` with your PAC namespace): 
+
+    ```bash
+    kubectl get secrets -n <pac-namespace>
+    ```
+
+Example output:
+
+    ```
+    NAME                  TYPE                                  DATA   AGE
+    default-token-xxxxx   kubernetes.io/service-account-token  3      10m
+    ```
+
+3. Check ConfigMap exists: 
+
+    ```bash
+    kubectl get configmap pipelines-as-code -n <pac-namespace>
+    ```
+
+Example output:
+
+    ```
+    NAME                        DATA   AGE
+    pipelines-as-code           5      10m
+    ```
+
+4. **Verify ServiceAccount permissions**:
+
+    Check if the ServiceAccount has required permissions:
+
+    ```bash
+    # Check what ServiceAccount is used by PAC pods
+    kubectl get pod <pod-name> -n <pac-namespace> -o jsonpath='{.spec.serviceAccountName}'
+    
+    # Check if ServiceAccount exists
+    kubectl get serviceaccount <service-account-name> -n <pac-namespace>
+    
+    # Check RoleBindings/ClusterRoleBindings
+    kubectl get rolebindings,clusterrolebindings | grep <service-account-name>
+    ```
+
+### Verification
+
+After applying solutions, verify the fix:
+
+1. **Check pod status**:
+
+    ```bash
+    kubectl get pods -n <pac-namespace> | grep pipelines-as-code
+    ```
+
+    All pods should show `Running` status with `1/1` ready.
+
+2. **Check pod logs for errors**:
+
+    ```bash
+    kubectl logs -n <pac-namespace> <pod-name> --tail=50
+    ```
+
+    Look for any error messages or warnings.
+
+## Webhook Not Receiving Events
+
+### Symptom
+
+GitLab webhook events are not reaching PAC, pipelines not triggering.
+
+### Troubleshooting Steps
+
+1. **Check Webhook Configuration in GitLab**:
+
+   - Go to GitLab project → Settings → Webhooks
+   - Verify webhook URL is correct
+   - Check webhook secret matches Repository CR
+
+2. **Check PAC Controller Logs** (replace `<pac-namespace>` with your PAC namespace):
+
+    ```bash
+    kubectl logs -n <pac-namespace> -l app=pipelines-as-code-controller --tail=100
+    ```
+
+Example output (example log entries):
+
+    ```
+    {"level":"info","ts":"2024-01-01T12:00:00Z","logger":"controller","msg":"Received webhook event"}
+    {"level":"error","ts":"2024-01-01T12:00:01Z","logger":"controller","msg":"Webhook validation failed","error":"invalid signature"}
+    ```
+
+3. **Test Webhook from GitLab**:
+
+   - Go to GitLab project → Settings → Webhooks
+   - Click "Test" → "Push events"
+   - Check webhook response
+
+4. **Verify Controller URL is Accessible**:
+
+    ```bash
+    # If using Ingress
+    curl -I http://pac.example.com
+    ```
+
+Example output:
+
+    ```
+    HTTP/1.1 200 OK
+    Content-Type: text/plain
+    ```
+
+    ```bash
+    # If using NodePort
+    curl -I http://<node-ip>:<node-port>
+    ```
+
+Example output:
+
+    ```
+    HTTP/1.1 200 OK
+    Content-Type: text/plain
+    ```
+
+5. **Check Repository CR**:
+
+    First, list all Repository CRs to find the name (replace `<namespace>` with your Pipeline namespace):
+
+    ```bash
+    kubectl get repository -n <namespace>
+    ```
+
+    Then check the specific Repository CR (replace `<repo-name>` with the actual repository name):
+
+    ```bash
+    kubectl get repository <repo-name> -n <namespace> -o yaml
+    ```
+
+Example output (abbreviated):
+
+    ```yaml
+    apiVersion: pipelinesascode.tekton.dev/v1alpha1
+    kind: Repository
+    metadata:
+      name: my-repo
+    spec:
+      git_provider:
+        webhook_secret:
+          name: webhook-secret
+          key: secret
+    ```
+
+### Common Causes
+
+- **Controller URL not accessible**: Firewall or network issues
+- **Webhook secret mismatch**: Secret in GitLab doesn't match Repository CR
+- **Webhook URL incorrect**: Wrong controller URL configured
+- **Ingress/Service not configured**: Controller not exposed
+
+### Solution
+
+1. Verify controller URL is accessible from GitLab servers
+2. Ensure webhook secret matches in both GitLab and Repository CR
+3. Check Ingress/Service configuration
+4. Test webhook manually using `curl`
+
+### Verification
+
+After applying solutions, verify the fix:
+
+1. **Test webhook from GitLab**:
+   - Go to GitLab project → Settings → Webhooks
+   - Click "Test" → "Push events"
+   - Check that webhook returns `200 OK` response
+
+2. **Check PAC Controller logs** for webhook events:
+
+    ```bash
+    kubectl logs -n <pac-namespace> -l app=pipelines-as-code-controller --tail=50 | grep -i webhook
+    ```
+
+    You should see log entries indicating webhook events are being received.
+
+## Pipeline Not Triggering
+
+### Symptom
+
+Pipelines are not being created when Git events occur.
+
+### Troubleshooting Steps
+
+1. **Check Pipeline Annotations**:
+
+    ```bash
+    cat .tekton/pipelinerun.yaml | grep pipelinesascode.tekton.dev
+    ```
+
+Example output:
+
+    ```
+    pipelinesascode.tekton.dev/on-target-branch: "[refs/heads/main]"
+    pipelinesascode.tekton.dev/on-event: "[push]"
+    ```
+
+2. **Verify Branch Names Match**:
+
+    ```bash
+    git branch --show-current
+    git log --oneline -1
+    ```
+
+Example output:
+
+    ```
+    main
+    abc1234 Test commit
+    ```
+
+3. **Check PAC Controller Logs**:
+
+    ```bash
+    kubectl logs -n <pac-namespace> -l app=pipelines-as-code-controller --tail=100 | grep -i trigger
+    ```
+
+Example output (example log entries):
+
+    ```
+    {"level":"info","ts":"2024-01-01T12:00:00Z","logger":"controller","msg":"Processing trigger","branch":"main","event":"push"}
+    {"level":"warn","ts":"2024-01-01T12:00:01Z","logger":"controller","msg":"Branch mismatch","expected":"main","actual":"develop"}
+    ```
+
+4. **Check Repository CR Status**:
+
+    First, list Repository CRs to find the name:
+
+    ```bash
+    kubectl get repository -n <namespace>
+    ```
+
+    Then check the Repository CR (replace `<repo-name>` with the actual repository name):
+
+    ```bash
+    kubectl get repository <repo-name> -n <namespace> -o yaml
+    kubectl describe repository <repo-name> -n <namespace>
+    ```
+
+Example output (abbreviated):
+
+    ```
+    Name:         my-repo
+    Namespace:    project-pipelines
+    Status:       Ready
+    Events:
+    Type    Reason   Age   From     Message
+    ----    ------   ----  ----     -------
+    Normal  Ready    5m    pac      Repository validated
+    ```
+
+5. **Verify Pipeline File Exists**:
+
+    ```bash
+    git ls-files .tekton/
+    ```
+
+Example output:
+
+    ```
+    .tekton/pipelinerun.yaml
+    ```
+
+### Common Causes
+
+- **Annotation syntax error**: Incorrect annotation format
+- **Branch name mismatch**: Branch pattern doesn't match actual branch
+- **Pipeline file not found**: File not in expected location
+- **Path filtering**: Files changed don't match path filter
+- **Repository CR not found**: No matching Repository CR for the repository
+
+### Solution
+
+1. Verify annotation syntax: Use `pipelinesascode.tekton.dev/on-target-branch: "[refs/heads/main]"` and `pipelinesascode.tekton.dev/on-event: "[push]"` instead of the deprecated `on-push` annotation
+2. Check branch names match exactly (case-sensitive)
+3. Ensure `.tekton/pipelinerun.yaml` exists in repository
+4. Review path filtering if configured
+5. Verify Repository CR exists and matches repository URL
+
+### Verification
+
+After applying solutions, verify the fix:
+
+1. **Trigger a test event**:
+   - Push a commit to the branch specified in your pipeline annotation
+   - Or create a Merge Request if testing MR triggers
+
+2. **Check if PipelineRun is created**:
+
+    ```bash
+    kubectl get pipelinerun -n <namespace> --sort-by=.metadata.creationTimestamp | tail -5
+    ```
+
+    You should see a new PipelineRun created after the Git event.
+
+3. **Check PAC Controller logs**:
+
+    ```bash
+    kubectl logs -n <pac-namespace> -l app=pipelines-as-code-controller --tail=50 | grep -i trigger
+    ```
+
+    Look for log entries indicating the event was processed.
+
+## PipelineRuns Not Created
+
+### Symptom
+
+Webhook events are received but PipelineRuns are not created.
+
+### Troubleshooting Steps
+
+1. **Check PAC Controller Logs**:
+
+    ```bash
+    kubectl logs -n <pac-namespace> -l app=pipelines-as-code-controller --tail=200
+    ```
+
+Example output (example error):
+
+    ```
+    {"level":"error","ts":"2024-01-01T12:00:00Z","logger":"controller","msg":"Failed to create PipelineRun","error":"namespaces \"project-pipelines\" not found"}
+    ```
+
+2. **Check Repository CR**:
+
+    First, list Repository CRs to find the name:
+
+    ```bash
+    kubectl get repository -n <namespace>
+    ```
+
+    Then check the Repository CR (replace `<repo-name>` with the actual repository name):
+
+    ```bash
+    kubectl get repository <repo-name> -n <namespace> -o yaml
+    kubectl describe repository <repo-name> -n <namespace>
+    ```
+
+Example output (abbreviated):
+
+    ```yaml
+    apiVersion: pipelinesascode.tekton.dev/v1alpha1
+    kind: Repository
+    metadata:
+      name: my-repo
+    status:
+      conditions:
+      - status: "True"
+        type: RepositoryValidated
+    ```
+
+3. **Verify Namespace Exists**:
+
+    ```bash
+    kubectl get namespace <namespace>
+    ```
+
+Example output:
+
+    ```
+    NAME                STATUS   AGE
+    project-pipelines   Active   10m
+    ```
+
+If namespace doesn't exist, you'll see:
+
+    ```
+    Error from server (NotFound): namespaces "project-pipelines" not found
+    ```
+
+4. **Check RBAC Permissions**:
+
+    ```bash
+    kubectl auth can-i create pipelineruns --namespace <namespace>
+    ```
+
+Example output:
+
+    ```
+    yes
+    ```
+
+5. **Check GitLab Token**:
+
+    First, find the secret name from Repository CR:
+
+    ```bash
+    kubectl get repository <repo-name> -n <namespace> -o jsonpath='{.spec.git_provider.secret.name}'
+    ```
+
+    Then check the secret (replace `<gitlab-secret>` with the actual secret name):
+
+    ```bash
+    kubectl get secret <gitlab-secret> -n <namespace> -o yaml
+    ```
+
+Example output (abbreviated, token is base64 encoded):
+
+    ```yaml
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: gitlab-secret
+    data:
+      token: Z2xwYXQt...
+    ```
+
+### Common Causes
+
+- **Namespace doesn't exist**: Target namespace not created
+- **RBAC permissions**: PAC ServiceAccount lacks permissions
+- **GitLab token invalid**: Token expired or incorrect
+- **Pipeline definition error**: Invalid YAML or Tekton syntax
+- **Repository access**: Cannot access Git repository
+
+### Solution
+
+1. Create namespace if missing: 
+
+    ```bash
+    kubectl create namespace <namespace>
+    ```
+
+Example output:
+
+    ```
+    namespace/project-pipelines created
+    ```
+
+2. **Verify RBAC**: Check ServiceAccount and RoleBindings
+
+    Check what ServiceAccount PAC uses:
+
+    ```bash
+    kubectl get pod -n <pac-namespace> -l app=pipelines-as-code-controller -o jsonpath='{.items[0].spec.serviceAccountName}'
+    ```
+
+    Check if ServiceAccount has required permissions:
+
+    ```bash
+    kubectl auth can-i create pipelineruns --namespace <namespace> --as=system:serviceaccount:<pac-namespace>:<service-account-name>
+    ```
+
+3. Update GitLab token if expired
+
+4. Validate pipeline YAML syntax
+
+5. Test GitLab token: 
+
+    ```bash
+    curl --header "PRIVATE-TOKEN: <token>" "https://gitlab.com/api/v4/user"
+    ```
+
+Example output (if token is valid):
+
+    ```json
+    {
+      "id": 1,
+      "username": "user",
+      "email": "user@example.com"
+    }
+    ```
+
+If token is invalid:
+
+    ```
+    {"message":"401 Unauthorized"}
+    ```
+
+### Verification
+
+After applying solutions, verify the fix:
+
+1. **Trigger a Git event** (push or create MR) and check if PipelineRun is created:
+
+    ```bash
+    kubectl get pipelinerun -n <namespace> --sort-by=.metadata.creationTimestamp | tail -1
+    ```
+
+2. **Check PipelineRun status**:
+
+    ```bash
+    kubectl describe pipelinerun <name> -n <namespace>
+    ```
+
+    The PipelineRun should be created and start executing.
+
+## Tasks Not Found
+
+### Symptom
+
+PipelineRun fails with "task not found" error.
+
+### Troubleshooting Steps
+
+1. **Check PipelineRun Status**:
+
+    First, list PipelineRuns to find the name:
+
+    ```bash
+    kubectl get pipelinerun -n <namespace>
+    ```
+
+    Then check the PipelineRun (replace `<name>` with the actual PipelineRun name):
+
+    ```bash
+    kubectl get pipelinerun <name> -n <namespace> -o yaml
+    kubectl describe pipelinerun <name> -n <namespace>
+    ```
+
+Example output (abbreviated, showing error):
+
+    ```yaml
+    status:
+      conditions:
+      - status: "False"
+        type: Succeeded
+        reason: TaskNotFound
+      taskRuns:
+        task-run-name:
+          status:
+            conditions:
+            - message: 'Task "my-task" not found'
+    ```
+
+2. **Check Task References**:
+
+    ```bash
+    cat .tekton/pipelinerun.yaml | grep -A 5 taskRef
+    ```
+
+Example output:
+
+    ```yaml
+    taskRef:
+      name: my-task
+      kind: Task
+    ```
+
+3. **Verify Task Exists**:
+
+    ```bash
+    # For local tasks
+    kubectl get task <task-name> -n <namespace>
+    ```
+
+Example output (if task exists):
+
+    ```
+    NAME       AGE
+    my-task    10m
+    ```
+
+If task doesn't exist:
+
+    ```
+    Error from server (NotFound): tasks.tekton.dev "my-task" not found
+    ```
+
+    ```bash
+    # For Tekton Hub tasks
+    curl https://api.hub.tekton.dev/v1/resource/task/<task-name>
+    ```
+
+Example output (if task exists):
+
+    ```json
+    {
+      "id": 1,
+      "name": "git-clone",
+      "kind": "Task",
+      "catalog": {
+        "id": 1,
+        "name": "Tekton"
+      }
+    }
+    ```
+
+4. **Check Network Connectivity**:
+
+    ```bash
+    # Test Tekton Hub access
+    curl https://api.hub.tekton.dev/v1/resource/task/git-clone
+    ```
+
+Example output (if accessible):
+
+    ```json
+    {"id":1,"name":"git-clone",...}
+    ```
+
+    ```bash
+    # Test remote URL access
+    curl <remote-task-url>
+    ```
+
+Example output (if accessible):
+
+    ```yaml
+    apiVersion: tekton.dev/v1
+    kind: Task
+    ...
+    ```
+
+### Common Causes
+
+- **Task name incorrect**: Typo in task name
+- **Task not in namespace**: Task defined in different namespace
+- **Tekton Hub unavailable**: Network issues accessing Tekton Hub
+- **Remote URL inaccessible**: Cannot fetch task from remote URL
+- **Task resolver error**: Resolver configuration incorrect
+
+### Solution
+
+1. Verify task name spelling
+2. Check task exists in correct namespace
+3. Test Tekton Hub connectivity
+4. Verify remote URLs are accessible
+5. Check task resolver configuration
+
+## Variables Not Resolving
+
+### Symptom
+
+Pipeline variables like `{{revision}}` are not being replaced.
+
+### Troubleshooting Steps
+
+1. **Check Variable Syntax**:
+
+    ```bash
+    cat .tekton/pipelinerun.yaml | grep -E "\{\{|\}\}"
+    ```
+
+Example output:
+
+    ```
+    revision: {{revision}}
+    repo_url: {{repo_url}}
+    ```
+
+2. **Validate YAML Syntax with Dry-Run**:
+
+   Use `kubectl apply --dry-run=client` to validate the PipelineRun YAML syntax and catch errors early:
+
+    ```bash
+    kubectl apply --dry-run=client -f .tekton/pipelinerun.yaml -n <namespace>
+    ```
+
+Example output (if syntax is valid):
+
+    ```
+    pipelinerun.tekton.dev/my-pipeline created (dry run)
+    ```
+
+Example output (if there are syntax errors):
+
+    ```
+    error: error validating ".tekton/pipelinerun.yaml": error validating data: [ValidationError(PipelineRun.spec): unknown field "invalid-field" in tekton.dev.v1.PipelineRun.spec, ...]
+    ```
+
+**Note**: This dry-run check validates YAML syntax and Tekton schema, but it won't validate variable resolution (variables like `{{revision}}` will remain as literal strings in dry-run). For variable resolution issues, check PAC controller logs.
+
+3. **Check PAC Controller Logs**:
+
+    ```bash
+    kubectl logs -n <pac-namespace> -l app=pipelines-as-code-controller --tail=100 | grep -i variable
+    ```
+
+Example output (example log entries):
+
+    ```
+    {"level":"warn","ts":"2024-01-01T12:00:00Z","logger":"controller","msg":"Unknown variable","variable":"{{Revision}}"}
+    ```
+
+4. **Verify Variable Names**:
+
+   - `{{revision}}` - correct
+   - `{{Revision}}` or `{{REVISION}}` - incorrect (case-sensitive)
+   - Use double curly braces: `{{variable_name}}`
+
+5. **Check PipelineRun Parameters**:
+
+    First, get the PipelineRun name:
+
+    ```bash
+    kubectl get pipelinerun -n <namespace>
+    ```
+
+    Then check parameters (replace `<name>` with the actual PipelineRun name):
+
+    ```bash
+    kubectl get pipelinerun <name> -n <namespace> -o jsonpath='{.spec.params}'
+    ```
+
+Example output:
+
+    ```json
+    [
+      {
+        "name": "revision",
+        "value": "abc1234"
+      },
+      {
+        "name": "repo_url",
+        "value": "https://gitlab.com/user/repo.git"
+      }
+    ]
+    ```
+
+### Common Causes
+
+- **Syntax error**: Missing curly braces or incorrect format
+- **Case sensitivity**: Variable names are case-sensitive
+- **Variable not available**: Variable not available for current event type (e.g., `{{pull_request_number}}` is only available for pull_request events)
+- **PAC version**: Older PAC version may not support certain variables
+
+### Solution
+
+1. Verify variable syntax: Use `{{variable_name}}` format, for example `{{revision}}` or `{{repo_url}}`
+2. Check variable names are correct (case-sensitive): `{{repo_owner}}`, `{{source_branch}}`, `{{pull_request_number}}`
+3. Ensure variable is available for event type: Some variables like `{{pull_request_number}}` are only available for `pull_request` events
+4. Update PAC to latest version if needed
+
+For a complete list of available variables, see [Parameterizing Commits and URLs](../how_to/maintain_pipeline_code.mdx#parameterizing-commits-and-urls).
+
+### Verification
+
+After applying solutions, verify the fix:
+
+1. **Check if variables are resolved** in the created PipelineRun:
+
+    ```bash
+    kubectl get pipelinerun <name> -n <namespace> -o jsonpath='{.spec.params}' | jq .
+    ```
+
+    Variables should be replaced with actual values (e.g., `{{revision}}` should be replaced with a commit SHA).
+
+2. **Check PAC Controller logs** for variable resolution:
+
+    ```bash
+    kubectl logs -n <pac-namespace> -l app=pipelines-as-code-controller --tail=50 | grep -i variable
+    ```
+
+    There should be no warnings about unknown variables.
+
+## Status Not Reported to GitLab
+
+### Symptom
+
+Pipelines run successfully but status is not shown in GitLab.
+
+### Troubleshooting Steps
+
+1. **Check PAC Watcher Logs**:
+
+    ```bash
+    kubectl logs -n <pac-namespace> -l app.kubernetes.io/name=watcher --tail=100
+    ```
+
+Example output (example log entries):
+
+    ```
+    {"level":"error","ts":"2024-01-01T12:00:00Z","logger":"watcher","msg":"Failed to update status","error":"401 Unauthorized"}
+    ```
+
+2. **Check GitLab Token**:
+
+    First, find the secret name from Repository CR:
+
+    ```bash
+    kubectl get repository <repo-name> -n <namespace> -o jsonpath='{.spec.git_provider.secret.name}'
+    ```
+
+    Then check the secret (replace `<gitlab-secret>` with the actual secret name):
+
+    ```bash
+    kubectl get secret <gitlab-secret> -n <namespace> -o yaml
+    ```
+
+Example output (abbreviated, token is base64 encoded):
+
+    ```yaml
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: gitlab-secret
+    data:
+      token: Z2xwYXQt...
+    ```
+
+3. **Test GitLab API Access**:
+
+    ```bash
+    TOKEN=$(kubectl get secret <gitlab-secret> -n <namespace> -o jsonpath='{.data.token}' | base64 -d)
+    curl --header "PRIVATE-TOKEN: $TOKEN" "https://gitlab.com/api/v4/user"
+    ```
+
+Example output (if token is valid):
+
+    ```json
+    {
+      "id": 1,
+      "username": "user",
+      "email": "user@example.com"
+    }
+    ```
+
+If token is invalid or expired:
+
+    ```json
+    {
+      "message": "401 Unauthorized"
+    }
+    ```
+
+4. **Check Repository CR**:
+
+    ```bash
+    kubectl get repository <repo-name> -n <namespace> -o yaml
+    ```
+
+Example output (abbreviated):
+
+    ```yaml
+    apiVersion: pipelinesascode.tekton.dev/v1alpha1
+    kind: Repository
+    metadata:
+      name: my-repo
+    spec:
+      git_provider:
+        secret:
+          name: gitlab-secret
+          key: token
+    ```
+
+5. **Verify PipelineRun Status**:
+
+    List PipelineRuns to find the name:
+
+    ```bash
+    kubectl get pipelinerun -n <namespace>
+    ```
+
+    Then check status (replace `<name>` with the actual PipelineRun name):
+
+    ```bash
+    kubectl get pipelinerun <name> -n <namespace>
+    ```
+
+Example output:
+
+    ```
+    NAME                    STARTED        DURATION   STATUS
+    simple-pipeline-xxxxx   5 minutes ago  30s        Succeeded
+    ```
+
+### Common Causes
+
+- **GitLab token invalid**: Token expired or incorrect
+- **Token permissions**: Token lacks required scopes
+- **Network issues**: Cannot reach GitLab API
+- **PAC Watcher not running**: Watcher pod not running
+- **Repository CR misconfigured**: Incorrect GitLab configuration
+
+### Solution
+
+1. Verify GitLab token is valid and not expired
+2. Ensure token has `api` scope
+3. Test GitLab API connectivity
+4. Check PAC Watcher pod is running
+5. Verify Repository CR GitLab configuration
+
+### Verification
+
+After applying solutions, verify the fix:
+
+1. **Check PAC Watcher logs** for successful status updates:
+
+    ```bash
+    kubectl logs -n <pac-namespace> -l app.kubernetes.io/name=watcher --tail=50 | grep -i status
+    ```
+
+    You should see log entries indicating status updates were sent successfully.
+
+2. **Check GitLab UI**:
+   - Go to your GitLab project
+   - Check the Merge Request or commit
+   - Verify that pipeline status is displayed (e.g., "passed", "failed", "running")
+
+3. **Verify PipelineRun completed**:
+
+    ```bash
+    kubectl get pipelinerun -n <namespace> --sort-by=.metadata.creationTimestamp | tail -1
+    ```
+
+    The PipelineRun should show `Succeeded` or `Failed` status, and this status should be reflected in GitLab.
+
+## Comment Commands Not Working
+
+### Symptom
+
+Comment commands like `/retest` are not triggering pipelines.
+
+### Troubleshooting Steps
+
+1. **Check Annotation Configuration**:
+
+    ```bash
+    cat .tekton/pipelinerun.yaml | grep on-comment
+    ```
+
+    Example output:
+
+    ```
+    pipelinesascode.tekton.dev/on-comment: "retest"
+    ```
+
+2. **Verify Comment Format**:
+
+   - Commands must be on their own line or at the start of a line
+   - `/retest` - correct
+   - `Please /retest` - incorrect (command not at start)
+
+3. **Check PAC Controller Logs**:
+
+    ```bash
+    kubectl logs -n <pac-namespace> -l app=pipelines-as-code-controller --tail=100 | grep -i comment
+    ```
+
+    Example output (example log entries):
+
+    ```
+    {"level":"info","ts":"2024-01-01T12:00:00Z","logger":"controller","msg":"Processing comment command","command":"/retest"}
+    {"level":"warn","ts":"2024-01-01T12:00:01Z","logger":"controller","msg":"Comment command not at start of line","comment":"Please /retest"}
+    ```
+
+4. **Verify Merge Request Exists**:
+
+   - Comment commands only work in Merge Requests
+   - Not available for regular commits
+
+5. **Check Webhook Configuration**:
+
+    ```bash
+    # In GitLab, verify webhook includes "Comments" trigger
+    ```
+
+### Common Causes
+
+- **Annotation missing**: `on-comment` annotation not configured
+- **Command format**: Command not at start of line
+- **Not in Merge Request**: Comment commands only work in Merge Requests
+- **Webhook not configured**: Comments event not enabled in webhook
+- **Command name mismatch**: Command in comment doesn't match annotation
+
+### Solution
+
+1. Add `on-comment` annotation: `pipelinesascode.tekton.dev/on-comment: "retest"`
+2. Ensure commands are at the start of a line
+3. Use commands only in Merge Requests
+4. Enable "Comments" in GitLab webhook configuration
+5. Match command names exactly (case-sensitive)
+
+## Getting Help
+
+If you're still experiencing issues:
+
+1. **Review Logs**: Check all component logs for errors
+2. **Verify Configuration**: Double-check all configuration files
+3. **Check Documentation**: Review the PAC documentation in this guide
+4. **Review Troubleshooting**: Check other troubleshooting sections in this document
+
+## Next Steps
+
+- [Manage PAC Component](../configure/manage_pac.mdx) - Deployment and management guide
+- [Configure Repository](../how_to/configure_gitlab_repo.mdx) - Repository setup guide
+- [Trigger Pipelines](../how_to/trigger_pipeline.mdx) - Trigger configuration guide
+
