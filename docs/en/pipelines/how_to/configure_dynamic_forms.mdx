@@ -1,0 +1,451 @@
+---
+weight: 10
+i18n:
+  title:
+    en: How to Configure Dynamic Forms
+    zh: 如何配置动态表单
+title: How to Configure Dynamic Forms
+---
+
+# How to Configure Dynamic Forms
+
+## Feature Overview
+
+The dynamic form configuration feature allows you to declaratively configure a friendly interactive experience for resources such as `Pipeline` and `Task`. Without writing frontend code, simply by adding `style.tekton.dev/descriptors` configuration in the resource's `annotations`, you can achieve:
+
+- Dynamic form generation: Automatically generate interactive forms for resource parameters, providing a better experience when orchestrating and executing Pipelines and Tasks.
+- Rich component support: Provides various form components such as text boxes, selectors, switches, YAML editors, etc.
+- Field validation: Built-in validation rules to ensure user input meets requirements.
+- Dynamic data fetching: Supports dynamically loading option data through APIs.
+
+## Use Cases
+
+- Pipeline orchestration/runtime: Allow users to fill in parameters such as namespace and secrets through friendly forms when orchestrating or triggering `Pipeline`
+- Task reuse: Provide default values, dropdown options, and validation for common parameters at the `Task` or `Pipeline` template level
+- Multi-environment selection: Dynamically query available environments or configurations from APIs and use them as selection options
+
+## Quick Start
+
+**Basic Configuration Structure**
+
+All configurations are defined through the `style.tekton.dev/descriptors` field in `annotations`:
+
+```yaml
+metadata:
+  annotations:
+    style.tekton.dev/descriptors: |
+      - path: params.parameter-name
+        x-descriptors:
+          - configuration-item1
+          - configuration-item2
+```
+
+**Configuration Description**
+
+- `path`: Specifies the parameter path in the format `params.parameter-name`
+- `x-descriptors`: Configuration item array, each configuration item starts with `urn:alm:descriptor:`
+
+**Simple Example**
+
+Configure a required text input box for a Task parameter:
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: simple-task
+  annotations:
+    style.tekton.dev/descriptors: |
+      - path: params.gitUrl
+        x-descriptors:
+          - urn:alm:descriptor:label:zh:GitRepo
+          - urn:alm:descriptor:com.tectonic.ui:text
+          - urn:alm:descriptor:placeholder:zh:Git URL
+          - urn:alm:descriptor:com.tectonic.ui:validation:required
+spec:
+  params:
+    - name: gitUrl
+      type: string
+  steps:
+    - name: clone
+      image: alpine/git
+      script: |
+        git clone $(params.gitUrl)
+```
+
+## Form Basic Configuration
+
+### Form Label
+
+```yaml
+# Label for the form
+- urn:alm:descriptor:label:en:English Name
+- urn:alm:descriptor:label:zh:Chinese name
+```
+
+### Form Description
+
+```yaml
+# Description for the form
+- urn:alm:descriptor:description:en:English Description
+- urn:alm:descriptor:description:zh:Chinese Description
+```
+
+### Placeholder Hint
+
+```yaml
+# Placeholder for the form
+- urn:alm:descriptor:placeholder:en:This is a Placeholder
+- urn:alm:descriptor:placeholder:zh:This is a Placeholder
+```
+
+### Form Help Tooltip
+
+```yaml
+# Help tooltip for the form
+- urn:alm:descriptor:tooltip:en:This is a Help Tip
+- urn:alm:descriptor:tooltip:zh:This is a Help Tip
+```
+
+### Form Disabled State
+
+```yaml
+# Whether the form is disabled
+- urn:alm:descriptor:com.tectonic.ui:disabled
+```
+
+## Supported Field Types
+
+### Text Input
+
+```yaml
+# value: string
+- urn:alm:descriptor:com.tectonic.ui:text
+```
+
+### Multi-line Text Input
+
+```yaml
+# value: string
+- urn:alm:descriptor:com.tectonic.ui:textarea
+```
+
+### Tags Input
+
+```yaml
+# value: array
+- urn:alm:descriptor:com.tectonic.ui:tagsInput
+```
+
+### Radio
+
+```yaml
+# value: string
+- urn:alm:descriptor:com.tectonic.ui:radio:valueA
+- urn:alm:descriptor:com.tectonic.ui:radio:valueB
+```
+
+### Switch
+
+```yaml
+# value: boolean
+- urn:alm:descriptor:com.tectonic.ui:booleanSwitch
+
+# Map value to specified string
+# When switch is on, value is True
+- urn:alm:descriptor:props:booleanSwitch:true:True
+# When switch is off, value is False
+- urn:alm:descriptor:props:booleanSwitch:false:False
+```
+
+### YAML Editor
+
+```yaml
+# value: string
+- urn:alm:descriptor:com.tectonic.ui:yaml
+```
+
+### Select Box
+
+#### Basic Content Configuration
+
+```yaml
+# value: string
+- urn:alm:descriptor:com.tectonic.ui:select
+# Options
+- urn:alm:descriptor:com.tectonic.ui:select:valueA
+- urn:alm:descriptor:com.tectonic.ui:select:valueB
+# Set the select box to multiple selection mode
+# value: array
+- urn:alm:descriptor:props:select:multiple
+# Manually entered content can be used as selection items
+- urn:alm:descriptor:props:select:allowCreate
+# Content can be cleared
+- urn:alm:descriptor:props:select:clearable
+```
+
+#### API Dynamic Options Configuration
+
+When form controls need to dynamically load available options based on the current environment (such as available namespaces, secrets, etc.), you can use **API dynamic configuration** to retrieve dropdown options from backend interfaces in real-time.
+
+In this mode, API URLs are typically used in combination with **context variables** to dynamically construct request paths based on the user's current cluster, namespace, project, or filled parameters. For example:
+
+```yaml
+# Use ${context.cluster} variable in URL to dynamically retrieve namespace list for current cluster
+- urn:alm:descriptor:expression:props.options:api:apiPath
+- urn:alm:descriptor:expression:props.options:api:/kubernetes/${context.cluster}/api/v1/namespaces
+```
+
+**Available Context Variables**
+
+In dynamic API paths, you can use `${variable}` to reference runtime context information.
+
+- General Context Variables
+
+| Variable               | Description                                        |
+| ---------------------- | -------------------------------------------------- |
+| `${context.cluster}`   | Current cluster name                               |
+| `${context.namespace}` | Current namespace                                  |
+| `${context.project}`   | Current project                                    |
+| `${current.search}`    | Get the current search input from the dropdown box |
+
+- Pipeline/Task Related Context Variables
+
+| Variable            | Description                                                  |
+| ------------------- | ------------------------------------------------------------ |
+| `${context.params}` | Parameters object, e.g., `${context.params.repo}` can reference the current value of the `repo` parameter in the form |
+
+These variables are typically used in combination with API URLs to dynamically construct request addresses in different environments, enabling environment-aware option loading logic. For example:
+
+```yaml
+- urn:alm:descriptor:expression:props.options:api:apiPath
+- urn:alm:descriptor:expression:props.options:api:/api/v1/${context.namespace}/deployments?repo=${context.params.repo}
+```
+
+**Configure Data Path for Returned Data**
+
+```yaml
+- urn:alm:descriptor:expression:props.options:path:spec.items
+```
+
+When the API returns a complex structure, for example:
+
+```json
+{
+  "spec": {
+    "items": [ ... ]
+  }
+}
+```
+
+You can use `path` to specify how to extract the options array from the structure.
+
+**Configure Label and Value Mapping Fields for Options**
+
+If the returned data object is complex and requires specifying inner fields as "display name" and "option value", you can use:
+
+```yaml
+- urn:alm:descriptor:expression:props.options:label:path:metadata.name
+- urn:alm:descriptor:expression:props.options:value:path:metadata.name
+```
+
+When the API returns a simple `string[]` array, this configuration is not needed.
+
+**Configure API Query Parameters**
+
+If you need to pass query parameters to the API request (such as search keywords or filters), you can use:
+```yaml
+# Add query parameter named "search" with user input as value
+- urn:alm:descriptor:widgets:select
+- urn:alm:descriptor:expression:props.options:api:/kubernetes/${context.cluster}/apis/tekton.dev/v1/namespaces/${context.namespace}/pipelineruns
+- urn:alm:descriptor:expression:props.options:path:items
+- urn:alm:descriptor:expression:props.options:label:path:metadata.name
+- urn:alm:descriptor:expression:props.options:value:path:metadata.name
+- urn:alm:descriptor:expression:props.options:api:params:search:${current.search}
+```
+
+When user types "test" in the dropdown, the actual request will be:
+```
+/kubernetes/.../pipelineruns?search=test
+```
+
+
+**Advanced Usage**: Supports JavaScript expressions, for example:
+
+```yaml
+${context.params.map(p => p.name).join(',')}
+```
+
+## Parameter Default Values
+
+**Fixed Default Value**
+
+```yaml
+- urn:alm:descriptor:expression:props.default:default-value
+```
+
+**Expression-based Dynamic Default Value**
+
+Available variables:
+
+- `option`: Option raw data
+- `index`: Option index
+- `length`: Total number of options
+- `context`: Context parameters
+
+  ```yaml
+  # Select options with specific labels
+  - urn:alm:descriptor:expression:props.default.exp:option.metadata.labels['default']==='true'
+  # Default to select the first item
+  - urn:alm:descriptor:expression:props.default.exp:index === 0
+  # Default to select the last item
+  - urn:alm:descriptor:expression:props.default.exp:index === length - 1
+  # Default to select when there is only one option
+  - urn:alm:descriptor:expression:props.default.exp:length === 1
+  # Default to select the current namespace
+  - urn:alm:descriptor:expression:props.default:${context.namespace}
+  # Complex conditions
+  - urn:alm:descriptor:expression:props.default.exp:option.metadata.name.includes('test') && option.status.conditions.some(c => c.status==='True')
+
+
+:::info
+
+For conditional syntax rules in complex scenarios, please refer to [JavaScript syntax](https://developer.mozilla.org/en-US/docs/Web/JavaScript).
+
+:::
+
+## Form Validation
+
+Supports configuring various validation rules, multiple rules can be applied simultaneously.
+
+### Required Validation
+
+```yaml
+- urn:alm:descriptor:com.tectonic.ui:validation:required
+```
+
+### Length Validation
+
+```yaml
+# Minimum length
+- urn:alm:descriptor:com.tectonic.ui:validation:minLength:6
+# Maximum length
+- urn:alm:descriptor:com.tectonic.ui:validation:maxLength:64
+```
+
+### Numeric Range Validation
+
+```yaml
+# Minimum value (applicable to numeric types)
+- urn:alm:descriptor:com.tectonic.ui:validation:minimum:1
+# Maximum value
+- urn:alm:descriptor:com.tectonic.ui:validation:maximum:100
+```
+
+### Regular Expression Validation
+
+```yaml
+# Positive integer
+- urn:alm:descriptor:com.tectonic.ui:validation:pattern:[1-9]\d*
+# Kubernetes resource name (lowercase letters, numbers, hyphens)
+- urn:alm:descriptor:com.tectonic.ui:validation:pattern:[a-z0-9]([-a-z0-9]*[a-z0-9])?
+```
+
+**Combined Example**: Configure a password field with complete validation
+
+```yaml
+- path: params.password
+  x-descriptors:
+    - urn:alm:descriptor:label:zh:password
+    - urn:alm:descriptor:com.tectonic.ui:text
+    - urn:alm:descriptor:description:zh:At least 8 characters, including letters and numbers.
+    - urn:alm:descriptor:com.tectonic.ui:validation:required
+    - urn:alm:descriptor:com.tectonic.ui:validation:minLength:8
+    - urn:alm:descriptor:com.tectonic.ui:validation:maxLength:32
+```
+
+## Usage Examples
+
+### Configure Dynamic Forms in Task
+
+Example: Provide a dropdown box for selecting namespaces for the `image` parameter of a Task.
+
+Effect: When users orchestrate a Pipeline or TaskRun based on the UI, the `namespace` parameter of this Task supports dropdown selection of namespaces.
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: demo-task
+  namespace: <your namespace>
+  annotations:
+    style.tekton.dev/descriptors: |
+      - path: params.namespace
+        x-descriptors:
+          - urn:alm:descriptor:label:en:namespace
+          - urn:alm:descriptor:com.tectonic.ui:select
+          - urn:alm:descriptor:expression:props.options:api:/kubernetes/${context.cluster}/api/v1/namespaces
+          - urn:alm:descriptor:expression:props.options:path:items
+          - urn:alm:descriptor:expression:props.options:label:path:metadata.name
+          - urn:alm:descriptor:expression:props.options:value:path:metadata.name
+          - urn:alm:descriptor:com.tectonic.ui:validation:required
+spec:
+  params:
+    - name: namespace
+      type: string
+  steps:
+    - name: demo
+      image: ubuntu
+      script: |
+        #!/bin/sh
+        pwd
+```
+
+### Configure Dynamic Forms in Pipeline
+
+Example: Provide a dropdown box for selecting namespaces for the `target-namespace` parameter of a Pipeline.
+
+Effect: When users trigger a Pipeline based on the UI or need to associate this pipeline in other resources (Trigger, TriggerTemplate) and configure runtime parameters, the `target-namespace` parameter supports dropdown selection of namespaces.
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  annotations:
+    style.tekton.dev/descriptors: |
+      - path: params.target-namespace
+        x-descriptors:
+          - urn:alm:descriptor:label:en:target-namespace
+          - urn:alm:descriptor:com.tectonic.ui:select
+          - urn:alm:descriptor:expression:props.options:api:/kubernetes/${context.cluster}/api/v1/namespaces
+          - urn:alm:descriptor:expression:props.options:label:path:metadata.name
+          - urn:alm:descriptor:expression:props.options:value:path:metadata.name
+          - urn:alm:descriptor:expression:props.options:path:items
+          - urn:alm:descriptor:com.tectonic.ui:validation:required
+  name: demo-pipelines
+  namespace: <your namespace>
+spec:
+  params:
+    - name: target-namespace
+      type: string
+  tasks:
+    - name: kubectl
+      taskRef:
+        resolver: hub
+        params:
+          - name: kind
+            value: task
+          - name: catalog
+            value: catalog
+          - name: name
+            value: kubectl
+          - name: version
+            value: "0.1"
+```
+
+## Troubleshooting
+
+- **Form not displayed or configuration not taking effect**: Check if the YAML format of `style.tekton.dev/descriptors` is correct, confirm `path` is configured as `params.parameter-name`, verify each descriptor starts with `- urn:alm:descriptor:`
+- **Dynamic options not loading**: Confirm the API path is correct, check if the current user has permission to access the specified API resource, verify `path`, `label` and `value` configurations point to fields that exist in the returned data
+- **Default value not taking effect**: Confirm fixed default value uses `expression:props.default:value` format, expression default value uses `===` instead of `=`, check if variables (option, index, length, context) in the expression are spelled correctly
+- **Context variables not resolved**: Verify variable names are correct (e.g., `context.namespace` not `context.namespaces`), confirm variables are used in descriptors that support expressions, check if JavaScript expression syntax has errors
