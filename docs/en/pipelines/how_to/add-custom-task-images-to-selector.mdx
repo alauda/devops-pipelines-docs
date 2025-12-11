@@ -133,6 +133,12 @@ spec:
     - name: PYTHON_IMAGE
       description: Image used for Python steps.
       type: string
+  steps:
+    - name: python-script
+      image: $(params.PYTHON_IMAGE)
+      script: |
+        #!/bin/sh
+        # Define your task script
 ```
 
 Descriptor items and meanings:
