@@ -10,7 +10,7 @@ title: Release Notes
 # Release Notes
 
 ::: tip
-The maintenance period for version **v4.4.x** is from 15 Oct, 2025 to 15 Feb, 2026.
+The maintenance period for version **v4.6.x** is from 17 Dec, 2025 to 17 Dec, 2026.
 :::
 
 ## Compatibility and support matrix
@@ -20,26 +20,35 @@ The following table shows the compatibility and support matrix between the `Alau
 | Alauda DevOps Pipelines Version | Component Version | | | | | | ACP Version |
 |:------:|:------:|:------:|:------:|:------:|:------:|:------:|:------:|
 | **Operator** | **Pipelines** | **Triggers** | **CLI** | **Chains** | **Hub** | **Results** | |
+| 4.6.x (LTS) | 1.0.x | 0.32.x | 0.41.x | 0.25.x | 1.22.x | 0.15.x | 4.0, 4.1, 4.2 |
 | 4.4.x | 1.0.x | 0.32.x | 0.41.x | 0.25.x | 1.22.x | 0.15.x | 4.0, 4.1 |
 | 4.3.x | 1.0.x | 0.32.x | 0.41.x | 0.25.x | 1.22.x | 0.15.x | 4.0, 4.1 |
 | 4.2.x (LTS) | 1.0.x | 0.32.x | 0.41.x | 0.25.x | 1.22.x | 0.15.x | 4.0, 4.1 |
 | 4.1.x | 0.65.x | 0.30.x | 0.39.x | 0.23.x | 1.19.x | 0.14.x | 4.0, 4.1 |
 | 4.0.x (LTS) | 0.65.x | 0.30.x | 0.39.x | 0.23.x | 1.19.x | 0.13.x | 4.0, 4.1 |
 
-## v4.4.0
+## v4.6.0
 
 ### New and Optimized Features
 
 **Pipeline**
 
-- With this update, retrying an executed `PipelineRun` now supports custom `Parameters` and `Workspaces`.
-- With this update, triggering a `PipelineRun` supports using a `Connector` as a workspace.
-- With this update, `Maven` Task supports importing CA certificates or ignoring certificate verification.
-- With this update, the order of resources in the UI navigation bar has been optimized, and some UI text has been adjusted.
+- With this update, `Pipeline` execution now supports manual approval functionality, allowing users to set approval checkpoints during pipeline execution.
+- With this update, `Pipelines` support custom execution output, enabling users to customize `Task` execution output to `PipelineRun`/`TaskRun` details. Additionally, built-in execution information output is now available for `SonarQube`/`Pytest`/`Buildah` `Tasks` in the execution details.
+- With this update, dynamic form configuration is now supported, allowing users to declaratively configure interactive forms for `Pipeline` and `Task` resources, providing a user-friendly parameter configuration experience without writing frontend code.
+- With this update, `Task` image addresses support dynamic selection, enabling users to flexibly select or configure tool images used by tasks as needed.
+- With this update, `Cosign`, `Syft`, and `Trivy` tasks now support processing multiple images simultaneously.
+- With this update, the `Maven Task` supports appending custom CA certificates to the JDK default truststore (rather than overwriting), and provides flexible configuration parameters such as certificate path and keystore password, ensuring compatibility between private repository and public resource access.
 
 **Trigger**
 
-- With this update, `Trigger` supports `TriggerTemplate` as a target resource.
+- With this update, `ScheduledTriggers` are now supported, allowing users to configure pipelines to execute automatically at regular intervals based on Cron expressions.
+- With this update, image trigger functionality is now supported, such as automatically triggering pipeline execution when container images are pushed to the registry.
+- With this update, `EventListener` supports automatic generation of `WebHook` listener domains, simplifying the Webhook configuration process.
+
+**Pipelines as Code**
+
+- With this update, `Pipelines-as-Code` now supports integration with `GitLab`, allowing users to implement pipeline-as-code using GitLab repositories.
 
 ### Breaking Changes
 
@@ -47,8 +56,8 @@ No breaking changes in this release.
 
 ### Fixed Issues
 
-{/* release-notes-for-bugs?template=fixed&project=DEVOPS&version=v4.4.0 */}
+{/* release-notes-for-bugs?template=fixed&project=DEVOPS&version=v4.6.0 */}
 
 ### Known Issues
 
-{/* release-notes-for-bugs?template=unfixed&project=DEVOPS&version=v4.4.0 */}
+{/* release-notes-for-bugs?template=unfixed&project=DEVOPS&version=v4.6.0 */}
