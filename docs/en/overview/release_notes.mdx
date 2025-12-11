@@ -50,6 +50,17 @@ The following table shows the compatibility and support matrix between the `Alau
 
 - With this update, `Pipelines-as-Code` now supports integration with `GitLab`, allowing users to implement pipeline-as-code using GitLab repositories.
 
+**Pipeline Integration with Connector**
+
+- With this update, `Pipeline` and `Task` support integration with `Connector` for resource browsing and selection. You can now integrate connectors to browse and select resources from external systems during pipeline configuration, eliminating manual URL entry and reducing configuration errors.
+  * Supports browsing and selecting Git Revision of Git repositories through git connectors.
+  * Supports browsing and selecting Git Repository and Git Revision through gitlab connectors.
+  * Supports browsing and selecting OCI Artifact Tags through OCI connectors.
+  * Supports browsing and selecting OCI Repository and Artifact Tags through Harbor connectors.
+  * More about it, see [Pipeline Integration with Connector](../pipelines/concepts/integrate_with_connector.mdx)
+  * This feature depends on Plugin of `Alauda Container Platform Tenant Management`
+    * `>=` v4.1.15 is required for v4.1.x (ACP >= v4.1.3)
+
 ### Breaking Changes
 
 No breaking changes in this release.

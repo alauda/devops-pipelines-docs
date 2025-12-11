@@ -1,10 +1,10 @@
 # Documentation Sync Information
 
-- **Last synced**: 2025-12-11 09:01:19 UTC
+- **Last synced**: 2025-12-11 10:08:13 UTC
 - **Source repository**: alaudadevops/tektoncd-operator
-- **Source commit**: [353c1c82aadf50a3cf772f70eb69f9ed9ae5a643](https://github.com/alaudadevops/tektoncd-operator/commit/353c1c82aadf50a3cf772f70eb69f9ed9ae5a643)
+- **Source commit**: [ccdac16317d13b6a360535aebaddfc61837da292](https://github.com/alaudadevops/tektoncd-operator/commit/ccdac16317d13b6a360535aebaddfc61837da292)
 - **Triggered by**: edge-katanomi-app2[bot]
-- **Workflow run**: [#117](https://github.com/alaudadevops/tektoncd-operator/actions/runs/20127557474)
+- **Workflow run**: [#119](https://github.com/alaudadevops/tektoncd-operator/actions/runs/20129403344)
 
 ## Files synced:
 - docs/
