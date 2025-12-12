@@ -226,7 +226,7 @@ spec:
     - name: source
       description: The workspace for source code.
     - name: dockerconfig
-      description: The workspace for Docker configuration.
+      description: The workspace for distribution registry configuration.
 ```
 
 :::tip
@@ -251,7 +251,7 @@ In production environments, you should:
   - This format is compliant with Tekton Chains, see [Tekton Chains Type Hinting](../concepts/understanding_tekton_chains.mdx#type-hinting) in above section for more details.
 - `workspaces`: The workspaces for the pipeline.
   - `source`: The workspace for source code.
-  - `dockerconfig`: The workspace for Docker configuration.
+  - `dockerconfig`: The workspace for distribution registry configuration.
 :::
 
 **Need to adjust the configuration**
@@ -303,7 +303,7 @@ spec:
 - `taskRunTemplate`: The task run template.
   - `serviceAccountName`: The service account to use for the pipeline.
 - `workspaces`: The workspaces for the pipeline.
-  - `dockerconfig`: The workspace for Docker configuration.
+  - `dockerconfig`: The workspace for distribution registry configuration.
   - `source`: The workspace for source code.
 :::
 

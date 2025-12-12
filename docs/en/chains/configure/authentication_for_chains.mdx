@@ -46,7 +46,7 @@ Make sure that any external credentials store, such as the native keychain of th
 Create a secret with config.json:
 
 ```shell
-kubectl create secret generic docker-registry \
+kubectl create secret generic registry-credentials \
     --from-file=.dockerconfigjson=<path/to/.docker/config.json> \
     --type=kubernetes.io/dockerconfigjson \
     -n $NAMESPACE
@@ -54,7 +54,7 @@ kubectl create secret generic docker-registry \
 
 #### Create a Secret by providing credentials on the command line
 
-First, you will need access to credentials for your registry (they are in a file called `credentials.json` in this example). Then, create a Docker config type Kubernetes secret:
+First, you will need access to credentials for your registry (they are in a file called `credentials.json` in this example). Then, create a `kubernetes.io/dockerconfigjson` type Kubernetes secret:
 
 ```shell
 kubectl create secret docker-registry registry-credentials \
