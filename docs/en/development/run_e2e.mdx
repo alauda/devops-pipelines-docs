@@ -90,7 +90,7 @@ toolchains:
     testGroup:
       # Default test group
       default: e2e-automation
-    # Base64 encoded Docker configuration file
+    # Base64 encoded distribution registry configuration file
     dockerConfig: <BASE64_ENCODED_DOCKER_CONFIG>
 
   nexus:
@@ -238,7 +238,7 @@ Each toolchain contains the following common configuration items:
 - `token`: Admin user access token
 
 **Harbor**:
-- `dockerConfig`: Base64 encoded Docker configuration file
+- `dockerConfig`: Base64 encoded distribution registry configuration file
 
 **SonarQube**:
 - `token`: Admin user access token
