@@ -1,0 +1,315 @@
+---
+weight: 40
+i18n:
+  title:
+    en: Comply with Pod Security Restricted Standard
+    zh: 满足 Pod Security Restricted 安全规范
+title: Comply with Pod Security Restricted Standard
+---
+
+# Comply with Pod Security Restricted Standard
+
+## Feature Overview
+
+The `pod-security.kubernetes.io/enforce=restricted` standard is the most restrictive `Pod Security Standard`, enforcing current pod hardening best practices. When a namespace is labeled with this standard, all pods created in that namespace must comply with strict security requirements.
+
+This guide explains how to configure `Tekton Pipelines` to meet the `restricted` security standard, ensuring that all containers in your `Tasks` can run successfully in restricted namespaces.
+
+## Use Cases
+
+- Running `Tekton Pipelines` in namespaces with `pod-security.kubernetes.io/enforce=restricted` label
+- Meeting organizational security compliance requirements
+- Enhancing the security posture of your CI/CD pipelines
+- Running workloads in highly regulated environments
+
+## Prerequisites
+
+- `Tekton Pipelines` is installed via `TektonPipeline` or `TektonConfig` CR
+- You have permission to modify `TektonPipeline` or `TektonConfig` resources
+- You can create or edit `Task` definitions
+- For custom images, you have access to modify `Dockerfiles` and rebuild images
+
+## Understanding the Restricted Standard
+
+The `pod-security.kubernetes.io/enforce=restricted` standard requires all three types of containers in a `Pod` to meet the following security context requirements:
+
+- **Regular containers** (`containers`)
+- **Init containers** (`initContainers`)
+- **Ephemeral containers** (`ephemeralContainers`)
+
+Each container must have the following security context configuration:
+
+```yaml
+securityContext:
+  allowPrivilegeEscalation: false
+  runAsNonRoot: true
+  capabilities:
+    drop:
+      - "ALL"
+  seccompProfile:
+    type: RuntimeDefault
+```
+
+**Configuration breakdown:**
+
+| Field | Value | Purpose | Impact |
+|-------|-------|---------|--------|
+| `allowPrivilegeEscalation` | `false` | Prevents processes from gaining more privileges than their parent process | Blocks malicious code from escalating privileges through setuid binaries or file capabilities |
+| `runAsNonRoot` | `true` | Requires containers to run as a non-root user (UID ≠ 0) | Prevents containers from running as root, reducing the impact of container breakout vulnerabilities |
+| `capabilities.drop` | `["ALL"]` | Removes all Linux capabilities from the container | Limits the container's ability to perform privileged operations (e.g., network configuration, loading kernel modules) |
+| `seccompProfile.type` | `RuntimeDefault` | Applies the container runtime's default seccomp profile | Restricts the system calls available to the container, reducing the kernel attack surface |
+
+## Steps
+
+### 1. Configure Tekton to add security context to init containers
+
+`Tekton` creates init containers for each `Pod` it manages. To comply with the `restricted` standard, you need to enable `Tekton` to automatically add the required security context to these init containers.
+
+#### Option A: Configure via TektonPipeline
+
+If you manage `Tekton` directly through `TektonPipeline` CR:
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonPipeline
+spec:
+  set-security-context: true
+```
+
+Apply the configuration:
+
+```bash
+$ kubectl patch tektonpipeline tektonpipeline \
+  --type merge \
+  -p '{"spec":{"set-security-context":true}}'
+
+tektonpipeline.operator.tekton.dev/tektonpipeline patched
+```
+
+#### Option B: Configure via TektonConfig
+
+If you manage `Tekton` through `TektonConfig` CR:
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+spec:
+  pipeline:
+    set-security-context: true
+```
+
+Apply the configuration:
+
+```bash
+$ kubectl patch tektonconfig config \
+  --type merge \
+  -p '{"spec":{"pipeline":{"set-security-context":true}}}'
+
+tektonconfig.operator.tekton.dev/config patched
+```
+
+> **Note:** This configuration change takes effect immediately without requiring a restart of the `Tekton` controller. New `TaskRuns` and `PipelineRuns` created after this change will automatically have the required security context applied to init containers.
+
+### 2. Add security context to custom Task definitions
+
+For custom `Tasks` (not the built-in `Tasks` provided by the platform), you need to explicitly add the security context to each step.
+
+Example `Task` with security context:
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: custom-build-task
+spec:
+  steps:
+    - name: build
+      image: registry.example.com/builder:latest
+      securityContext:
+        allowPrivilegeEscalation: false
+        runAsNonRoot: true
+        capabilities:
+          drop:
+            - "ALL"
+        seccompProfile:
+          type: RuntimeDefault
+      script: |
+        #!/bin/sh
+        echo "Building application..."
+```
+
+> **Important:** This step applies to custom `Tasks`. Built-in `Tasks` provided by the platform (except `buildah`, see Troubleshooting section) are compatible with these security constraints, but their `Task` definitions do not include explicit `securityContext` configurations since they are designed to work in various security contexts, not just restricted mode.
+
+### 3. Configure container images to use non-root users
+
+Container images must be configured to run as a non-root user. The user must be specified using a numeric UID rather than a username.
+
+In your `Dockerfile`, add a non-root user and set it as the default. Here's an example for Alpine-based images:
+
+```dockerfile
+# Add a non-root user with UID 65532 (Alpine syntax)
+RUN adduser -u 65532 -h /home/nonroot -D nonroot
+
+# Set appropriate permissions for working directories
+RUN chown -R 65532:65532 /app
+
+# Switch to the non-root user (use numeric UID)
+USER 65532
+```
+
+> **Note:** The `adduser` command syntax varies by base image. See the referenced documentation below for examples with other base images.
+
+Verify the image configuration:
+
+```bash
+# Check that the image runs as non-root
+$ podman run -it --rm ${registry} id
+
+uid=65532(nonroot) gid=65532(nonroot) groups=65532(nonroot)
+```
+
+For detailed guidance on adjusting `Dockerfiles`, see [Adjust Dockerfile for Building Task-Compatible Custom Images](./adjust_dockerfile_for_task_compatible_image.mdx).
+
+## Operation Results
+
+After completing the above steps:
+
+1. **Init Containers**: `Tekton`-created init containers will automatically comply with the `restricted` standard
+2. **Custom Tasks**: Your custom `Task` steps will have the required security context
+3. **Container Images**: Images will run as non-root users with minimal privileges
+
+You can verify compliance by creating a `TaskRun` in a restricted namespace:
+
+```bash
+# Label a namespace with the restricted standard
+$ kubectl label namespace test-ns pod-security.kubernetes.io/enforce=restricted
+
+namespace/test-ns labeled
+
+# Create a TaskRun in the restricted namespace
+$ kubectl -n test-ns create -f taskrun.yaml
+
+taskrun.tekton.dev/example-taskrun created
+
+# Verify the TaskRun succeeds
+$ kubectl -n test-ns get taskrun
+
+NAME               SUCCEEDED   REASON      STARTTIME   COMPLETIONTIME
+example-taskrun    True        Succeeded   2m ago      1m ago
+```
+
+A successful `TaskRun` shows `SUCCEEDED` as `True` and `REASON` as `Succeeded`, indicating that all containers ran successfully with the required security constraints.
+
+## Using Policy Enforcement Tools
+
+For a more automated approach, you can use policy enforcement tools like `Kyverno` to automatically inject the required security context into all containers. By creating a `Kyverno` `Policy` (using `apiVersion: kyverno.io/v1` and `kind: Policy`), you can automatically mutate `Pods` to add the necessary security context configurations.
+
+For more info please refer to <ExternalSiteLink name="acp" href="/security/security_and_compliance/compliance/howto/security_context_enforcement.html" children="Scenario 4: Specified Namespace Security Context Enforcement" />.
+
+This approach eliminates the need to manually configure security context for each `Task`, simplifying compliance management.
+
+For detailed guidance on configuring `Kyverno` policies for this purpose, refer to:
+- [Add Default securityContext](https://kyverno.io/policies/other/add-default-securitycontext/add-default-securitycontext/)
+- [Restricted Pod Security Standards](https://kyverno.io/policies/pod-security/subrule/restricted/restricted-latest/restricted-latest/)
+
+## Troubleshooting
+
+### Built-in Tasks and the Restricted Standard
+
+Among the built-in `Tasks` provided by the platform, only the `buildah` `Task` cannot run under the `restricted` standard. This is because `buildah` requires elevated privileges to build container images.
+
+The `buildah` `Task` requires the following security context:
+
+```yaml
+securityContext:
+  # allowPrivilegeEscalation: false  # Cannot be set to false - buildah needs to escalate privileges to use the SETFCAP capability for setting file capabilities during container image builds; forcing false also blocks newuidmap/newgidmap, causing rootless to fall back to single UID/GID mapping with warnings and potentially incorrect file ownership
+  runAsNonRoot: true
+  capabilities:
+    # drop: ["ALL"]  # Cannot drop ALL capabilities - buildah requires SETFCAP capability to set file capabilities (e.g., cap_net_bind_service) on files within container images during the build process
+    add: ["SETFCAP"]
+  # seccompProfile:
+  #   type: RuntimeDefault  # Cannot use RuntimeDefault - default seccomp blocks unshare/clone(CLONE_NEWUSER)/setns needed by buildah, leading to build failure; use Unconfined or a custom profile that allows these syscalls instead
+```
+
+**Solutions:**
+
+1. Use the `buildah` `Task` in a separate namespace with `baseline` mode instead of `restricted` mode (e.g., `pod-security.kubernetes.io/enforce=baseline`)
+2. Explore alternative container image build methods that may have different security requirements
+
+### TaskRun fails with container user errors
+
+You may encounter one of the following errors:
+
+- **"container has runAsNonRoot and image will run as root"** - The container image has no `USER` directive in the `Dockerfile` (defaults to root) or explicitly sets `USER 0` or `USER root`
+- **"container has runAsNonRoot and image has non-numeric user"** - The container image uses a symbolic username (e.g., `USER appuser`) instead of a numeric UID
+
+**Solutions:**
+
+1. Rebuild the image with a numeric non-root user ID as described in Step 3. For example, use `USER 65532` instead of `USER appuser` or `USER root`.
+
+2. Specify the user in the `Task` `securityContext`:
+
+   ```yaml
+   apiVersion: tekton.dev/v1
+   kind: Task
+   metadata:
+     name: example-task
+   spec:
+     steps:
+       - name: step1
+         image: registry.example.com/myimage:latest
+         securityContext:
+           runAsUser: 65532
+           runAsNonRoot: true
+           allowPrivilegeEscalation: false
+           capabilities:
+             drop:
+               - "ALL"
+           seccompProfile:
+             type: RuntimeDefault
+         script: |
+           #!/bin/sh
+           echo "Running as user $(id -u)"
+   ```
+
+3. Specify the user in the `TaskRun` `podTemplate`:
+
+   ```yaml
+   apiVersion: tekton.dev/v1
+   kind: TaskRun
+   metadata:
+     name: example-taskrun
+   spec:
+     taskRef:
+       name: example-task
+     podTemplate:
+       securityContext:
+         runAsUser: 65532
+         runAsNonRoot: true
+         fsGroup: 65532
+   ```
+
+> **Note:** The `podTemplate.securityContext` sets Pod-level security context, which is inherited by all containers unless overridden at the container level.
+
+Options 2 and 3 are useful when you cannot modify the container image.
+
+### TaskRun fails with "Forbidden: cannot set securityContext.capabilities"
+
+This error occurs when the security context tries to add capabilities while dropping all capabilities.
+
+**Solution:** Ensure your `Task` does not add any capabilities. Only drop capabilities as shown in the examples.
+
+### Init containers fail with permission errors
+
+If init containers fail with permission errors after setting `set-security-context: true`, verify that:
+
+1. The namespace has appropriate security policies
+2. The container images used by `Tekton` are configured to run as non-root
+3. The `Tekton` installation is up to date
+
+## Learn More
+
+- [Kubernetes Pod Security Standards](https://kubernetes.io/docs/concepts/security/pod-security-standards/)
+- [Tekton Pipelines Additional Configuration Options](https://tekton.dev/vault/pipelines-main/additional-configs/)
+- [Adjust Dockerfile for Building Task-Compatible Custom Images](./adjust_dockerfile_for_task_compatible_image.mdx)
+- [Kyverno Policy Engine](https://kyverno.io/)
