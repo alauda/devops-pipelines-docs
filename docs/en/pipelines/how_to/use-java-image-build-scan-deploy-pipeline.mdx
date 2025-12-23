@@ -190,7 +190,7 @@ spec:
 - **maven-server-secret**: An [optional workspace](https://github.com/tektoncd/pipeline/blob/v0.65.5/docs/workspaces.md#using-workspaces-in-pipelines) containing server credentials.
 - **sonar-settings**: An [optional workspace](https://github.com/tektoncd/pipeline/blob/v0.65.5/docs/workspaces.md#using-workspaces-in-pipelines) where SonarQube properties can be mounted.
 - **sonar-credentials**: An [optional workspace](https://github.com/tektoncd/pipeline/blob/v0.65.5/docs/workspaces.md#using-workspaces-in-pipelines) containing credentials for use within SonarQube.
-- **dockerconfig**: An [optional workspace](https://github.com/tektoncd/pipeline/blob/v0.65.5/docs/workspaces.md#using-workspaces-in-pipelines) for Docker configuration files, such as `config.json` or `.dockerconfigjson`. This is optional and is used for authentication when pushing images to the registry.
+- **dockerconfig**: An [optional workspace](https://github.com/tektoncd/pipeline/blob/v0.65.5/docs/workspaces.md#using-workspaces-in-pipelines) for distribution registry configuration files, such as `config.json` or `.dockerconfigjson`. This is optional and is used for authentication when pushing images to the registry.
 - **kubeconfig**: An [Optional workspace](https://github.com/tektoncd/pipeline/blob/v0.65.5/docs/workspaces.md#using-workspaces-in-pipelines) containing kubeconfig file. The name of kubeconfig should be `kubeconfig`. If there is no kubeconfig in this workspace, the workspace will be ignored.
 
 ## Platforms
@@ -396,7 +396,7 @@ spec:
         secretName: sonar-credentials
     - name: dockerconfig
       secret:
-        secretName: docker-credentials
+        secretName: registry-creds
     - name: kubeconfig
       configMap:
         name: kubeconfig
