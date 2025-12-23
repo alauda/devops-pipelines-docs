@@ -50,12 +50,12 @@ If this issue occurs only when using the custom image, it is recommended to trou
 
 1. Verify whether there are insufficient permissions with the image when run as the root user:
    ```bash
-   $ docker run -it --rm --user root ${registry} ${cmd}
+   $ podman run -it --rm --user root ${registry} ${cmd}
    ```
 
 2. Check if the application allows user 65532 to access specific directories or files:
    ```bash
-   $ docker run -it --rm --user 65532:65532 ${registry} ${cmd} ls -la /path/to/directory
+   $ podman run -it --rm --user 65532:65532 ${registry} ${cmd} ls -la /path/to/directory
    ```
 
 3. Check the securityContext configuration of the Task:

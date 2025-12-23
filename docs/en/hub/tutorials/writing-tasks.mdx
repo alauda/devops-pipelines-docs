@@ -53,8 +53,8 @@ metadata:
   annotations:
     tekton.dev/pipelines.minVersion: "0.17.0"  # Minimum Tekton version
     tekton.dev/categories: "Build Tools"       # Hub category
-    tekton.dev/tags: "build,docker,image"     # Hub search tags
-    tekton.dev/displayName: "Build Docker Image"  # Hub display name
+    tekton.dev/tags: "build,podman,image"     # Hub search tags
+    tekton.dev/displayName: "Build Podman Image"  # Hub display name
     tekton.dev/platforms: "linux/amd64,linux/arm64"  # Supported platforms
 ```
 
@@ -102,7 +102,7 @@ metadata:
 
 ### Effective Tagging
 - Use specific, searchable tags
-- Include technology names (`docker`, `kubernetes`, `npm`, etc.)
+- Include technology names (`podman`, `kubernetes`, `npm`, etc.)
 - Add use case tags (ci, cd, build, test, deploy)
 
 ## `Hub` Validation Requirements

@@ -322,7 +322,7 @@ spec:
           - name: image-tag
             value: "latest"
           - name: registry
-            value: "docker.io"
+            value: "ghcr.io"
         # workspaces merged by name field
         workspaces:
           - name: source
@@ -429,7 +429,7 @@ spec:
     - name: image-tag
       value: "latest" # From base config, unchanged
     - name: registry
-      value: "docker.io" # From base config, unchanged
+      value: "ghcr.io" # From base config, unchanged
     - name: build-type
       value: "optimized" # From additional config, newly added
   # workspaces merge result - merged by name

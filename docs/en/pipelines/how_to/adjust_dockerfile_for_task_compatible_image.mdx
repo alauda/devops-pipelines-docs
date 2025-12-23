@@ -27,7 +27,7 @@ The following scenarios require referring to the guidance in this document:
 
 Before using this feature, ensure:
 
-- You have a Docker image building environment
+- You have a OCI image building environment
   - You can use the platform's native build pipeline
   - If you need to use community/open-source tools, ensure you have internet access or have prepared offline packages
 - You have a basic understanding of Dockerfile writing
@@ -43,7 +43,7 @@ First, confirm the release version of the base image, as the command for creatin
 
 ```bash
 # Check the release version of the base image
-$ docker run -it --rm ${registry} cat /etc/os-release
+$ podman run -it --rm ${registry} cat /etc/os-release
 
 # Possible outputs
 NAME="Alpine Linux"
@@ -105,13 +105,13 @@ After building, validate whether the image can run correctly:
 
 ```bash
 # Verify user configuration
-$ docker run -it --rm ${registry} id
+$ podman run -it --rm ${registry} id
 
 # Expected output
 uid=65532(nonroot) gid=65532(nonroot) groups=65532(nonroot)
 
 # Verify application permissions
-$ docker run -it --rm ${registry} ls -la /home/nonroot
+$ podman run -it --rm ${registry} ls -la /home/nonroot
 ```
 
 ## Operation Results
