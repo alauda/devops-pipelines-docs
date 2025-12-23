@@ -123,8 +123,8 @@ spec:
   workspaces:
   - name: source-code
     description: Source code workspace
-  - name: docker-config
-    description: Docker registry credentials
+  - name: registry-creds
+    description: Distribution registry credentials
     optional: true
 
   tasks:
@@ -171,7 +171,7 @@ spec:
     - name: source
       workspace: source-code
     - name: dockerconfig
-      workspace: docker-config
+      workspace: registry-creds
 
   finally:
   - name: cleanup
