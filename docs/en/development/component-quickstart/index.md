@@ -267,7 +267,7 @@ Ref : <https://github.com/AlaudaDevops/tektoncd-pipeline/blob/main/.tekton/tp-al
 3. **Image Build Phase**
    - Build multiple component images in parallel (e.g., tkn, proxy, webhook, operator)
    - Each image build includes:
-     - Build Docker images
+     - Build OCI images
      - Update image tag in `values.yaml` and `config` directory
 
 4. **Artifact Upload Phase**

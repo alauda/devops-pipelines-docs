@@ -28,20 +28,20 @@ You will create a Pipeline with two Tasks:
 * Tekton Pipelines installed on your cluster.
 * A Helm 3.8+ container image (Helm v3 with OCI support).
 * An OCI registry and repository path (e.g., oci://registry.example.com/charts).
-* Push credentials for your OCI registry as a Docker config JSON:
+* Push credentials for your OCI registry as a `Secret` of `kubernetes.io/dockerconfigjson` type:
     * Create a Kubernetes Secret of type `kubernetes.io/dockerconfigjson` (example below).
 * A Git repository that contains a valid Helm chart (directory with `Chart.yaml`, `templates/`, `values.yaml`).
 * Git access to the repository:
     * Public repo: nothing special.
     * Private repo: create a Git credential Secret (SSH or basic-auth).
 
-Why Docker config JSON? Helm uses the same auth config as Docker. We'll point Helm to it via `HELM_REGISTRY_CONFIG`.
+Why `Secret` of `kubernetes.io/dockerconfigjson` type? We'll point Helm to distribution registry via `HELM_REGISTRY_CONFIG`.
 
 ## Step-by-Step Instructions
 
 ### Step 1: Create the Registry Credential Secret
 
-You need a registry credential for your OCI registry as a Docker config JSON.
+You need a registry credential for your OCI registry as a `Secret` of `kubernetes.io/dockerconfigjson` type.
 
 You can refer to the [Prepare Registry Credential](../prepare/prepare_registry_credential.mdx).
 

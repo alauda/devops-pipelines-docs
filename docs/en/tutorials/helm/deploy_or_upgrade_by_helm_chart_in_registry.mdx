@@ -28,7 +28,7 @@ You'll Build a reusable Pipeline named `helm-oci-deploy` that:
 * An OCI registry with the OCI chart reference and version you intend to deploy, e.g.:
     * `oci://registry.example.com/charts/myapp`
     * Version like `1.2.3` (must exist in the registry)
-* Registry credentials for your OCI registry as a Docker config JSON:
+* Registry credentials for your OCI registry as a `Secret` of `kubernetes.io/dockerconfigjson` type:
     * Create a Kubernetes Secret of type `kubernetes.io/dockerconfigjson` (example below).
 * Cluster access for Helm (choose one):
     * Mount a Kubeconfig Secret,
@@ -38,7 +38,7 @@ You'll Build a reusable Pipeline named `helm-oci-deploy` that:
 
 ### Step 1: Create the Registry Credential Secret
 
-You need a registry credential for your OCI registry as a Docker config JSON.
+You need a registry credential for your OCI registry as a `Secret` of `kubernetes.io/dockerconfigjson` type.
 
 You can refer to the [Prepare Registry Credential](../prepare/prepare_registry_credential.mdx).
 
@@ -97,7 +97,7 @@ spec:
       default: ""
   workspaces:
     - name: registry-creds
-      description: Workspace with docker config at config.json (for OCI auth)
+      description: Workspace with distribution registry config at config.json (for OCI auth)
       optional: true
     - name: kubeconfig
       description: Workspace containing kubeconfig file at ./kubeconfig
