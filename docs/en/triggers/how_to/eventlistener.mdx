@@ -5,6 +5,17 @@ weight: 60
 
 # Setup EventListener
 
+## What This Document Helps You Do
+
+This document helps you configure and deploy an EventListener to receive webhook events from external systems (such as GitHub, GitLab, or custom webhooks) and automatically trigger your Tekton pipelines. You will learn:
+
+- How to create and configure an EventListener resource
+- How to expose EventListener to external systems (using Ingress, LoadBalancer, or NodePort)
+- How to configure permissions and security settings
+- How to choose the right deployment strategy based on your environment
+
+**Prerequisites**: You should have basic knowledge of Tekton Pipelines and Kubernetes concepts. If you're new to EventListener concepts, we recommend reading the [In-Depth Understanding of EventListener](../concepts/eventlistener_concept.mdx) document first.
+
 :::tip
 For an in-depth understanding of EventListener concepts, architecture, and principles, please refer to the [In-Depth Understanding of EventListener](../concepts/eventlistener_concept.mdx) document.
 :::
@@ -289,12 +300,174 @@ Depending on the priority of the environment and the available network resources
 | Custom Domain and Certificate  | https   | Use self-signed certificates for TLS. Note: There is a risk in the tool-side configuration, not all tools/platforms support skipping or ignoring TLS validation. |
 | NodePort          | http    | Set accessible addresses via NodePort + Cluster / Node IP   |
 
+:::tip
+**Choosing the Right Network Configuration**
+
+- **Production Environments**: Use LoadBalancer or Ingress with HTTPS for security and reliability
+- **Development/Testing**: NodePort is sufficient and easier to set up
+- **Automatic Management**: If you want the system to automatically create Ingress resources, use the [automatic exposure feature](../how_to/trigger-wrapper-config.mdx) configured through `TektonConfig`
+- **Manual Control**: If you prefer manual control over Ingress resources, create them manually as shown in the examples below
+:::
+
+### NodePort Configuration Example
+
+NodePort is suitable for development, testing, or environments where you don't have a LoadBalancer or Ingress controller configured. This method exposes the EventListener service on a high port (30000-32767) on each node in the cluster.
+
+#### Prerequisites
+
+- Kubernetes cluster with nodes accessible from external systems
+- You should know at least one node's external IP address
+- Firewall rules should allow traffic to the NodePort range (30000-32767)
+
+#### Configuration Example
+
+<Steps>
+  ### Create EventListener with NodePort Service
+
+  Save the following YAML as `eventlistener-nodeport.yaml`:
+
+  ```yaml
+  apiVersion: triggers.tekton.dev/v1beta1
+  kind: EventListener
+  metadata:
+    name: el-demo
+    namespace: tekton-triggers-demo
+  spec:
+    # serviceAccountName is optional, defaults to triggers-default-sa
+    serviceAccountName: triggers-default-sa
+    resources:
+      kubernetesResource:
+        serviceType: NodePort  # Use NodePort service type
+        servicePort: 80        # Container port
+    triggers:
+      - name: hello-trigger
+        bindings:
+          - ref: hello-binding
+        template:
+          ref: hello-template
+  ```
+
+  ```bash
+  kubectl apply -f eventlistener-nodeport.yaml
+  ```
+
+  ### Get NodePort Webhook Address
+
+  After the EventListener is created, you need to get the NodePort and node IP to construct the webhook URL:
+
+  ```bash
+  # 1. Get the NodePort assigned to the EventListener service
+  # Replace 'el-el-demo' with your actual service name (format: el-<eventlistener-name>)
+  # Replace 'tekton-triggers-demo' with your namespace
+  export NODEPORT=$(kubectl get svc el-el-demo -n tekton-triggers-demo -o jsonpath='{.spec.ports[0].nodePort}')
+  echo "NodePort: $NODEPORT"
+
+  # 2. Get a node's external IP address
+  # This gets the first node's external IP, you can also use internal IP if nodes are not directly accessible
+  export NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}')
+  
+  # If no ExternalIP, try InternalIP
+  if [ -z "$NODE_IP" ]; then
+    export NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+  fi
+  echo "Node IP: $NODE_IP"
+
+  # 3. Construct the webhook URL
+  export WEBHOOK_URL="http://${NODE_IP}:${NODEPORT}"
+  echo "Webhook URL: $WEBHOOK_URL"
+  ```
+
+  **Alternative: Get all node IPs and NodePort**
+
+  ```bash
+  # Get NodePort
+  NODEPORT=$(kubectl get svc el-el-demo -n tekton-triggers-demo -o jsonpath='{.spec.ports[0].nodePort}')
+
+  # Get all node external IPs
+  kubectl get nodes -o jsonpath='{range .items[*]}{.status.addresses[?(@.type=="ExternalIP")].address}{"\n"}{end}'
+
+  # Or get internal IPs if external IPs are not available
+  kubectl get nodes -o jsonpath='{range .items[*]}{.status.addresses[?(@.type=="InternalIP")].address}{"\n"}{end}'
+  ```
+
+  The webhook URL format is: `http://<node-ip>:<nodeport>`
+
+  ### Test NodePort Webhook
+
+  ```bash
+  # Test the webhook endpoint
+  curl -v -X POST -H 'Content-Type: application/json' \
+    -d '{"message":"Hello from NodePort!"}' \
+    $WEBHOOK_URL
+  ```
+
+  ### Verify EventListener Status
+
+  ```bash
+  # Check EventListener is ready
+  kubectl get eventlistener el-demo -n tekton-triggers-demo
+
+  # Check the service
+  kubectl get svc el-el-demo -n tekton-triggers-demo
+
+  # View EventListener Pod logs
+  kubectl logs -n tekton-triggers-demo -l app=el-el-demo
+  ```
+</Steps>
+
+#### Important Notes for NodePort
+
+- **Security**: NodePort uses HTTP (not HTTPS), so it's not suitable for production environments where security is critical
+- **Accessibility**: The node IP must be accessible from external systems that will send webhooks
+- **High Availability**: If a node goes down, you'll need to use a different node's IP. Consider using a load balancer in front of multiple nodes
+- **Port Range**: NodePort uses ports in the range 30000-32767. Make sure your firewall allows traffic to these ports
+- **Multiple Nodes**: You can use any node's IP address, as the NodePort is available on all nodes
+
+#### When to Use NodePort
+
+- **Development and Testing**: Quick setup for local development or testing
+- **Internal Networks**: When webhook senders are on the same internal network as your cluster nodes
+- **No LoadBalancer Available**: When your cluster doesn't have a LoadBalancer service or Ingress controller
+- **Cost Considerations**: When you want to avoid LoadBalancer costs
+
+:::warning
+**Production Recommendation**: For production environments, it's strongly recommended to use LoadBalancer or Ingress with HTTPS instead of NodePort, as NodePort lacks encryption and proper domain-based routing.
+:::
+
+### Transitioning from NodePort to Ingress
+
+If you started with NodePort for testing and now want to move to a production setup with Ingress:
+
+1. **Update EventListener Service Type**: Change `serviceType` from `NodePort` to `ClusterIP` in your EventListener spec
+2. **Configure Automatic Exposure** (Recommended): Use the [automatic exposure feature](../how_to/trigger-wrapper-config.mdx) to automatically create Ingress resources
+3. **Or Create Ingress Manually**: Follow the example below to create Ingress resources manually
+
+The following example shows how to set up EventListener with Ingress for production use.
+
 ### Small Scale + HTTPS + ALB Ingress Configuration Example
 
 #### Prerequisites
 
-1. The domain name is configured correctly, and corresponding certificates are in place.
-2. ALB is deployed and configured properly.
+Before configuring the EventListener with Ingress, ensure the following prerequisites are met:
+
+1. **LoadBalancer/Gateway Configuration**:
+   - A LoadBalancer or Gateway (such as ALB) should be deployed and configured in your cluster
+   - The LoadBalancer should be accessible from external systems that will send webhooks
+   - For more information on configuring a Load Balancer, refer to <ExternalSiteLink name="acp" href="/configure/networking/how_to" children="Configure a Load Balancer" />.
+
+2. **Domain and Certificate Setup**:
+   - The domain name is configured correctly and points to your LoadBalancer
+   - TLS certificates are in place (either manually created or via cert-manager)
+   - DNS records are properly configured
+
+3. **Ingress Controller**:
+   - An Ingress controller (ALB in this example) is deployed and configured properly
+   - The Ingress controller is ready to handle Ingress resources
+   - For more information on creating Ingresses, refer to <ExternalSiteLink name="acp" href="/configure/networking/functions" children="Creating Ingresses" />.
+
+:::info
+**Note**: If you're using the automatic exposure feature (configured through `TektonConfig`), you typically don't need to manually create Ingress resources. The system will automatically create them based on your export rules. This example shows manual Ingress creation for cases where you prefer manual control or are not using the automatic exposure feature.
+:::
 
 #### Configuration Example
 
@@ -381,7 +554,7 @@ Depending on the priority of the environment and the available network resources
       el.tekton.dev/size: small
   spec:
     serviceAccountName: "eventlistener" # Required: Custom SA with cluster permissions needed for namespaceSelector
-    # Listen to triggers from all NS
+    # Listen to triggers from all namespaces
     namespaceSelector:
       matchNames:
       - '*'
@@ -428,10 +601,10 @@ Depending on the priority of the environment and the available network resources
     ## ingressClassName: alb ## Change according to the required ingress class
     tls:
     - hosts:
-      - <host> # Domain name setting
+      - <host> # Domain name setting. Ensure DNS resolution is configured (or add to /etc/hosts for testing)
       secretName: <tls secret> # Name of the secret containing TLS certificate
     rules:
-    - host: <host> # Domain name setting
+    - host: <host> # Domain name setting. Ensure DNS resolution is configured (or add to /etc/hosts for testing)
       http:
         paths:
         - path: /
@@ -444,12 +617,39 @@ Depending on the priority of the environment and the available network resources
 
   ```
 
+  :::warning
+  **DNS Configuration**: When configuring the `host` field with a domain name, ensure that:
+  - DNS records are properly configured to resolve the domain to your Ingress controller's IP address
+  - For local testing, you can add the domain to `/etc/hosts` (Linux/Mac) or `C:\Windows\System32\drivers\etc\hosts` (Windows)
+  - The domain must be resolvable from the systems that will send webhooks (GitHub, GitLab, etc.)
+  :::
+
+  ### Verify Domain Accessibility
+
+  After configuring the domain and Ingress, ensure that your webhook domain is accessible:
+
+  ```bash
+  # Test domain accessibility (replace <host> with your actual domain)
+  curl -kI https://<host>
+  
+  # Or test the specific webhook endpoint
+  curl -kI https://<host>/triggers/<eventlistener-namespace>/<eventlistener-name>
+  ```
+
+  :::warning
+  **Important**: Ensure that your webhook domain based on the LoadBalancer is accessible from external systems (such as GitHub, GitLab, or other webhook senders). If the domain is not accessible, webhooks will fail. Check:
+  - DNS records are correctly configured and propagated
+  - LoadBalancer is properly configured and has an external IP/domain
+  - Firewall rules allow traffic to the LoadBalancer
+  - TLS certificates are valid (if using HTTPS)
+  :::
+
   ### Validate Webhook Configuration
 
   You can test whether the configuration is normal using the following `curl`.
 
   ```bash
-  curl -k -X POST -H 'Content-Type: application/json' -d '{"hello": "world"}' <host>
+  curl -k -X POST -H 'Content-Type: application/json' -d '{"hello": "world"}' https://<host>/triggers/<eventlistener-namespace>/<eventlistener-name>
 
   ## The following is the expected return format:
   $> {
