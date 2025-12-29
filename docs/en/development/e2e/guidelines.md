@@ -998,7 +998,7 @@ spec:
 
 ## References
 
-- [Running E2E Tests](../run_e2e.mdx) - Guide for running the E2E test suite
+- [Running E2E Tests](./run_e2e.mdx) - Guide for running the E2E test suite
 - [Godog Documentation](https://github.com/cucumber/godog) - BDD framework for Go
 - [Gherkin Syntax](https://cucumber.io/docs/gherkin/reference/) - Language reference
 - [AlaudaDevops BDD](https://github.com/AlaudaDevops/bdd) - BDD framework used in this project
