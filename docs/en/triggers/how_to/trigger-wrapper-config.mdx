@@ -1,13 +1,30 @@
 ---
 weight: 40
-title: Configure trigger-wrapper export rules
+title: Configure EventListener automatic exposure rules
 ---
 
-# Configure trigger-wrapper export rules
+# Configure EventListener automatic exposure rules
+
+## What This Document Helps You Do
+
+This document helps you configure automatic external exposure of EventListeners through the automatic exposure feature. You will learn:
+
+- How to configure export rules to automatically expose EventListeners via Ingress
+- How to set up webhook URLs that will be displayed in the UI
+- How to configure different exposure strategies for different namespaces or environments
+- How to verify that EventListeners are properly exposed
+
+**When to use this**: Use this feature when you want the system to automatically create Ingress resources for your EventListeners, eliminating the need to manually create and manage Ingress resources. This is especially useful in production environments where you need consistent webhook URL patterns.
+
+**Prerequisites**: You should have cluster administrator privileges to configure `TektonConfig` resources, and you should have a basic understanding of Kubernetes Ingress and networking concepts.
 
 ## Feature overview
 
-The `trigger-wrapper` controller reads the `trigger-wrapper-config` ConfigMap in the Tekton system namespace (default: `tekton-pipelines`). The `export-rules` defined in that ConfigMap determine which EventListeners should be exposed externally (Service, Ingress, etc.) and populate the EventListener/Trigger status with the generated endpoints.
+The automatic exposure controller (internally named `trigger-wrapper`) reads the `trigger-wrapper-config` ConfigMap in the Tekton system namespace (default: `tekton-pipelines`). The `export-rules` defined in that ConfigMap determine which EventListeners should be exposed externally (Service, Ingress, etc.) and populate the EventListener/Trigger status with the generated endpoints.
+
+:::info
+**Technical Note**: The internal component name is `trigger-wrapper`, but you don't need to remember this. You only need to configure the export rules through `TektonConfig`, and the system will handle the rest automatically.
+:::
 
 ## Configuration entry point
 
@@ -27,7 +44,7 @@ spec:
             config: |
               export-rules:
                 - name: test-webhooks
-                  host: webhooks.example.com
+                  host: webhooks.example.com  # Ensure DNS resolution is configured (or add to /etc/hosts for testing)
                   ingressClass: nginx
                   urlPathPrefix: /triggers
                   externalHosts:
@@ -38,7 +55,11 @@ spec:
                       - "*"
 ```
 
-The Operator synchronises this spec into the `trigger-wrapper-config` ConfigMap inside Tekton system namespace (default: `tekton-pipelines`). Once updated, the `trigger-wrapper` controller refreshes its cache and reconciles resources according to the new rules.
+The Operator synchronises this spec into the `trigger-wrapper-config` ConfigMap inside Tekton system namespace (default: `tekton-pipelines`). Once updated, the automatic exposure controller refreshes its cache and reconciles resources according to the new rules.
+
+:::info
+**Note**: The ConfigMap name `trigger-wrapper-config` is an internal technical name. You manage the configuration through `TektonConfig` as shown above, and don't need to directly interact with the ConfigMap.
+:::
 
 ## Field reference
 
@@ -46,8 +67,48 @@ Each entry in `export-rules` represents a publishing strategy. Important fields:
 
 - **name** – rule name, also used when generating Service/Ingress names.
 - **ingressClass** (optional) – the Ingress controller to use, e.g. `nginx`, `traefik`.
-- **host** (optional) – hostname matched by the Ingress. Leave empty to accept all hosts.
-- **externalHosts** (optional) – additional public endpoints, typically when an upstream gateway/LB already owns the hostname, when multiple endpoints must be published, or when you want to record the complete base URL. The controller concatenates each value with the generated path. For instance, `https://edge.example.com/hooks` becomes `https://edge.example.com/hooks<trigger-path>`, so add trailing slashes or prefixes explicitly as needed.
+- **host** (optional) – hostname matched by the Ingress. Leave empty to accept all hosts. **Important**: When configuring a domain name, ensure DNS resolution is properly configured (or add to `/etc/hosts` for local testing). The domain must be resolvable from systems that will send webhooks.
+- **externalHosts** (optional) – **What it does**: Defines the webhook URLs that will be displayed to users in the UI and populated in EventListener's `status.addresses` field.
+
+  **Think of it as**: The "public address" that external systems (like GitHub, GitLab) will use to send webhooks to your EventListener.
+
+  **How it works**:
+  - The controller combines each `externalHosts` URL with the generated path: `${externalHost}/<urlPathPrefix>/<eventlistener-namespace>/<eventlistener-name>`
+  - For example: `externalHosts: ["https://webhooks.example.com"]` + `urlPathPrefix: /triggers` → Final URL: `https://webhooks.example.com/triggers/my-namespace/my-listener`
+  - These URLs appear in EventListener's `status.addresses` field, making it easy to copy and paste into GitHub/GitLab webhook configuration
+
+  **Common scenarios**:
+  
+  | Scenario | What to fill in `externalHosts` | Example |
+  |----------|----------------------------------|----------|
+  | Standard domain with HTTPS | Your public domain with https:// | `"https://webhooks.example.com"` |
+  | LoadBalancer with custom port | Domain/IP with port number | `"https://webhooks.example.com:8443"` |
+  | Multiple access points | Array of backup URLs | `["https://primary.com", "https://backup.com"]` |
+  | IP-based access (no domain) | HTTP with IP address | `"http://192.168.1.100"` (but leave `host` field empty) |
+  | ACP platform | Platform URL + cluster path | `"https://192.168.1.100/clusters-rewrite/test"` |
+
+  **What happens if you fill it wrong?**
+  - ✅ Ingress will still work correctly (this field doesn't affect Ingress creation)
+  - ❌ Users will see incorrect webhook URLs in the UI
+  - ❌ Copying the URL from `status.addresses` to GitHub/GitLab will fail
+  - 🔧 Fix: Update the `externalHosts` value in TektonConfig and the controller will refresh EventListener status
+
+  **Key differences from `host` field**:
+  
+  | Field | Purpose | Used by | Example |
+  |-------|---------|---------|----------|
+  | `host` | Ingress routing rule (HTTP Host header matching) | Kubernetes Ingress | `webhooks.example.com` (domain only, no protocol) |
+  | `externalHosts` | User-facing webhook URL for UI display | EventListener status.addresses | `https://webhooks.example.com` (full URL with protocol) |
+  
+  **Rule of thumb**: 
+  - If you can access your webhook at `https://webhooks.example.com:8443/triggers/ns/el`, then fill: `externalHosts: ["https://webhooks.example.com:8443"]`
+  - The controller will append the path automatically
+
+  **Important notes**:
+  - Always include the protocol (`http://` or `https://`)
+  - Include custom ports if your LoadBalancer uses non-standard ports
+  - Don't include the path in `urlPathPrefix` (like `/triggers`) - the controller appends it to the end of the `externalHosts` automatically
+  - If unsure, leave it empty and check the actual accessible URL first, then update the configuration
 - **urlPathPrefix** (optional) – path prefix; defaults to `/triggers`. The final path rendered in the Ingress is `${urlPathPrefix}/${eventlistener-namespace}/${eventlistener-name}`. Always start with `/` and avoid trailing slashes.
 - **namespaceSelector.matchNames** (optional) – namespaces allowed by this rule. Use `"*"` to target all namespaces.
 - **labelSelector** (optional) – Kubernetes LabelSelector used to filter EventListeners.
@@ -78,7 +139,7 @@ Given this export rule:
 ```yaml
 export-rules:
   - name: test-webhooks
-    host: webhooks.example.com
+    host: webhooks.example.com  # Ensure DNS resolution is configured (or add to /etc/hosts for testing)
     ingressClass: nginx
     urlPathPrefix: /triggers
     tls:
@@ -88,6 +149,10 @@ export-rules:
     annotations:
       cert-manager.io/cluster-issuer: "letsencrypt-prod"
 ```
+
+:::warning
+**DNS Configuration**: When using a domain name in the `host` field, ensure DNS records are configured to resolve the domain to your Ingress controller's IP. For local testing, you can add entries to `/etc/hosts` (Linux/Mac) or `C:\Windows\System32\drivers\etc\hosts` (Windows).
+:::
 
 The generated Ingress will have:
 - `metadata.name`: `test-webhooks`
@@ -145,7 +210,7 @@ Result: the Ingress exposes `/hooks/default/${namespace}/${eventlistener}`. Beca
 ```yaml
 export-rules:
   - name: all-listeners
-    host: webhooks.example.com
+    host: webhooks.example.com  # Ensure DNS resolution is configured (or add to /etc/hosts for testing)
     urlPathPrefix: /triggers
     ingressClass: nginx
     namespaceSelector:
@@ -160,7 +225,7 @@ Result: every EventListener appears at `https://webhooks.example.com/triggers/${
 ```yaml
 export-rules:
   - name: staging-gitlab
-    host: gitlab-staging.example.com
+    host: gitlab-staging.example.com  # Ensure DNS resolution is configured (or add to /etc/hosts for testing)
     urlPathPrefix: /staging/gitlab
     namespaceSelector:
       matchNames:
@@ -170,7 +235,7 @@ export-rules:
         webhook-type: gitlab
 
   - name: prod-github
-    host: github-prod.example.com
+    host: github-prod.example.com  # Ensure DNS resolution is configured (or add to /etc/hosts for testing)
     urlPathPrefix: /prod/github
     ingressClass: traefik
     namespaceSelector:
@@ -203,7 +268,7 @@ Result: only EventListeners in `team-a` are exposed, at `/triggers/team-a/${even
 ```yaml
 export-rules:
   - name: multi-endpoints
-    host: webhook.internal.local
+    host: webhook.internal.local  # Ensure DNS resolution is configured (or add to /etc/hosts for testing)
     urlPathPrefix: /internal/hooks
     externalHosts:
       - https://webhooks.example.com/hooks/
@@ -236,7 +301,7 @@ Result:
     ```yaml
     export-rules:
       - name: secure-webhooks
-        host: webhooks.example.com
+        host: webhooks.example.com  # Ensure DNS resolution is configured (or add to /etc/hosts for testing)
         urlPathPrefix: /triggers
         ingressClass: nginx
         tls:
@@ -257,7 +322,7 @@ Configure your export rule with cert-manager annotations:
 ```yaml
 export-rules:
   - name: cert-manager-webhooks
-    host: webhooks.example.com
+    host: webhooks.example.com  # Ensure DNS resolution is configured (or add to /etc/hosts for testing)
     urlPathPrefix: /triggers
     ingressClass: nginx
     annotations:
@@ -282,7 +347,7 @@ You can combine manual TLS configuration with additional annotations:
 ```yaml
 export-rules:
   - name: custom-tls-with-annotations
-    host: webhooks.example.com
+    host: webhooks.example.com  # Ensure DNS resolution is configured (or add to /etc/hosts for testing)
     urlPathPrefix: /triggers
     ingressClass: nginx
     tls:
@@ -303,7 +368,7 @@ export-rules:
 
 1. Edit the `TektonConfig` resource (see **Configuration entry point**).
 2. Apply the changes: `kubectl apply -f tektonconfig.yaml`.
-3. Wait for the Operator to propagate the ConfigMap; the `trigger-wrapper` controller will then reconcile new resources automatically.
+3. Wait for the Operator to propagate the ConfigMap; the automatic exposure controller will then reconcile new resources automatically.
 
 ## Verification and troubleshooting
 
@@ -326,7 +391,7 @@ data:
   config: |
     export-rules:
       - name: test-webhooks
-        host: webhooks.example.com
+        host: webhooks.example.com  # Ensure DNS resolution is configured (or add to /etc/hosts for testing)
         ingressClass: nginx
         urlPathPrefix: /triggers
         externalHosts:
@@ -347,8 +412,12 @@ data:
 Check that Ingress resources are created for matching EventListeners:
 
 ```bash
-kubectl get ingress -n <namespace>
+# Replace <namespace> with the namespace where your EventListener is deployed
+# For example, if your EventListener is in the 'tekton-triggers-demo' namespace:
+kubectl get ingress -n tekton-triggers-demo
 ```
+
+**Important**: The `<namespace>` in the command should be the namespace where your EventListener is deployed, not the system namespace (`tekton-pipelines`). The automatic exposure feature creates Ingress resources in the same namespace as the EventListener.
 
 **Expected output (normal):**
 ```
@@ -367,7 +436,9 @@ el-<eventlistener-name>           nginx   webhooks.example.com     ...        80
 Verify that EventListener status contains the generated webhook addresses:
 
 ```bash
-kubectl get eventlistener <el-name> -n <namespace> \
+# Replace <el-name> with your EventListener name and <namespace> with the namespace where it's deployed
+# For example, if your EventListener is named 'hello-listener' in the 'tekton-triggers-demo' namespace:
+kubectl get eventlistener hello-listener -n tekton-triggers-demo \
   -o jsonpath='{.status.addresses}' | jq
 ```
 
@@ -385,7 +456,7 @@ kubectl get eventlistener <el-name> -n <namespace> \
 
 **What to check:**
 - The `addresses` array contains URLs matching your `externalHosts` configuration
-- URLs follow the pattern: `<externalHost>/<urlPathPrefix>/<namespace>/<eventlistener-name>`
+- URLs follow the pattern: `<externalHost>/<urlPathPrefix>/<eventlistener-namespace>/<eventlistener-name>`
 - If `addresses` is empty or missing, the EventListener may not match any export rule
 
 ### Inspect Trigger annotations
@@ -393,7 +464,9 @@ kubectl get eventlistener <el-name> -n <namespace> \
 Check the export metadata stored in Trigger annotations:
 
 ```bash
-kubectl get trigger <trigger-name> -n <namespace> \
+# Replace <trigger-name> with your Trigger name and <namespace> with the namespace where it's deployed
+# For example, if your Trigger is named 'my-trigger' in the 'tekton-triggers-demo' namespace:
+kubectl get trigger my-trigger -n tekton-triggers-demo \
   -o jsonpath='{.metadata.annotations.triggers\.tekton\.dev/eventlistener-info}' | jq
 ```
 
@@ -464,7 +537,7 @@ kubectl get trigger <trigger-name> -n <namespace> \
         ```yaml
         export-rules:
           - name: domain-webhooks
-            host: webhooks.example.com  # Domain that resolves to your IP
+            host: webhooks.example.com  # Domain that resolves to your IP. Ensure DNS resolution is configured (or add to /etc/hosts for testing)
             urlPathPrefix: /triggers
             externalHosts:
               - "http://192.168.1.100"  # Or use the domain: "http://webhooks.example.com"
