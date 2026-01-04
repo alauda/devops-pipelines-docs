@@ -1,12 +1,14 @@
 ---
 created: '2025-07-07'
-updated: '2025-07-13'
-weight: 20
+updated: '2026-01-04'
+weight: 17
 ---
 
-# Component Update Guide
+# Operator Integration Guide
 
-This document describes how to update components in the TektonCD Operator project using the automated update system. The project now uses an automated script to download and process component releases, eliminating the need for manual updates.
+This document describes how to integrate component updates into the TektonCD Operator project using the automated update system. This is typically performed after upgrading a component's upstream dependency (see [Upstream Upgrade Guide](./upstream-upgrade.md)).
+
+The automated system downloads and processes component releases, eliminating the need for manual updates.
 
 ## Overview
 

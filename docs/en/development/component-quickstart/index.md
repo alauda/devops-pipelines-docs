@@ -291,7 +291,7 @@ Ref : <https://github.com/AlaudaDevops/tektoncd-pipeline/blob/main/.tekton/tp-al
 
 The component registration is now managed through the `components.yaml` file in the TektonCD Operator repository. This file defines the strategy for fetching component release files.
 
-More information can be found in [Component Update Guide](../update-component/index.md)
+More information can be found in [Operator Integration Guide](../component-upgrade-guide/operator-integration.md)
 
 ### 4. Branch Management
 

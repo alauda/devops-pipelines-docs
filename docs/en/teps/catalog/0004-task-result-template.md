@@ -277,7 +277,7 @@ We will continue to support both paths when planning catalog Tasks, but the prod
 5. **ConfigMap lifecycle and distribution**
 
    - Templates ship with the catalog release and do not need historical retention, so the ConfigMap is owned and reconciled by the TektonInstallerSet; upgrades replace the ConfigMap instead of keeping older revisions.
-   - Because templates are tightly coupled to catalog Tasks, the ConfigMap manifest lives in the catalog repository and is synced via the component framework described in [update-component](../../development/update-component/index.md).
+   - Because templates are tightly coupled to catalog Tasks, the ConfigMap manifest lives in the catalog repository and is synced via the component framework described in [Operator Integration Guide](../../development/component-upgrade-guide/operator-integration.md).
    - Publish the ConfigMap artifact from the catalog to [Nexus](https://build-nexus.alauda.cn/#browse/browse:alauda:devops%2Ftektoncd-releases%2Fcatalog) as part of the existing catalog release pipeline.
    - Define a `catalog` component under `components.yaml` with `local_path: tekton-hub/api`, so the ConfigMap is packaged with the Tekton Hub assets and deployed by the same TektonInstallerSet that rolls out Tekton Hub.
    
