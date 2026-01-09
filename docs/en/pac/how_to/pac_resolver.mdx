@@ -100,9 +100,9 @@ You define a PipelineRun in your repository (`.tekton/pipelinerun.yaml`):
             name: git-clone
           params:
             - name: url
-              value: "{{repo_url}}"
+              value: "https://github.com/tektoncd/catalog.git"
             - name: revision
-              value: "{{revision}}"
+              value: "main"
     ```
 
 #### Step 2: PAC Controller Processes Annotations
@@ -191,9 +191,9 @@ PAC modifies the PipelineRun by converting `taskRef` to `taskSpec` and embedding
                 git checkout $(params.revision)
           params:
             - name: url
-              value: "https://gitlab.com/user/repo.git"
+              value: "https://github.com/tektoncd/catalog.git"
             - name: revision
-              value: "abc1234"
+              value: "main"
     ```
 
 #### Step 4: PipelineRun Created in Kubernetes
@@ -228,7 +228,7 @@ Example output (abbreviated, showing embedded task):
                 git clone $(params.url) $(workspaces.output.path)
           params:
             - name: url
-              value: "https://gitlab.com/user/repo.git"
+              value: "https://gitlab.com/user/repo"
             - name: revision
               value: "abc1234"
     ```
@@ -271,7 +271,7 @@ Look for embedded tasks with `taskSpec` within individual tasks:
                 git clone $(params.url) $(workspaces.output.path)
           params:
             - name: url
-              value: "https://gitlab.com/user/repo.git"
+              value: "https://gitlab.com/user/repo"
             - name: revision
               value: "abc1234"
     ```
@@ -365,9 +365,11 @@ You can define tasks directly in your PipelineRun using `taskSpec`:
 - No external resolution is needed - tasks are part of the PipelineRun definition
 - Useful for simple, repository-specific tasks
 
-### Referencing Task Files in Repository (resolver: git)
+### Referencing Task Files in Repository
 
-You can also reference task files stored in your repository using Tekton's resolver syntax:
+You can reference task files stored in your repository using PAC annotations with the special syntax for tasks within the repository.
+
+**Important**: For tasks in your repository, use the annotation format with `pipelinesascode.tekton.dev/task` or `pipelinesascode.tekton.dev/task-<N>` annotations.
 
 Repository structure:
 
@@ -379,7 +381,7 @@ Repository structure:
         └── test-task.yaml
     ```
 
-PipelineRun definition:
+PipelineRun definition using PAC annotations:
 
     ```yaml
     apiVersion: tekton.dev/v1
@@ -389,36 +391,25 @@ PipelineRun definition:
       annotations:
         pipelinesascode.tekton.dev/on-target-branch: "[refs/heads/main]"
         pipelinesascode.tekton.dev/on-event: "[push]"
+        # Reference local tasks using relative paths
+        pipelinesascode.tekton.dev/task: ".tekton/tasks/build-task.yaml"
+        pipelinesascode.tekton.dev/task-1: ".tekton/tasks/test-task.yaml"
     spec:
       pipelineSpec:
         tasks:
         - name: build
           taskRef:
-            resolver: git
-            params:
-            - name: url
-              value: "{{repo_url}}"
-            - name: revision
-              value: "{{revision}}"
-            - name: pathInRepo
-              value: .tekton/tasks/build-task.yaml
+            name: build-task
         - name: test
           taskRef:
-            resolver: git
-            params:
-            - name: url
-              value: "{{repo_url}}"
-            - name: revision
-              value: "{{revision}}"
-            - name: pathInRepo
-              value: .tekton/tasks/test-task.yaml
+            name: test-task
+          runAfter: [build]
     ```
 
 **How it works**:
-- PAC uses the `resolver: git` syntax to fetch task files from your repository
-- The `url` and `revision` parameters are automatically filled by PAC using repository context variables
-- The `pathInRepo` parameter specifies the path to the task file relative to the repository root
-- Useful for complex tasks that you want to maintain separately or reuse across multiple pipelines
+- PAC automatically resolves and embeds tasks from your repository when you use relative paths in task annotations
+- The task name in `taskRef.name` should match the task name defined in the YAML file
+- This method is simpler than using `resolver: git` syntax and is the recommended approach for PAC
 
 ### When to Use Local Tasks
 
@@ -430,9 +421,9 @@ Use local tasks when:
 
 ## Using Remote Task Annotations
 
-You can use PAC annotations to reference remote tasks from Tekton Hub. PAC will automatically fetch and embed these tasks into your PipelineRun.
+You can use PAC annotations to reference remote tasks from Tekton Hub or remote HTTP URLs. PAC will automatically fetch and embed these tasks into your PipelineRun.
 
-### Basic Task Annotation
+### Remote Tasks from Tekton Hub
 
 Reference a single task from Tekton Hub:
 
@@ -453,15 +444,47 @@ Reference a single task from Tekton Hub:
             name: git-clone
           params:
             - name: url
-              value: "{{repo_url}}"
+              value: "https://github.com/tektoncd/catalog.git"
             - name: revision
-              value: "{{revision}}"
+              value: "main"
     ```
 
 **How it works**:
 - The annotation `pipelinesascode.tekton.dev/task: "git-clone"` tells PAC to fetch the `git-clone` task from Tekton Hub
 - PAC automatically embeds the task definition into your PipelineRun
 - You can then reference it using `taskRef.name: git-clone`
+
+### Remote Tasks from HTTP URLs
+
+You can also reference tasks from remote HTTP URLs:
+
+    ```yaml
+    apiVersion: tekton.dev/v1
+    kind: PipelineRun
+    metadata:
+      name: my-pipeline
+      annotations:
+        pipelinesascode.tekton.dev/on-target-branch: "[refs/heads/main]"
+        pipelinesascode.tekton.dev/on-event: "[push]"
+        # Reference task from remote URL
+        pipelinesascode.tekton.dev/task: "https://raw.githubusercontent.com/tektoncd/catalog/main/task/git-clone/0.9/git-clone.yaml"
+    spec:
+      pipelineSpec:
+        tasks:
+        - name: fetch-code
+          taskRef:
+            name: git-clone
+          params:
+            - name: url
+              value: "https://github.com/tektoncd/catalog.git"
+            - name: revision
+              value: "main"
+    ```
+
+**How it works**:
+- PAC fetches the task definition from the specified HTTP URL
+- PAC automatically embeds the task into your PipelineRun
+- The task name in `taskRef.name` should match the task name defined in the remote YAML file
 
 ### Multiple Task Annotations
 
@@ -486,9 +509,9 @@ Reference multiple tasks using numbered annotations:
             name: git-clone
           params:
             - name: url
-              value: "{{repo_url}}"
+              value: "https://github.com/tektoncd/catalog.git"
             - name: revision
-              value: "{{revision}}"
+              value: "main"
         - name: lint
           taskRef:
             name: golangci-lint
@@ -575,7 +598,13 @@ The default `hub-url` points to the cluster-internal Tekton Hub service in the d
 
 ## Using Remote Pipeline Annotations
 
-Similar to tasks, you can reference remote pipelines from Tekton Hub:
+:::warning Limited Use Case
+
+Remote pipeline annotations are rarely used in practice. Most users define pipelines inline using `pipelineSpec` rather than referencing remote pipelines. This section is included for completeness.
+
+:::
+
+You can reference remote pipelines from Tekton Hub, though this is less common than using inline pipeline definitions:
 
     ```yaml
     apiVersion: tekton.dev/v1
@@ -585,41 +614,24 @@ Similar to tasks, you can reference remote pipelines from Tekton Hub:
       annotations:
         pipelinesascode.tekton.dev/on-target-branch: "[refs/heads/main]"
         pipelinesascode.tekton.dev/on-event: "[push]"
-        pipelinesascode.tekton.dev/pipeline: "java-image-build-scan-deploy"
+        # Reference remote pipeline from Tekton Hub
+        pipelinesascode.tekton.dev/pipeline: "pipeline-name"
     spec:
       pipelineRef:
-        name: java-image-build-scan-deploy
+        name: pipeline-name
       params:
       - name: image-url
         value: "registry.example.com/myapp"
     ```
 
 **How it works**:
-- The annotation `pipelinesascode.tekton.dev/pipeline: "java-image-build-scan-deploy"` tells PAC to fetch the pipeline from Tekton Hub
+- The annotation `pipelinesascode.tekton.dev/pipeline: "pipeline-name"` tells PAC to fetch the pipeline from Tekton Hub
 - PAC automatically embeds the pipeline definition
-- You can reference it using `pipelineRef.name`
+- You reference it using `pipelineRef.name`
+
+**Note**: In most cases, you should define your pipeline inline using `pipelineSpec` in your repository, rather than using remote pipelines. This gives you better version control and visibility of your pipeline definitions.
 
 ## Combining Remote Tasks and Pipelines
-
-You can combine remote tasks and pipelines in a single PipelineRun:
-
-    ```yaml
-    apiVersion: tekton.dev/v1
-    kind: PipelineRun
-    metadata:
-      name: combined-pipeline
-      annotations:
-        pipelinesascode.tekton.dev/on-target-branch: "[refs/heads/main]"
-        pipelinesascode.tekton.dev/on-event: "[push]"
-        pipelinesascode.tekton.dev/task: "git-clone"
-        pipelinesascode.tekton.dev/pipeline: "java-image-build-scan-deploy"
-    spec:
-      pipelineRef:
-        name: java-image-build-scan-deploy
-      params:
-      - name: image-url
-        value: "registry.example.com/myapp"
-    ```
 
 ## Comparison with Resolver Syntax
 
@@ -660,98 +672,6 @@ PAC annotations provide a simpler alternative to Tekton's resolver syntax:
 - Automatic task embedding
 - No need to specify resolver parameters
 - Works seamlessly with PAC's task resolution
-
-## Complete Example
-
-Here's a complete example using multiple remote tasks:
-
-    ```yaml
-    apiVersion: tekton.dev/v1
-    kind: PipelineRun
-    metadata:
-      name: ci-pipeline
-      annotations:
-        pipelinesascode.tekton.dev/on-target-branch: "[main]"
-        pipelinesascode.tekton.dev/on-event: "[push, pull_request]"
-        pipelinesascode.tekton.dev/task: "git-clone"
-        pipelinesascode.tekton.dev/task-1: "golangci-lint"
-        pipelinesascode.tekton.dev/task-2: "buildah"
-        pipelinesascode.tekton.dev/max-keep-runs: "5"
-    spec:
-      params:
-      - name: repo_url
-        value: "{{repo_url}}"
-      - name: revision
-        value: "{{revision}}"
-      pipelineSpec:
-        params:
-        - name: repo_url
-        - name: revision
-        workspaces:
-        - name: source
-        tasks:
-        - name: fetch-repository
-          taskRef:
-            name: git-clone
-          workspaces:
-          - name: output
-            workspace: source
-          params:
-          - name: url
-            value: $(params.repo_url)
-          - name: revision
-            value: $(params.revision)
-        - name: lint
-          taskRef:
-            name: golangci-lint
-          runAfter: [fetch-repository]
-          workspaces:
-          - name: source
-            workspace: source
-          params:
-          - name: package
-            value: .
-        - name: build
-          taskRef:
-            name: buildah
-          runAfter: [lint]
-          workspaces:
-          - name: source
-            workspace: source
-          params:
-          - name: IMAGE
-            value: "registry.example.com/myapp:latest"
-      workspaces:
-      - name: source
-        volumeClaimTemplate:
-          spec:
-            accessModes:
-            - ReadWriteOnce
-            resources:
-              requests:
-                storage: 1Gi
-    ```
-
-## Best Practices
-
-### 1. Task Selection
-
-- **Use official tasks**: Prefer tasks from the official Tekton Hub catalog
-- **Pin versions in production**: Always specify exact versions (e.g., `git-clone:0.9`) in production for stability and reproducibility
-- **Use latest in development**: Use latest versions (no version suffix) in development to catch compatibility issues early
-- **Test tasks**: Test remote tasks in development before deploying to production
-
-### 2. Annotation Organization
-
-- **Use numbered annotations**: For multiple tasks, use `task`, `task-1`, `task-2`, etc.
-- **Group related tasks**: Use bracket syntax for related tasks
-- **Document tasks**: Add comments explaining why specific tasks are used
-
-### 3. Performance
-
-- **Limit task count**: Don't fetch too many tasks at once
-- **Cache tasks**: PAC caches tasks to improve performance
-- **Monitor resolution**: Check PAC controller logs if task resolution fails
 
 ## Troubleshooting
 
@@ -839,6 +759,6 @@ Example output (abbreviated):
 
 - [Maintain Pipeline Code](./maintain_pipeline_code.mdx) - Pipeline definition guide
 - [Advanced Repository Configuration](./advanced_repository_config.mdx) - Advanced Repository CR settings
-- [Manage PipelineRuns](./manage_pipelineruns.mdx) - PipelineRun management
+- [Manage PipelineRuns](./incoming_webhooks.mdx) - PipelineRun management
 - [Common Issues](../trouble_shooting/common_issues.mdx) - Troubleshooting guide
 

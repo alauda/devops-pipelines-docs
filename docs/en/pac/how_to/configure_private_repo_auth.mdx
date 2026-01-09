@@ -103,7 +103,7 @@ Update your Repository CR to reference the authentication secret:
       name: my-private-repo
       namespace: project-pipelines
     spec:
-      url: "https://gitlab.com/user/private-repo.git"
+      url: "https://gitlab.com/user/private-repo"
       git_provider:
         type: gitlab
         url: "https://gitlab.com"
@@ -121,13 +121,13 @@ Update your Repository CR to reference the authentication secret:
 
 After configuring authentication, verify that PAC can access your private repository:
 
-### Check Repository CR Status
+### Check Repository CR
 
     ```bash
     kubectl get repository <repo-name> -n <your-namespace> -o yaml
     ```
 
-Example output (abbreviated, showing authentication section):
+Example output (abbreviated):
 
     ```yaml
     apiVersion: pipelinesascode.tekton.dev/v1alpha1
@@ -136,34 +136,27 @@ Example output (abbreviated, showing authentication section):
       name: my-repo
       namespace: project-pipelines
     spec:
-      url: "https://gitlab.com/user/private-repo.git"
+      url: "https://gitlab.com/user/private-repo"
       git_provider:
         type: gitlab
         url: "https://gitlab.com"
         secret:
           name: gitlab-secret
           key: token
-    status:
-      conditions:
-      - status: "True"
-        type: RepositoryValidated
     ```
-
-Look for any status errors or authentication issues.
 
 ### Check PAC Controller Logs
 
     ```bash
-    kubectl logs -n <pac-namespace> -l app=pipelines-as-code-controller --tail=100 | grep -i auth  # Replace <pac-namespace> with your actual namespace (default: pipelines-as-code)
+    # Set your PAC namespace (default: tekton-pipelines)
+    PAC_NAMESPACE="tekton-pipelines"
+
+    kubectl logs -n ${PAC_NAMESPACE} \
+      -l app=pipelines-as-code-controller \
+      --tail=100
     ```
 
-Example output (example log entries):
-
-    ```
-    {"level":"info","ts":"2024-01-01T12:00:00Z","logger":"controller","msg":"Authenticated successfully","repository":"my-repo"}
-    ```
-
-Look for authentication errors or successful access messages.
+Look for authentication errors or issues connecting to your Git provider.
 
 ### Test Pipeline Trigger
 
@@ -181,7 +174,7 @@ Example output:
     [main abc1234] Test private repo access
     Enumerating objects: 3, done.
     Writing objects: 100% (2/2), 240 bytes | 240.00 KiB/s, done.
-    To https://gitlab.com/user/private-repo.git
+    To https://gitlab.com/user/private-repo
        def5678..abc1234  main -> main
     ```
 
@@ -273,13 +266,13 @@ Example output:
     ```
 3. Restart PAC controller pods if needed:
     ```bash
-    kubectl rollout restart deployment pipelines-as-code-controller -n <pac-namespace>  # Replace <pac-namespace> with your actual namespace (default: pipelines-as-code)
+    kubectl rollout restart deployment pipelines-as-code-controller -n <tekton-namespace>  # Replace <tekton-namespace> with your actual namespace (default: tekton-pipelines)
     ```
 
    Example output:
 
     ```
-       deployment.apps/pipelines-as-code-controller restarted
+    deployment.apps/pipelines-as-code-controller restarted
     ```
 
 ## Best Practices

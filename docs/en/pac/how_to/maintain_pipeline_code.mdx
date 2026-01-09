@@ -369,7 +369,7 @@ Use the `pipelinesascode.tekton.dev/on-cel-expression` annotation with a CEL exp
 - `target_branch`: The target branch
 - `source_branch`: The branch of origin of a `pull_request` event. For push events, it is same as the `target_branch`
 - `event_title`: Matches the title of the event, such as the commit title for a push event, and the title of a pull or merge request for a `pull_request` event. Currently, only GitHub, GitLab, and Bitbucket Cloud are the supported providers
-- `last_commit_title`: The title of the last commit in the event
+- `last_commit_title`: The title of the last commit in the event (Platform enhancement - not available in upstream Tekton)
 
 #### File Change Fields
 
@@ -480,7 +480,7 @@ A comprehensive example combining multiple conditions:
         pipelinesascode.tekton.dev/on-cel-expression: |-
           (
             source_branch.matches("^(main|master|release-.*)$") ||
-            !last_commit_title.contains("Auto-commit")
+            !event_title.contains("Auto-commit")
           ) && ((
             event == "push" && (
               source_branch.matches("^(main|master|release-.*)$") ||
@@ -640,22 +640,6 @@ Match only GitLab merge request events:
           headers['x-gitlab-event'] == "Merge Request Hook"
     ```
 
-#### Additional CEL Fields
-
-Beyond the basic fields, CEL expressions support additional fields for advanced filtering:
-
-| Field | Description | Example |
-|-------|-------------|---------|
-| `files.all` | All changed files | `files.all.exists(x, x.matches('pattern'))` |
-| `files.added` | Files that were added | `files.added.exists(x, x.matches('pattern'))` |
-| `files.deleted` | Files that were deleted | `files.deleted.exists(x, x.matches('pattern'))` |
-| `files.modified` | Files that were modified | `files.modified.exists(x, x.matches('pattern'))` |
-| `files.renamed` | Files that were renamed | `files.renamed.exists(x, x.matches('pattern'))` |
-| `body` | Full payload body from Git provider | `body.pull_request.base.ref == "main"` |
-| `headers` | HTTP headers from Git provider | `headers['x-github-event'] == "pull_request"` |
-
-**Note**: The `files.*` properties are available for both push and pull_request events. For pull requests, every file belonging to the pull request will be listed. The `body` and `headers` properties provide access to the raw payload data, allowing for very specific filtering based on Git provider-specific information.
-
 ## Cancellation in Progress
 
 The `pipelinesascode.tekton.dev/cancel-in-progress` annotation allows you to automatically cancel a running pipeline when a new pipeline of the same type is triggered.
@@ -723,7 +707,7 @@ You can specify the parameters of your commit and URL by using dynamic, expandab
 :::info Two Types of Variables
 
 PAC supports two types of variables:
-- **PAC dynamic variables** (`{{variable_name}}`): PAC-specific variables (e.g., `{{revision}}`, `{{repo_url}}`) that are replaced by PAC before creating the PipelineRun
+- **PAC dynamic variables** (`{{ variable_name }}`): PAC-specific variables (e.g., `{{ revision }}`, `{{ repo_url }}`) that are replaced by PAC before creating the PipelineRun
 - **Tekton parameters** (`$(params.param-name)`): Tekton Pipeline parameters that can be defined in Repository CR `spec.params` (see [Advanced Repository Configuration](./advanced_repository_config.mdx#custom-parameter-expansion) for details)
 
 This section covers PAC dynamic variables. For Repository CR parameters, see [Advanced Repository Configuration](./advanced_repository_config.mdx#custom-parameter-expansion).
@@ -741,15 +725,15 @@ Currently, you can use the following variables:
 
 | Variable | Description | Example | Availability |
 |----------|-------------|---------|--------------|
-| `{{repo_owner}}` | The repository owner | `myorg`, `username` | All events |
-| `{{repo_name}}` | The repository name | `my-repo` | All events |
-| `{{repo_url}}` | The repository full URL | `https://gitlab.com/user/repo.git` | All events |
-| `{{revision}}` | Full SHA revision of a commit | `abc123def456...` | All events |
-| `{{sender}}` | The username or account ID of the sender of the commit | `username`, `user123` | All events |
-| `{{source_branch}}` | The branch name where the event originated | `main`, `feature/xyz` | All events |
-| `{{target_branch}}` | The branch name that the event targets. For push events, it's the same as `source_branch` | `main`, `develop` | All events |
-| `{{pull_request_number}}` | The pull or merge request number, defined only for a `pull_request` event type | `123` | Pull request events only |
-| `{{git_auth_secret}}` | The secret name that is generated automatically with Git provider's token for checking out private repos | `pac-gitauth-repo-xxx` | All events (for private repos) |
+| `{{ repo_owner }}` | The repository owner | `myorg`, `username` | All events |
+| `{{ repo_name }}` | The repository name | `my-repo` | All events |
+| `{{ repo_url }}` | The repository full URL | `https://gitlab.com/user/repo` | All events |
+| `{{ revision }}` | Full SHA revision of a commit | `abc123def456...` | All events |
+| `{{ sender }}` | The username or account ID of the sender of the commit | `username`, `user123` | All events |
+| `{{ source_branch }}` | The branch name where the event originated | `main`, `feature/xyz` | All events |
+| `{{ target_branch }}` | The branch name that the event targets. For push events, it's the same as `source_branch` | `main`, `develop` | All events |
+| `{{ pull_request_number }}` | The pull or merge request number, defined only for a `pull_request` event type | `123` | Pull request events only |
+| `{{ git_auth_secret }}` | The secret name that is generated automatically with Git provider's token for checking out private repos | `pac-gitauth-repo-xxx` | All events (for private repos) |
 
 ### Variable Usage Examples
 
@@ -759,11 +743,11 @@ Currently, you can use the following variables:
     spec:
       params:
       - name: repo-url
-        value: "{{repo_url}}"
+        value: "{{ repo_url }}"
       - name: revision
-        value: "{{revision}}"
+        value: "{{ revision }}"
       - name: branch
-        value: "{{source_branch}}"
+        value: "{{ source_branch }}"
       pipelineSpec:
         tasks:
         - name: clone
@@ -772,9 +756,9 @@ Currently, you can use the following variables:
             - name: clone
               image: alpine/git:latest
               script: |
-                git clone {{repo_url}}
-                cd {{repo_name}}
-                git checkout {{revision}}
+                git clone {{ repo_url }}
+                cd {{ repo_name }}
+                git checkout {{ revision }}
     ```
 
 #### Event Information
@@ -783,9 +767,9 @@ Currently, you can use the following variables:
     spec:
       params:
       - name: sender
-        value: "{{sender}}"
+        value: "{{ sender }}"
       - name: branch
-        value: "{{target_branch}}"
+        value: "{{ target_branch }}"
       pipelineSpec:
         tasks:
         - name: notify
@@ -794,7 +778,7 @@ Currently, you can use the following variables:
             - name: notify
               image: alpine:latest
               script: |
-                echo "Pipeline triggered by {{sender}} on branch {{target_branch}}"
+                echo "Pipeline triggered by {{ sender }} on branch {{ target_branch }}"
     ```
 
 #### Pull Request Information
@@ -803,7 +787,7 @@ Currently, you can use the following variables:
     spec:
       params:
       - name: pr-number
-        value: "{{pull_request_number}}"
+        value: "{{ pull_request_number }}"
       pipelineSpec:
         tasks:
         - name: test
@@ -812,10 +796,10 @@ Currently, you can use the following variables:
             - name: test
               image: alpine:latest
               script: |
-                echo "Testing Pull Request #{{pull_request_number}}"
+                echo "Testing Pull Request #{{ pull_request_number }}"
     ```
 
-**Note**: The `{{pull_request_number}}` variable is only available for `pull_request` event types. For push events, this variable is not populated.
+**Note**: The `{{ pull_request_number }}` variable is only available for `pull_request` event types. For push events, this variable is not populated.
 
 #### Using Git Authentication Secret
 
@@ -834,13 +818,13 @@ For private repositories, PAC automatically generates a secret for git authentic
               - name: GIT_CREDENTIALS
                 valueFrom:
                   secretKeyRef:
-                    name: "{{git_auth_secret}}"
+                    name: "{{ git_auth_secret }}"
                     key: password
               script: |
-                git clone https://github.com/user/private-repo.git
+                git clone https://github.com/user/private-repo
     ```
 
-**Note**: The `{{git_auth_secret}}` variable is only available for private repositories. PAC automatically creates this secret when you configure authentication for a private repository (see [Configure Authentication for Private Repositories](./configure_private_repo_auth.mdx)). The secret name format is `pac-gitauth-<repository-name>-<hash>`.
+**Note**: The `{{ git_auth_secret }}` variable is only available for private repositories. PAC automatically creates this secret when you configure authentication for a private repository (see [Configure Authentication for Private Repositories](./configure_private_repo_auth.mdx)). The secret name format is `pac-gitauth-<repository-name>-<hash>`.
 
 ## Task Resolution
 
@@ -872,9 +856,9 @@ Reference tasks from Tekton Hub using annotations:
             name: git-clone
           params:
             - name: url
-              value: "{{repo_url}}"
+              value: "{{ repo_url }}"
             - name: revision
-              value: "{{revision}}"
+              value: "{{ revision }}"
         - name: lint
           taskRef:
             name: golangci-lint
@@ -919,9 +903,9 @@ Reference tasks defined in the same repository:
             resolver: git
             params:
             - name: url
-              value: "{{repo_url}}"
+              value: "{{ repo_url }}"
             - name: revision
-              value: "{{revision}}"
+              value: "{{ revision }}"
             - name: pathInRepo
               value: .tekton/tasks/build-task.yaml
     ```
@@ -946,18 +930,22 @@ Reference tasks from Tekton Hub:
 
 #### Remote URL Tasks
 
-Reference tasks from remote URLs:
+Reference tasks from remote URLs using PAC annotations (recommended):
 
     ```yaml
+    apiVersion: tekton.dev/v1
+    kind: PipelineRun
+    metadata:
+      name: my-pipeline
+      annotations:
+        # PAC automatically handles authentication for remote tasks
+        pipelinesascode.tekton.dev/task: "https://raw.githubusercontent.com/tektoncd/catalog/main/task/git-clone/0.9/git-clone.yaml"
     spec:
       pipelineSpec:
         tasks:
         - name: build
           taskRef:
-            resolver: http
-            params:
-            - name: url
-              value: https://raw.githubusercontent.com/tektoncd/catalog/main/task/git-clone/0.9/git-clone.yaml
+            name: git-clone  # Reference the task by name
     ```
 
 ## Pipeline Examples
@@ -1011,6 +999,8 @@ Reference tasks from remote URLs:
 
 ### Multi-Stage Pipeline
 
+This example demonstrates a complete CI pipeline with clone, test, and build stages using a real repository:
+
     ```yaml
     apiVersion: tekton.dev/v1
     kind: PipelineRun
@@ -1020,41 +1010,57 @@ Reference tasks from remote URLs:
         pipelinesascode.tekton.dev/on-target-branch: "[main]"
         pipelinesascode.tekton.dev/on-event: "[push, pull_request]"
     spec:
-      params:
-      - name: git-url
-        value: "{{repo_url}}"
-      - name: git-sha
-        value: "{{revision}}"
+      workspaces:
+      - name: source
+        emptyDir: {}
       pipelineSpec:
+        workspaces:
+        - name: source
         tasks:
         - name: clone
+          workspaces:
+          - name: source
           taskSpec:
+            workspaces:
+            - name: source
             steps:
             - name: clone
               image: alpine/git:latest
               script: |
-                git clone $(params.git-url) /workspace/source
-                cd /workspace/source
-                git checkout $(params.git-sha)
-        - name: test
+                git clone https://github.com/tektoncd/catalog $(workspaces.source.path)
+                cd $(workspaces.source.path)
+                echo "Cloned repository successfully"
+                ls -la
+        - name: check-content
           runAfter: [clone]
+          workspaces:
+          - name: source
           taskSpec:
+            workspaces:
+            - name: source
             steps:
-            - name: test
-              image: node:18
-              workingDir: /workspace/source
+            - name: check
+              image: alpine:latest
               script: |
-                npm install
-                npm test
-        - name: build
-          runAfter: [test]
+                cd $(workspaces.source.path)
+                echo "Repository structure:"
+                ls -la
+                echo "Total files:"
+                find . -type f | wc -l
+        - name: validate-yaml
+          runAfter: [check-content]
+          workspaces:
+          - name: source
           taskSpec:
+            workspaces:
+            - name: source
             steps:
-            - name: build
-              image: node:18
-              workingDir: /workspace/source
+            - name: validate
+              image: alpine:latest
               script: |
-                npm run build
+                cd $(workspaces.source.path)
+                echo "Checking for YAML files"
+                find . -name "*.yaml" -o -name "*.yml" | head -10
     ```
 
 ### Conditional Pipeline
@@ -1159,9 +1165,9 @@ Use different pipelines based on branch:
 
 ### Variables Not Resolving
 
-1. Verify variable syntax: Use `{{variable_name}}` format, for example `{{revision}}` or `{{repo_url}}`
-2. Check variable name spelling: Ensure variable names match exactly (e.g., `{{repo_owner}}`, `{{source_branch}}`)
-3. Verify variable availability: Some variables like `{{pull_request_number}}` are only available for `pull_request` events
+1. Verify variable syntax: Use `{{ variable_name }}` format, for example `{{ revision }}` or `{{ repo_url }}`
+2. Check variable name spelling: Ensure variable names match exactly (e.g., `{{ repo_owner }}`, `{{ source_branch }}`)
+3. Verify variable availability: Some variables like `{{ pull_request_number }}` are only available for `pull_request` events
 4. Review PAC controller logs for variable resolution errors
 
 ### Tasks Not Found

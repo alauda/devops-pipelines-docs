@@ -102,14 +102,14 @@ The output should show the CR with `Ready` status:
 Check the TektonInstallerSet status (replace `<pac-namespace>` with your actual PAC namespace, default is `tekton-pipelines`):
 
     ```bash
-    kubectl get tektoninstallersets -n <pac-namespace> | grep pipelines-as-code
+    kubectl get tektoninstallersets -n <pac-namespace> | grep pipelinesascode
     ```
 
 Example output:
 
     ```
     NAME                              READY   REASON
-    pipelines-as-code-installer-set   True    Ready
+    pipelinesascode-installer-set     True    Ready
     ```
 
 :::info Understanding TektonInstallerSet
@@ -757,7 +757,7 @@ Check that the `OpenShiftPipelinesAsCode` CR is deleted:
 Verify TektonInstallerSet is deleted (replace `<pac-namespace>` with your PAC namespace):
 
     ```bash
-    kubectl get tektoninstallersets -n <pac-namespace> | grep pipelines-as-code
+    kubectl get tektoninstallersets -n <pac-namespace> | grep pipelinesascode
     ```
 
 **Note**: This is a read-only check to verify the internal operator resource has been cleaned up. Do not attempt to delete TektonInstallerSet manually.

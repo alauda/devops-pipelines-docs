@@ -38,10 +38,10 @@ kubectl get pods -n <pac-namespace> | grep pipelines-as-code
 Example output (all pods should be `Running`):
 
 ```
-NAME                                      READY   STATUS    RESTARTS   AGE
-pipelines-as-code-controller-xxxxx        1/1     Running   0          5m
-pipelines-as-code-watcher-xxxxx           1/1     Running   0          5m
-pipelines-as-code-webhook-xxxxx           1/1     Running   0          5m
+NAME                                          READY   STATUS    RESTARTS   AGE
+pipelines-as-code-controller-769bf5c88c-xxxxx  1/1     Running   0          113d
+pipelines-as-code-watcher-546d6cd86d-xxxxx     1/1     Running   15         113d
+pipelines-as-code-webhook-5fcd94db5b-xxxxx     1/1     Running   0          113d
 ```
 
 ### 2. Determine Your Namespaces
@@ -136,26 +136,28 @@ Example output (abbreviated):
     Warning  DeploymentFailed 5m    tekton-operator   Failed to deploy PAC component
     ```
 
-3. **Check TektonInstallerSet** (replace `<pac-namespace>` with your PAC namespace):
+3. **Check TektonInstallerSet**:
 
     ```bash
-    kubectl get tektoninstallersets -n <pac-namespace> | grep pipelines-as-code
-    kubectl describe tektoninstallerset <name> -n <pac-namespace>
+    kubectl get tektoninstallersets | grep openshiftpipelinesascode
+    kubectl describe tektoninstallerset <name>
     ```
 
-   **Note**: `TektonInstallerSet` is an internal operator resource. This is a read-only check for troubleshooting. Do not modify or delete it directly. If issues persist, troubleshoot through the `OpenShiftPipelinesAsCode` CR.
+   **Note**: `TektonInstallerSet` is a cluster-scoped resource. This is a read-only check for troubleshooting. Do not modify or delete it directly. If issues persist, troubleshoot through the `OpenShiftPipelinesAsCode` CR.
 
 Example output:
 
     ```
-    NAME                              AGE
-    pipelines-as-code-installer-set   5m
+    NAME                                             AGE
+    openshiftpipelinesascode-main-deployment-4bzwx   153d
+    openshiftpipelinesascode-main-static-s7qn2       153d
+    openshiftpipelinesascode-post-cdwjw              153d
     ```
 
 4. **Check Operator Logs**:
 
     ```bash
-    kubectl logs -n <pac-namespace> -l app.kubernetes.io/name=tekton-operator --tail=100
+    kubectl logs -n <pac-namespace> -l app=tekton-operator --tail=100
     ```
 
 Example output (example log entries):
@@ -195,9 +197,9 @@ PAC pods are in `Pending` or `CrashLoopBackOff` state.
 Example output:
 
     ```
-    NAME                                      READY   STATUS             RESTARTS   AGE
-    pipelines-as-code-controller-xxxxx        0/1     CrashLoopBackOff   5          5m
-    pipelines-as-code-watcher-xxxxx          0/1     Pending            0          5m
+    NAME                                          READY   STATUS             RESTARTS   AGE
+    pipelines-as-code-controller-769bf5c88c-xxxxx  0/1     CrashLoopBackOff   5          113d
+    pipelines-as-code-watcher-546d6cd86d-xxxxx    0/1     Pending            0          113d
     ```
 
 2. **Check Pod Logs**:
@@ -256,90 +258,6 @@ Example output:
         cpu: 100m
         memory: 128Mi
     ```
-
-### Common Causes
-
-- **Insufficient resources**: CPU or memory limits too low
-- **Image pull errors**: Cannot pull container images
-- **ConfigMap/Secret missing**: Required configuration not found
-- **RBAC issues**: ServiceAccount lacks permissions
-
-### Solution
-
-1. Check node resources: 
-
-    ```bash
-    kubectl top nodes
-    ```
-
-Example output:
-
-    ```
-    NAME       CPU(cores)   MEMORY(bytes)
-    node-1     500m         2Gi
-    node-2     300m         1.5Gi
-    ```
-
-2. Verify image pull secrets (replace `<pac-namespace>` with your PAC namespace): 
-
-    ```bash
-    kubectl get secrets -n <pac-namespace>
-    ```
-
-Example output:
-
-    ```
-    NAME                  TYPE                                  DATA   AGE
-    default-token-xxxxx   kubernetes.io/service-account-token  3      10m
-    ```
-
-3. Check ConfigMap exists: 
-
-    ```bash
-    kubectl get configmap pipelines-as-code -n <pac-namespace>
-    ```
-
-Example output:
-
-    ```
-    NAME                        DATA   AGE
-    pipelines-as-code           5      10m
-    ```
-
-4. **Verify ServiceAccount permissions**:
-
-    Check if the ServiceAccount has required permissions:
-
-    ```bash
-    # Check what ServiceAccount is used by PAC pods
-    kubectl get pod <pod-name> -n <pac-namespace> -o jsonpath='{.spec.serviceAccountName}'
-    
-    # Check if ServiceAccount exists
-    kubectl get serviceaccount <service-account-name> -n <pac-namespace>
-    
-    # Check RoleBindings/ClusterRoleBindings
-    kubectl get rolebindings,clusterrolebindings | grep <service-account-name>
-    ```
-
-### Verification
-
-After applying solutions, verify the fix:
-
-1. **Check pod status**:
-
-    ```bash
-    kubectl get pods -n <pac-namespace> | grep pipelines-as-code
-    ```
-
-    All pods should show `Running` status with `1/1` ready.
-
-2. **Check pod logs for errors**:
-
-    ```bash
-    kubectl logs -n <pac-namespace> <pod-name> --tail=50
-    ```
-
-    Look for any error messages or warnings.
 
 ## Webhook Not Receiving Events
 
@@ -628,10 +546,8 @@ Example output (abbreviated):
     kind: Repository
     metadata:
       name: my-repo
-    status:
-      conditions:
-      - status: "True"
-        type: RepositoryValidated
+    spec:
+    # ......
     ```
 
 3. **Verify Namespace Exists**:
@@ -988,7 +904,7 @@ Example output:
       },
       {
         "name": "repo_url",
-        "value": "https://gitlab.com/user/repo.git"
+        "value": "https://gitlab.com/user/repo"
       }
     ]
     ```

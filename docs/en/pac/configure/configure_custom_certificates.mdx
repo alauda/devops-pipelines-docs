@@ -157,29 +157,29 @@ If you're using `TektonConfig` CR (for OpenShift deployments):
       platforms:
         openshift:
           pipelinesAsCode:
-          enable: true
-          options:
-            deployments:
-              pipelines-as-code-controller:
-                spec:
-                  template:
-                    spec:
-                      containers:
-                      - name: pac-controller
-                        volumeMounts:
+            enable: true
+            options:
+              deployments:
+                pipelines-as-code-controller:
+                  spec:
+                    template:
+                      spec:
+                        containers:
+                        - name: pac-controller
+                          volumeMounts:
+                          - name: git-ca-cert
+                            mountPath: /etc/ssl/certs/git-ca.crt
+                            subPath: ca.crt
+                            readOnly: true
+                          env:
+                          - name: GIT_SSL_CAINFO
+                            value: /etc/ssl/certs/git-ca.crt
+                          - name: SSL_CERT_FILE
+                            value: /etc/ssl/certs/git-ca.crt
+                        volumes:
                         - name: git-ca-cert
-                          mountPath: /etc/ssl/certs/git-ca.crt
-                          subPath: ca.crt
-                          readOnly: true
-                        env:
-                        - name: GIT_SSL_CAINFO
-                          value: /etc/ssl/certs/git-ca.crt
-                        - name: SSL_CERT_FILE
-                          value: /etc/ssl/certs/git-ca.crt
-                      volumes:
-                      - name: git-ca-cert
-                        configMap:
-                          name: git-ca-cert
+                          configMap:
+                            name: git-ca-cert
     ```
 
 **Important**: 
@@ -224,73 +224,42 @@ Verify the certificate is mounted in the PAC controller pod:
     # Set your PAC namespace (default: tekton-pipelines)
     PAC_NAMESPACE="tekton-pipelines"
 
-    kubectl exec -n ${PAC_NAMESPACE} \
-      $(kubectl get pod -n ${PAC_NAMESPACE} -l app=pipelines-as-code-controller -o jsonpath='{.items[0].metadata.name}') \
-      -- ls -la /etc/ssl/certs/git-ca.crt
+    kubectl get pod -n ${PAC_NAMESPACE} \
+      -l app=pipelines-as-code-controller \
+      -o jsonpath='{.items[0].spec.volumes}' | jq
     ```
 
 Example output:
 
-    ```
-    -rw-r--r-- 1 root root 1234 Jan  1 12:00 /etc/ssl/certs/git-ca.crt
-    ```
-
-You should see the certificate file listed.
-
-### Check Environment Variables
-
-Verify the environment variables are set:
-
-    ```bash
-    # Set your PAC namespace (default: tekton-pipelines)
-    PAC_NAMESPACE="tekton-pipelines"
-
-    kubectl exec -n ${PAC_NAMESPACE} \
-      $(kubectl get pod -n ${PAC_NAMESPACE} -l app=pipelines-as-code-controller -o jsonpath='{.items[0].metadata.name}') \
-      -- env | grep -E "GIT_SSL_CAINFO|SSL_CERT_FILE"
+    ```json
+    [
+      {
+        "name": "tls",
+        "secret": {
+          "defaultMode": 420,
+          "optional": true,
+          "secretName": "pipelines-as-code-tls-secret"
+        }
+      }
+    ]
     ```
 
-Example output:
-
-    ```
-    GIT_SSL_CAINFO=/etc/ssl/certs/git-ca.crt
-    SSL_CERT_FILE=/etc/ssl/certs/git-ca.crt
-    ```
-
-### Test Git Operations
-
-Test that Git can access your Git hosting service:
-
-    ```bash
-    # Set your PAC namespace (default: tekton-pipelines)
-    PAC_NAMESPACE="tekton-pipelines"
-
-    kubectl exec -n ${PAC_NAMESPACE} \
-      $(kubectl get pod -n ${PAC_NAMESPACE} -l app=pipelines-as-code-controller -o jsonpath='{.items[0].metadata.name}') \
-      -- git config --global http.sslCAInfo /etc/ssl/certs/git-ca.crt
-    ```
-
-Example output (no output on success):
-
-    ```bash
-    # no output on success
-    ```
+You should see the volume configuration showing the certificate is mounted.
 
 ### Check PAC Controller Logs
 
-Check for SSL/certificate errors in the PAC controller logs:
+Check the PAC controller logs for any certificate-related errors:
 
     ```bash
-    kubectl logs -n <pac-namespace> -l app=pipelines-as-code-controller --tail=100 | grep -i ssl  # Replace <pac-namespace> with your actual namespace (default: tekton-pipelines)
+    # Set your PAC namespace (default: tekton-pipelines)
+    PAC_NAMESPACE="tekton-pipelines"
+
+    kubectl logs -n ${PAC_NAMESPACE} \
+      -l app=pipelines-as-code-controller \
+      --tail=100
     ```
 
-Example output (if configured correctly, should be empty or show no SSL errors):
-
-    ```
-    (no output or no SSL errors)
-    ```
-
-If configured correctly, you should not see SSL certificate errors.
+If configured correctly, you should not see SSL/TLS certificate errors in the logs.
 
 ### Test with a Repository
 
@@ -308,7 +277,7 @@ Example output:
     [main abc1234] Test certificate configuration
     Enumerating objects: 3, done.
     Writing objects: 100% (2/2), 240 bytes | 240.00 KiB/s, done.
-    To https://gitlab.example.com/user/repo.git
+    To https://gitlab.example.com/user/repo
        def5678..abc1234  main -> main
     ```
 
@@ -396,7 +365,7 @@ Example output:
 **Solutions**:
 1. Check CR status:
     ```bash
-    kubectl get openshiftpipelinesascodes -n <pac-namespace>  # Replace <pac-namespace> with your actual namespace (default: tekton-pipelines)
+    kubectl get openshiftpipelinesascodes
     ```
 
    Example output:
@@ -407,7 +376,7 @@ Example output:
     ```
 2. Check Operator logs:
     ```bash
-    kubectl logs -n <pac-namespace> -l app.kubernetes.io/name=operator --tail=100  # Replace <pac-namespace> with your actual namespace (default: tekton-pipelines)
+    kubectl logs -n tekton-operator -l app=tekton-operator --tail=100
     ```
 
 Example output (example log entries):
