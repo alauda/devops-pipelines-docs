@@ -17,7 +17,6 @@ This guide is for **regular users** who need advanced Repository CR configuratio
 
 This guide explains advanced configuration options for Repository Custom Resources, including:
 - Global Repository CR for automatic configuration inheritance (Tech Preview)
-- Shared configuration management using Kustomize
 - Concurrency limits
 - Source branch configuration
 - Custom parameter expansion
@@ -84,115 +83,9 @@ With the global CR above, you can create individual Repository CRs with minimal 
       name: my-app-repo
       namespace: my-project
     spec:
-      url: "https://gitlab.com/user/my-app.git"
+      url: "https://gitlab.com/user/my-app"
       # git_provider settings are inherited from the global CR
     ```
-
-## Managing Shared Configuration
-
-For easier management of shared configurations, **use Kustomize** - the recommended approach for managing multiple Repository CRs with shared configuration:
-
-**Create a base configuration** (`base/repository.yaml`):
-
-    ```yaml
-    apiVersion: pipelinesascode.tekton.dev/v1alpha1
-    kind: Repository
-    metadata:
-      name: base-repo
-      namespace: project-pipelines
-    spec:
-      git_provider:
-        type: gitlab
-        url: "https://gitlab.com"
-        secret:
-          name: gitlab-secret
-          key: token
-        webhook_secret:
-          name: webhook-secret
-          key: secret
-    ```
-
-**Create overlays for each repository** (`overlays/repo-1/kustomization.yaml`):
-
-    ```yaml
-    apiVersion: kustomize.config.k8s.io/v1beta1
-    kind: Kustomization
-    resources:
-    - ../../base
-    nameSuffix: -repo-1
-    patches:
-    - patch: |-
-        apiVersion: pipelinesascode.tekton.dev/v1alpha1
-        kind: Repository
-        metadata:
-          name: base-repo
-        spec:
-          url: "https://gitlab.com/user/repo-1.git"
-    ```
-
-**Apply the configuration**:
-
-    ```bash
-    kubectl apply -k overlays/repo-1/
-    ```
-
-**Why Kustomize**:
-
-- Native Kubernetes tool for configuration management
-- Easy to maintain and version control
-- Supports complex configuration scenarios
-- Clear separation between base configuration and environment-specific overrides
-
-### Alternative: Using ConfigMaps
-
-If you need to manage shared parameter values, you can use ConfigMaps. However, note that Repository CRs cannot directly reference ConfigMap values - you need to manually copy values from ConfigMaps when creating Repository CRs, or use templating tools:
-
-Create a ConfigMap with shared values:
-
-    ```yaml
-    apiVersion: v1
-    kind: ConfigMap
-    metadata:
-      name: shared-pac-config
-      namespace: project-pipelines
-    data:
-      default-concurrency-limit: "5"
-      default-environment: "production"
-      default-cluster-name: "shared-cluster"
-    ```
-
-Then manually reference these values when creating Repository CRs, or use templating tools:
-
-    ```yaml
-    apiVersion: pipelinesascode.tekton.dev/v1alpha1
-    kind: Repository
-    metadata:
-      name: my-repo
-      namespace: project-pipelines
-    spec:
-      url: "https://gitlab.com/user/repo.git"
-      # Copy values from ConfigMap manually or use templating
-      concurrency_limit: 5  # From shared-pac-config
-      params:
-      - name: environment
-        value: "production"  # From shared-pac-config
-      - name: cluster-name
-        value: "shared-cluster"  # From shared-pac-config
-    ```
-
-**Note**: For automated ConfigMap value injection, consider using:
-- **Helm**: Use `{{ .Values.environment }}` in templates
-- **Kustomize**: Use `replacements` or `patches` to inject ConfigMap values
-- **CI/CD pipelines**: Use scripts to read ConfigMap and generate Repository CRs
-
-### Best Practices for Shared Configuration
-
-- **Use Kustomize for production**: Kustomize is the recommended approach for managing multiple Repository CRs with shared configuration
-- **Global CR for simple cases**: Use the global Repository CR for simple, organization-wide defaults (Tech Preview)
-- **Version control**: Store base configurations and overlays in version control
-- **Documentation**: Document which settings are shared and which are repository-specific
-- **Testing**: Test configurations with a few repositories before rolling out widely
-- **Separation of concerns**: Keep environment-specific settings in overlays, common settings in base
 
 ## Setting Concurrency Limits
 
@@ -209,7 +102,7 @@ Edit your Repository CR to add the `concurrency_limit` field:
       name: my-repo
       namespace: project-pipelines
     spec:
-      url: "https://gitlab.com/user/repo.git"
+      url: "https://gitlab.com/user/repo"
       concurrency_limit: 5
       git_provider:
         type: gitlab
@@ -252,7 +145,7 @@ Edit your Repository CR to add the `concurrency_limit` field:
 
 ### Verify Concurrency Limit
 
-Check the Repository CR status:
+Check the Repository CR:
 
     ```bash
     kubectl get repository my-repo -n project-pipelines -o yaml
@@ -286,99 +179,49 @@ Example output:
 
 ## Changing the Source Branch for Pipeline Definition
 
-By default, PAC fetches pipeline definitions from the branch that triggered the event. You can configure PAC to fetch pipeline definitions from a different branch.
+By default, Pipelines-as-Code fetches the PipelineRun definition from the branch where the event has been triggered (for example, the branch of the push or pull request).
 
-### Configure Source Branch
+You can change this behavior by using the `spec.settings.pipelinerun_provenance` field in the Repository custom resource. This setting controls from which branch the PipelineRun definition is fetched.
 
-Use the `pipelinesascode.tekton.dev/branch` annotation in the Repository CR:
+### Configure PipelineRun definition source
 
-    ```yaml
-    apiVersion: pipelinesascode.tekton.dev/v1alpha1
-    kind: Repository
-    metadata:
-      name: my-repo
-      namespace: project-pipelines
-      annotations:
-        pipelinesascode.tekton.dev/branch: "main"
-    spec:
-      url: "https://gitlab.com/user/repo.git"
-      git_provider:
-        type: gitlab
-        url: "https://gitlab.com"
-        secret:
-          name: gitlab-secret
-          key: token
-    ```
+```yaml
+apiVersion: pipelinesascode.tekton.dev/v1alpha1
+kind: Repository
+metadata:
+  name: my-repo
+  namespace: project-pipelines
+spec:
+  url: "https://gitlab.com/user/repo"
+  git_provider:
+    type: gitlab
+    url: "https://gitlab.com"
+    secret:
+      name: gitlab-secret
+      key: token
+  settings:
+    pipelinerun_provenance: "default_branch"
+```
 
-**Behavior**:
-- When set, PAC always fetches pipeline definitions from the specified branch
-- PipelineRuns still execute with the code from the triggering branch/commit
-- Useful for maintaining stable pipeline definitions while testing code changes
+**Supported values for `pipelinerun_provenance`**:
 
-### Use Cases
+- `source`: The default behavior. The PipelineRun definition is fetched from the branch where the event has been triggered.
+- `default_branch`: The PipelineRun definition is fetched from the repository default branch as configured on the Git provider (for example `main`, `master`, or `trunk`).
 
-**Stable pipeline definitions**: Keep pipeline definitions in `main` branch while testing in feature branches:
+### Security Benefits
 
-    ```yaml
-    metadata:
-      annotations:
-        pipelinesascode.tekton.dev/branch: "main"
-    ```
+Letting the user specify the provenance of the PipelineRun definition to the default branch is another layer of security. It ensures that only the user who has the right to merge commits to the default branch can change the PipelineRun definition and gain access to the infrastructure.
 
-**Separate pipeline branch**: Maintain pipelines in a dedicated branch:
+- **Prevents malicious pipeline changes**: Pipeline definitions must be merged to the default branch before they can be executed.
+- **Enforces review process**: All pipeline changes go through the standard merge/review process.
+- **Consistent pipeline behavior**: All runs use the same pipeline definitions from the default branch.
 
-    ```yaml
-    metadata:
-      annotations:
-        pipelinesascode.tekton.dev/branch: "pipelines"
-    ```
+### Configuration comparison
 
-**Default behavior** (no annotation): Fetch from the triggering branch:
-
-    ```yaml
-    metadata:
-      # No branch annotation - uses triggering branch
-    ```
-
-### Using Default Branch with Settings
-
-Alternatively, you can use the `settings.pipelinerun_provenance` field to automatically fetch pipeline definitions from the repository's default branch (as configured in the Git provider, such as `main`, `master`, or `trunk`).
-
-**Configuration**:
-
-    ```yaml
-    apiVersion: pipelinesascode.tekton.dev/v1alpha1
-    kind: Repository
-    metadata:
-      name: my-repo
-      namespace: project-pipelines
-    spec:
-      url: "https://gitlab.com/user/repo.git"
-      git_provider:
-        type: gitlab
-        url: "https://gitlab.com"
-        secret:
-          name: gitlab-secret
-          key: token
-      settings:
-        pipelinerun_provenance: "default_branch"
-    ```
-
-**Security Benefits**:
-
-This setting provides enhanced security by ensuring that pipeline definitions are fetched from the default branch rather than from pull request branches:
-
-- **Prevents malicious pipeline changes**: Pipeline definitions must be merged to the default branch before they can be executed
-- **Enforces review process**: All pipeline changes go through the standard merge/review process
-- **Consistent pipeline behavior**: All runs use the same pipeline definitions from the default branch
-
-**Comparison**:
-
-| Configuration | Branch Source | Security Level | Use Case |
-|--------------|---------------|----------------|----------|
-| No annotation | Triggering branch | Standard | Development, testing |
-| `pipelinesascode.tekton.dev/branch` | Specific branch | Medium | Stable pipeline definitions |
-| `settings.pipelinerun_provenance: "default_branch"` | Repository default branch | High | Production, security-focused |
+| Configuration                                      | Branch Source          | Security Level | Use Case                     |
+|---------------------------------------------------|------------------------|----------------|------------------------------|
+| `settings.pipelinerun_provenance: "source"`       | Triggering branch      | Standard       | Development, testing         |
+| `settings.pipelinerun_provenance: "default_branch"` | Repository default branch | High         | Production, security-focused |
 
 **Note**: According to the [Red Hat OpenShift Pipelines documentation](https://docs.redhat.com/zh-cn/documentation/red_hat_openshift_pipelines/1.20/html/pipelines_as_code/changing-source-branch-in-repository-crd_using-repository-crd), the `default_branch` setting is recommended as a security measure to ensure maximum validation of pipeline changes during the merge review process.
 
@@ -397,7 +240,7 @@ Add parameters to the Repository CR `spec.params` field:
       name: my-repo
       namespace: project-pipelines
     spec:
-      url: "https://gitlab.com/user/repo.git"
+      url: "https://gitlab.com/user/repo"
       params:
       - name: environment
         value: "production"
@@ -415,13 +258,13 @@ Add parameters to the Repository CR `spec.params` field:
 
 ### Use Custom Parameters in Pipelines
 
-**Important**: Repository CR parameters use the PAC variable syntax `{{parameter_name}}`, not Tekton's `$(params.parameter_name)` syntax.
+**Important**: Repository CR parameters use the PAC variable syntax `{{ param }}`, not Tekton's `$(params.param)` syntax.
 
-- **PAC variables** (`{{variable_name}}`): PAC replaces these **before** creating the PipelineRun. This includes:
-  - Repository CR parameters from `spec.params` (e.g., `{{environment}}`, `{{cluster-name}}`)
-  - PAC built-in variables (e.g., `{{revision}}`, `{{repo_url}}`, `{{source_branch}}`)
+- **PAC variables** (`{{ variable }}`): PAC replaces these **before** creating the PipelineRun. This includes:
+  - Repository CR parameters from `spec.params` (e.g., `{{ environment }}`, `{{ cluster-name }}`)
+  - PAC built-in variables (e.g., `{{ revision }}`, `{{ repo_url }}`, `{{ source_branch }}`)
   
-- **Tekton parameters** (`$(params.param-name)`): Tekton resolves these **during** PipelineRun execution. These reference the PipelineRun's own `spec.params`.
+- **Tekton parameters** (`$(params.param)`): Tekton resolves these **during** PipelineRun execution. These reference the PipelineRun's own `spec.params`.
 
 Reference Repository CR parameters in your PipelineRun definitions using PAC variable syntax:
 
@@ -436,13 +279,13 @@ Reference Repository CR parameters in your PipelineRun definitions using PAC var
     spec:
       params:
       - name: environment
-        value: "{{environment}}"  # PAC variable - replaced with Repository CR param value
+        value: "{{ environment }}"  # PAC variable - replaced with Repository CR param value
       - name: cluster-name
-        value: "{{cluster-name}}"  # PAC variable - replaced with Repository CR param value
+        value: "{{ cluster-name }}"  # PAC variable - replaced with Repository CR param value
       - name: namespace
-        value: "{{namespace}}"  # PAC variable - replaced with Repository CR param value
+        value: "{{ namespace }}"  # PAC variable - replaced with Repository CR param value
       - name: revision
-        value: "{{revision}}"  # PAC built-in variable - replaced with commit SHA
+        value: "{{ revision }}"  # PAC built-in variable - replaced with commit SHA
       pipelineSpec:
         tasks:
         - name: deploy
@@ -458,12 +301,12 @@ Reference Repository CR parameters in your PipelineRun definitions using PAC var
     ```
 
 **How it works**:
-1. **Before PipelineRun creation**: PAC replaces all `{{variable}}` syntax with actual values from Repository CR params and built-in variables
+1. **Before PipelineRun creation**: PAC replaces all `{{ variable }}` syntax with actual values from Repository CR params and built-in variables
 2. **PipelineRun creation**: PAC creates the PipelineRun with all variables already replaced
 3. **During execution**: Tekton resolves `$(params.xxx)` syntax by reading from the PipelineRun's `spec.params`
 
 **Example transformation**:
-- In your Git repo: `value: "{{environment}}"` 
+- In your Git repo: `value: "{{ environment }}"` 
 - PAC replaces it: `value: "production"` (from Repository CR param)
 - PipelineRun created with: `- name: environment` / `value: "production"`
 - Task scripts use: `$(params.environment)` → Tekton resolves to `"production"`
@@ -474,7 +317,7 @@ Parameters are expanded in the following order (highest to lowest precedence):
 
 1. **PipelineRun params**: Parameters explicitly defined in the PipelineRun
 2. **Repository params**: Parameters defined in the Repository CR
-3. **Dynamic variables**: PAC dynamic variables (e.g., `{{revision}}`, `{{repo_url}}`)
+3. **Dynamic variables**: PAC dynamic variables (e.g., `{{ revision }}`, `{{ repo_url }}`)
 
 ### Example: Environment-Specific Configuration
 
@@ -489,7 +332,7 @@ Configure different environments using Repository params:
       name: prod-repo
       namespace: production
     spec:
-      url: "https://gitlab.com/user/prod-repo.git"
+      url: "https://gitlab.com/user/prod-repo"
       params:
       - name: environment
         value: "production"
@@ -508,7 +351,7 @@ Configure different environments using Repository params:
       name: staging-repo
       namespace: staging
     spec:
-      url: "https://gitlab.com/user/staging-repo.git"
+      url: "https://gitlab.com/user/staging-repo"
       params:
       - name: environment
         value: "staging"
@@ -530,10 +373,8 @@ You can combine all advanced features in a single Repository CR:
     metadata:
       name: advanced-repo
       namespace: project-pipelines
-      annotations:
-        pipelinesascode.tekton.dev/branch: "main"
     spec:
-      url: "https://gitlab.com/user/repo.git"
+      url: "https://gitlab.com/user/repo"
       concurrency_limit: 5
       params:
       - name: environment
@@ -603,18 +444,6 @@ Example output:
     {"level":"info","ts":"2024-01-01T12:00:01Z","logger":"controller","msg":"PipelineRun queued","repository":"my-repo","reason":"concurrency_limit"}
     ```
 
-### Source Branch Not Used
-
-1. **Verify annotation**:
-
-    ```bash
-    kubectl get repository my-repo -n project-pipelines -o jsonpath='{.metadata.annotations.pipelinesascode\.tekton\.dev/branch}'
-    ```
-
-2. **Check PAC controller logs** for branch resolution errors
-
-3. **Verify branch exists** in the repository
-
 ### Parameters Not Expanding
 
 1. **Verify parameters are defined**:
@@ -623,7 +452,7 @@ Example output:
     kubectl get repository my-repo -n project-pipelines -o jsonpath='{.spec.params}'
     ```
 
-2. **Check parameter syntax**: Ensure you're using `{{param-name}}` syntax to reference Repository CR parameters, not `$(params.param-name)`
+2. **Check parameter syntax**: Ensure you're using `{{ param }}` syntax to reference Repository CR parameters, not `$(params.param)`
 
 3. **Verify variable replacement**: Check the created PipelineRun to see if PAC replaced the variables:
 
@@ -637,6 +466,6 @@ Example output:
 
 - [Configure Repository](./configure_gitlab_repo.mdx) - Basic repository setup
 - [Maintain Pipeline Code](./maintain_pipeline_code.mdx) - Pipeline definition guide
-- [Manage PipelineRuns](./manage_pipelineruns.mdx) - PipelineRun management
+- [Manage PipelineRuns](./incoming_webhooks.mdx) - PipelineRun management
 - [Common Issues](../trouble_shooting/common_issues.mdx) - Troubleshooting guide
 

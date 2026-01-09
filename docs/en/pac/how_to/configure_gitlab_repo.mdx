@@ -231,7 +231,7 @@ The command will prompt you for the following information:
     ```
 
 - **Default**: Auto-detected from current directory's git remote
-- **Format**: `https://gitlab.com/username/repo.git` or `git@gitlab.com:username/repo.git`
+- **Format**: `https://gitlab.com/username/repo` or `git@gitlab.com:username/repo`
 - **Action**: Press Enter to use default, or enter a different URL
 
 #### 2. Namespace for Pipelines
@@ -318,7 +318,7 @@ The command will prompt you for the following information:
 ### Example Interactive Session
 
     ```
-    ? Enter the Git repository URL: https://gitlab.com/myuser/myproject.git
+    ? Enter the Git repository URL: https://gitlab.com/myuser/myproject
     ? Enter the namespace where the pipeline should run (default: project-pipelines): 
     ? Enter the GitLab project ID: 12345678
     ? Enter the Pipelines as Code controller URL (default: http://pac.example.com): 
@@ -340,8 +340,8 @@ First, determine your namespace (the namespace you specified when creating the R
 Example output:
 
     ```
-    NAMESPACE          NAME       URL                                    AGE
-    project-pipelines  my-repo    https://gitlab.com/user/repo.git       2m
+    NAMESPACE          NAME       URL                              SUCCEEDED   REASON      STARTTIME   COMPLETIONTIME
+    project-pipelines  my-repo    https://gitlab.com/user/repo     True        Succeeded
     ```
 
 Then verify the Repository CR was created in your namespace:
@@ -353,8 +353,8 @@ Then verify the Repository CR was created in your namespace:
 Example output:
 
     ```
-    NAME       URL                                    AGE
-    my-repo    https://gitlab.com/user/repo.git       2m
+    NAME       URL                              SUCCEEDED   REASON      STARTTIME   COMPLETIONTIME
+    my-repo    https://gitlab.com/user/repo     True        Succeeded
     ```
 
 View the Repository CR details:
@@ -376,14 +376,10 @@ Example output (abbreviated):
       name: my-repo
       namespace: project-pipelines
     spec:
-      url: "https://gitlab.com/user/repo.git"
+      url: "https://gitlab.com/user/repo"
       git_provider:
         type: gitlab
         url: "https://gitlab.com"
-    status:
-      conditions:
-      - status: "True"
-        type: RepositoryValidated
     ```
 
 ### Check GitLab Webhook
@@ -396,41 +392,43 @@ Example output (abbreviated):
 
 ### Check Kubernetes Secret
 
-Verify the secret was created:
+When using `tkn pac create repo`, a secret is automatically created with your GitLab credentials. Verify the secret:
 
     ```bash
-    kubectl get secrets -n <your-namespace> | grep pipelines-as-code
+    kubectl get secrets -n <your-namespace>
     ```
 
 Example output:
 
     ```
     NAME                          TYPE     DATA   AGE
-    pipelines-as-code-secret     Opaque   2      2m
+    my-repo                       Opaque   2      2m
     ```
 
-View secret details (base64 encoded):
-
-First, get the secret name from the list above, then view details:
+View secret details:
 
     ```bash
     kubectl get secret <secret-name> -n <your-namespace> -o yaml
     ```
 
-Replace `<secret-name>` with the actual secret name from the list (e.g., `pipelines-as-code-secret`).
+Replace `<secret-name>` with the actual secret name (typically matches your repository name).
 
-Example output (abbreviated, values are base64 encoded):
+Example output (values are base64 encoded):
 
     ```yaml
     apiVersion: v1
     kind: Secret
     metadata:
-      name: pipelines-as-code-secret
+      name: my-repo
       namespace: project-pipelines
     data:
-      token: <your-token>
-      webhook-secret: <your-webhook-secret>
+      provider.token: <base64-encoded-gitlab-token>
+      webhook.secret: <base64-encoded-webhook-secret>
     ```
+
+The secret contains:
+- `provider.token`: Your GitLab personal access token
+- `webhook.secret`: The webhook validation secret
 
 ### Check Generated Template
 
@@ -512,7 +510,7 @@ Create a file `repository.yaml`:
       name: my-repo
       namespace: project-pipelines
     spec:
-      url: "https://gitlab.com/myuser/myproject.git"
+      url: "https://gitlab.com/myuser/myproject"
       git_provider:
         type: gitlab
         url: "https://gitlab.com"
@@ -644,7 +642,7 @@ Example output:
 
 ### Check if PipelineRuns are Not Created
 
-1. Check Repository CR status:
+1. Check Repository CR:
 
     ```bash
     kubectl get repository <repo-name> -n <your-namespace> -o yaml
@@ -658,10 +656,6 @@ Example output (abbreviated):
     metadata:
       name: my-repo
       namespace: project-pipelines
-    status:
-      conditions:
-      - status: "True"
-        type: Ready
     ```
 
 2. Check PAC controller logs for errors

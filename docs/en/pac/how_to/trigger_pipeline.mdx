@@ -2,20 +2,20 @@
 weight: 60
 i18n:
   title:
-    en: Trigger Pipelines
-    zh: 触发流水线
-title: Trigger Pipelines
+    en: Triggering with Git Operations
+    zh: 使用 Git 操作触发
+title: Triggering with Git Operations
 ---
 
-# Trigger Pipelines
+# Triggering with Git Operations
 
 :::info For Regular Users
 
-This guide is for **regular users** to configure and trigger pipelines through Git provider events.
+This guide provides Git command examples for triggering PAC pipelines through Git operations.
 
 :::
 
-This guide explains how to trigger PAC pipelines through various Git provider events.
+This guide shows common Git commands used to trigger PAC pipelines through Git provider events.
 
 :::info How PAC Triggers Work
 
@@ -25,302 +25,89 @@ PAC uses webhooks from Git providers (GitHub, GitLab, Bitbucket, etc.) to detect
 3. **Pipeline Matching**: PAC controller matches the event against annotations in your PipelineRun files
 4. **Pipeline Execution**: If a match is found, PAC creates a PipelineRun in your cluster
 
-For more details on webhook configuration, see [Configure Repository](./configure_gitlab_repo.mdx).
+For more details on pipeline definitions and event annotations, see [Maintain Pipeline Code](./maintain_pipeline_code.mdx).
 
 :::
 
-## Trigger Methods
+## Testing Push Triggers
 
-PAC supports multiple ways to trigger pipelines:
+### Basic Push
 
-1. **Push Events**: Automatically trigger on code push
-2. **Merge Request Events**: Trigger on Merge Request creation or updates
-3. **Comment Commands**: Trigger via comments in Merge Requests
+Make a change and push to trigger pipelines:
 
-## Push Event Triggers
+```bash
+echo "test" >> test.txt
+git add test.txt
+git commit -m "Test push trigger"
+git push origin main
+```
 
-### Basic Push Trigger
+### Push to Specific Branch
 
-Trigger pipeline when code is pushed to a specific branch:
+Create and push to a feature branch:
 
-    ```yaml
-    apiVersion: tekton.dev/v1
-    kind: PipelineRun
-    metadata:
-      name: push-pipeline
-      annotations:
-        pipelinesascode.tekton.dev/on-target-branch: "[refs/heads/main]"
-        pipelinesascode.tekton.dev/on-event: "[push]"
-    spec:
-      pipelineSpec:
-        tasks:
-        - name: build
-          taskSpec:
-            steps:
-            - name: build
-              image: alpine:latest
-              script: |
-                echo "Building on push to main"
-    ```
+```bash
+git checkout -b feature/new-feature
+echo "feature code" >> feature.txt
+git add feature.txt
+git commit -m "Add new feature"
+git push origin feature/new-feature
+```
 
-### Multiple Branches
+### Empty Commit
 
-Trigger on push to multiple branches:
+Trigger pipeline without code changes:
 
-    ```yaml
-    metadata:
-      annotations:
-        pipelinesascode.tekton.dev/on-target-branch: "[main, develop]"
-        pipelinesascode.tekton.dev/on-event: "[push]"
-    ```
+```bash
+git commit --allow-empty -m "Trigger pipeline"
+git push origin main
+```
 
-### All Branches
+## Testing Merge Request Triggers
 
-Trigger on push to any branch:
-
-    ```yaml
-    metadata:
-      annotations:
-        pipelinesascode.tekton.dev/on-target-branch: "[refs/heads/*]"
-        pipelinesascode.tekton.dev/on-event: "[push]"
-    ```
-
-### Branch Patterns
-
-Use patterns to match multiple branches:
-
-    ```yaml
-    metadata:
-      annotations:
-        pipelinesascode.tekton.dev/on-target-branch: "[refs/heads/feature/*]"
-        pipelinesascode.tekton.dev/on-event: "[push]"
-    ```
-
-This triggers on any branch starting with `feature/`.
-
-### Path Filtering
-
-:::warning Technology Preview
-
-Path filtering via annotations is a **Technology Preview** feature. Technology Preview features are not currently supported and might not be functionally complete. We do not recommend using them in production.
-
-:::
-
-Only trigger when specific files change:
-
-    ```yaml
-    metadata:
-      annotations:
-        pipelinesascode.tekton.dev/on-target-branch: "[refs/heads/main]"
-        pipelinesascode.tekton.dev/on-event: "[push]"
-        pipelinesascode.tekton.dev/on-path-change: "[src/**,*.go]"
-    ```
-
-**Path patterns**:
-- Use glob patterns, not regex
-- `src/**` - Matches all files in the `src` directory and subdirectories
-- `*.go` - Matches all Go files in the repository root
-- Use comma-separated values for multiple patterns: `"[src/**,*.go,config/**]"`
-
-Exclude paths:
-
-    ```yaml
-    metadata:
-      annotations:
-        pipelinesascode.tekton.dev/on-target-branch: "[refs/heads/main]"
-        pipelinesascode.tekton.dev/on-event: "[push]"
-        pipelinesascode.tekton.dev/on-path-change-ignore: "[docs/**,*.md]"
-    ```
-
-**Important**: The `on-path-change-ignore` annotation will always take precedence over the `on-path-change` annotation. If a file matches both patterns, the PipelineRun will not be triggered.
-
-### Testing Push Triggers
-
-1. Make a change to your code:
-
-    ```bash
-    echo "test" >> test.txt
-    git add test.txt
-    git commit -m "Test push trigger"
-    git push origin main
-    ```
-
-2. Check if PipelineRun was created:
-
-    ```bash
-    kubectl get pipelineruns -n <namespace>  # Replace <namespace> with your actual namespace
-    ```
-
-3. View pipeline logs:
-
-    ```bash
-    tkn pipelinerun logs <pipelinerun-name> -n <namespace>
-    ```
-
-## Merge Request Triggers
-
-### Basic Merge Request Trigger
-
-Trigger pipeline when a Merge Request is created or updated:
-
-    ```yaml
-    apiVersion: tekton.dev/v1
-    kind: PipelineRun
-    metadata:
-      name: mr-pipeline
-      annotations:
-        pipelinesascode.tekton.dev/on-target-branch: "[main]"
-        pipelinesascode.tekton.dev/on-event: "[pull_request]"
-    spec:
-      pipelineSpec:
-        tasks:
-        - name: test
-          taskSpec:
-            steps:
-            - name: test
-              image: alpine:latest
-              script: |
-                echo "Running tests for Merge Request"
-    ```
-
-### Multiple Target Branches
-
-Trigger on Merge Requests targeting multiple branches:
-
-    ```yaml
-    metadata:
-      annotations:
-        pipelinesascode.tekton.dev/on-target-branch: "[main, develop]"
-        pipelinesascode.tekton.dev/on-event: "[pull_request]"
-    ```
-
-### All Target Branches
-
-Trigger on Merge Requests targeting any branch:
-
-    ```yaml
-    metadata:
-      annotations:
-        pipelinesascode.tekton.dev/on-target-branch: "[refs/heads/*]"
-        pipelinesascode.tekton.dev/on-event: "[pull_request]"
-    ```
-
-### Merge Request Variables
-
-Access Merge Request information in your pipeline using variables:
-
-    ```yaml
-    spec:
-      params:
-      - name: mr-number
-        value: "{{pull_request_number}}"
-      - name: branch
-        value: "{{target_branch}}"
-      pipelineSpec:
-        tasks:
-        - name: test
-          taskSpec:
-            steps:
-            - name: test
-              image: alpine:latest
-              script: |
-                echo "Merge Request #{{pull_request_number}}"
-                echo "Target branch: {{target_branch}}"
-    ```
-
-### Testing Merge Request Triggers
+### Create Merge Request
 
 1. Create a feature branch:
 
     ```bash
-    git checkout -b feature/new-feature
+    git checkout -b feature/test-mr
     echo "feature" >> feature.txt
     git add feature.txt
-    git commit -m "Add new feature"
-    git push origin feature/new-feature
+    git commit -m "Add feature for MR test"
+    git push origin feature/test-mr
     ```
 
-2. Create a Pull/Merge Request targeting `main`
+2. Create a Pull/Merge Request targeting `main` branch via your Git provider UI
 
-3. Check if PipelineRun was created:
+### Update Merge Request
 
-    ```bash
-    kubectl get pipelineruns -n <namespace>  # Replace <namespace> with your actual namespace
-    ```
+Push more commits to trigger pipeline again:
 
-4. Update the Merge Request by pushing more commits:
+```bash
+echo "update" >> feature.txt
+git add feature.txt
+git commit -m "Update feature"
+git push origin feature/test-mr
+```
 
-    ```bash
-    echo "update" >> feature.txt
-    git add feature.txt
-    git commit -m "Update feature"
-    git push origin feature/new-feature
-    ```
+### Force Push to Merge Request
 
-The pipeline will be triggered again on the Merge Request update.
+Rewrite history and force push:
 
-## Comment Commands
+```bash
+git commit --amend --no-edit
+git push --force-with-lease origin feature/test-mr
+```
 
-:::info How Comment Commands Work
+**Note**: Use `--force-with-lease` instead of `--force` to prevent overwriting others' work.
 
-When you add a comment with a command (e.g., `/retest`) in a Merge Request:
-1. Git provider sends a webhook event to PAC controller
-2. PAC controller parses the comment and matches it against `on-comment` annotations
-3. If a match is found, PAC triggers the corresponding PipelineRun
-4. PipelineRun status is reported back to the Merge Request
+## Using Comment Commands
 
-**Note**: Comment commands only work in Merge Requests (Pull Requests), not in regular commits or push events.
+Comment commands only work in Merge Requests (Pull Requests), not in regular commits or push events.
 
-:::
+### Trigger via Comment
 
-### Basic Comment Trigger
-
-Trigger pipeline via comments in Merge Requests:
-
-    ```yaml
-    apiVersion: tekton.dev/v1
-    kind: PipelineRun
-    metadata:
-      name: comment-pipeline
-      annotations:
-        pipelinesascode.tekton.dev/on-comment: "retest"
-    spec:
-      pipelineSpec:
-        tasks:
-        - name: test
-          taskSpec:
-            steps:
-            - name: test
-              image: alpine:latest
-              script: |
-                echo "Retesting via comment"
-    ```
-
-### Multiple Commands
-
-Support multiple comment commands:
-
-    ```yaml
-    metadata:
-      annotations:
-        pipelinesascode.tekton.dev/on-comment: "retest,test,run"
-    ```
-
-### Command with Merge Request Target
-
-Only trigger on Merge Requests targeting specific branches:
-
-    ```yaml
-    metadata:
-      annotations:
-        pipelinesascode.tekton.dev/on-comment: "retest"
-        pipelinesascode.tekton.dev/on-target-branch: "[refs/heads/main]"
-        pipelinesascode.tekton.dev/on-event: "[pull_request]"
-    ```
-
-### Using Comment Commands
-
-1. Open a Pull/Merge Request
+1. Open your Pull/Merge Request in the Git provider UI
 
 2. Add a comment with the command:
 
@@ -328,19 +115,13 @@ Only trigger on Merge Requests targeting specific branches:
     /retest
     ```
 
-    or
+or
 
     ```
     /test
     ```
 
-3. PAC will detect the comment and trigger the pipeline
-
-4. Check PipelineRun status:
-
-    ```bash
-    kubectl get pipelineruns -n <namespace>
-    ```
+3. PAC will detect the comment and trigger the corresponding pipeline
 
 ### Common Comment Commands
 
@@ -351,311 +132,87 @@ Only trigger on Merge Requests targeting specific branches:
 | `/ok-to-test` | Approve running tests (if required) |
 | `/cancel` | Cancel running pipeline |
 
-**Note**: The exact commands depend on your pipeline configuration. You can define custom commands in the `on-comment` annotation. Comment commands only work in Merge Requests.
-
-## Combined Triggers
-
-You can combine multiple trigger types in a single pipeline:
-
-    ```yaml
-    apiVersion: tekton.dev/v1
-    kind: PipelineRun
-    metadata:
-      name: combined-pipeline
-      annotations:
-        pipelinesascode.tekton.dev/on-target-branch: "[main]"
-        pipelinesascode.tekton.dev/on-event: "[push, pull_request]"
-        pipelinesascode.tekton.dev/on-comment: "retest"
-    spec:
-      pipelineSpec:
-        tasks:
-        - name: test
-          taskSpec:
-            steps:
-            - name: test
-              image: alpine:latest
-              script: |
-                echo "Triggered on branch: {{target_branch}}"
-    ```
-
-This pipeline will trigger on:
-- Push to `main` branch
-- Merge Request targeting `main`
-- Comment `/retest` in a Merge Request
-
-## Conditional Execution
-
-### Different Pipelines for Different Events
-
-Create separate pipeline files for different events:
-
-**`.tekton/pipelinerun-push.yaml`**:
-
-    ```yaml
-    apiVersion: tekton.dev/v1
-    kind: PipelineRun
-    metadata:
-      name: push-pipeline
-      annotations:
-        pipelinesascode.tekton.dev/on-target-branch: "[refs/heads/main]"
-        pipelinesascode.tekton.dev/on-event: "[push]"
-    spec:
-      pipelineSpec:
-        tasks:
-        - name: build-and-deploy
-          taskSpec:
-            steps:
-            - name: deploy
-              image: deploy-tool:latest
-              script: |
-                deploy.sh production
-    ```
-
-**`.tekton/pipelinerun-mr.yaml`**:
-
-    ```yaml
-    apiVersion: tekton.dev/v1
-    kind: PipelineRun
-    metadata:
-      name: mr-pipeline
-      annotations:
-        pipelinesascode.tekton.dev/on-target-branch: "[refs/heads/main]"
-        pipelinesascode.tekton.dev/on-event: "[pull_request]"
-    spec:
-      pipelineSpec:
-        tasks:
-        - name: test
-          taskSpec:
-            steps:
-            - name: test
-              image: test-tool:latest
-              script: |
-                run-tests.sh
-    ```
-
-### Using Event Type in Pipeline
-
-Use the event type to conditionally execute tasks:
-
-    ```yaml
-    spec:
-      params:
-      - name: branch
-        value: "{{target_branch}}"
-      pipelineSpec:
-        tasks:
-        - name: conditional-task
-          when:
-          - input: $(params.branch)
-            operator: in
-            values: ["main"]
-          taskSpec:
-            steps:
-            - name: deploy
-              image: deploy-tool:latest
-              script: |
-                deploy.sh
-    ```
-
-## Pipeline Status Reporting
-
-PAC automatically reports pipeline status back to the Git provider:
-
-- **Success**: Pipeline completed successfully
-- **Failure**: Pipeline failed
-- **Pending**: Pipeline is running
-- **Skipped**: Pipeline was skipped (e.g., path filtering)
+**Note**: The exact commands depend on your pipeline configuration. You define commands in the `on-comment` annotation in your PipelineRun files.
 
-### Viewing Status in Git Provider
+## Checking Pipeline Status
 
-1. Go to your Pull/Merge Request in the Git provider
-2. Check the pipeline status in the Pull/Merge Request checks section
-3. Click on the status to see detailed logs
+### View PipelineRuns
 
-### Custom Status Messages
+Check if pipeline was triggered:
 
-You can customize status messages using pipeline results:
+```bash
+kubectl get pipelineruns -n <namespace>
+```
 
-    ```yaml
-    spec:
-      pipelineSpec:
-        results:
-        - name: status
-          description: Pipeline status
-        - name: message
-          description: Status message
-        tasks:
-        - name: test
-          taskSpec:
-            steps:
-            - name: test
-              image: alpine:latest
-              script: |
-                echo "success" | tee /tekton/results/status
-                echo "All tests passed" | tee /tekton/results/message
-    ```
+### View Pipeline Logs
 
-## Troubleshooting
+View logs of a specific PipelineRun:
 
-### Pipeline Not Triggering
+```bash
+tkn pipelinerun logs <pipelinerun-name> -n <namespace>
+```
 
-1. **Check annotations**:
+Or follow logs in real-time:
 
-    ```bash
-    cat .tekton/pipelinerun.yaml | grep pipelinesascode.tekton.dev
-    ```
+```bash
+tkn pipelinerun logs <pipelinerun-name> -n <namespace> -f
+```
 
-Example output:
+### Check Latest PipelineRun
 
-    ```
-    pipelinesascode.tekton.dev/on-target-branch: "[refs/heads/main]"
-    pipelinesascode.tekton.dev/on-event: "[push]"
-    ```
+Get the latest PipelineRun:
 
-2. **Verify branch names match**:
+```bash
+kubectl get pipelineruns -n <namespace> --sort-by=.metadata.creationTimestamp | tail -1
+```
 
-    ```bash
-    git branch --show-current
-    git log --oneline -1
-    ```
+## Troubleshooting Git Operations
 
-Example output:
+### Check Current Branch
 
-    ```
-    main
-    abc1234 Test commit message
-    ```
+Verify you're on the correct branch:
 
-3. **Check PAC controller logs**:
+```bash
+git branch --show-current
+```
 
-    ```bash
-    kubectl logs -n <pac-namespace> -l app=pipelines-as-code-controller --tail=100 | grep -i trigger  # Replace <pac-namespace> with your actual namespace (default: tekton-pipelines)
-    ```
+### Verify Last Commit
 
-Example output:
+Check the last commit details:
 
-    ```
-    {"level":"info","ts":"2024-01-01T12:00:00Z","logger":"controller","msg":"Processing event","event":"push","branch":"main"}
-    {"level":"info","ts":"2024-01-01T12:00:01Z","logger":"controller","msg":"PipelineRun created","pipelineRun":"simple-pipeline-xxxxx"}
-    ```
+```bash
+git log --oneline -1
+```
 
-4. **Verify webhook is configured**:
+### Check Remote Branch
 
-    ```bash
-    kubectl get repository <repo-name> -n <namespace> -o yaml
-    ```
+Verify branch exists on remote:
 
-Example output (abbreviated):
+```bash
+git branch -r | grep <branch-name>
+```
 
-    ```yaml
-    apiVersion: pipelinesascode.tekton.dev/v1alpha1
-    kind: Repository
-    metadata:
-      name: my-repo
-      namespace: project-pipelines
-    spec:
-      url: https://gitlab.com/user/repo.git
-      git_provider:
-        webhook_secret:
-          name: webhook-secret
-          key: secret
-    ```
+### View Git Remote
 
-### Comment Commands Not Working
+Check configured remote URL:
 
-1. **Verify annotation syntax**:
+```bash
+git remote -v
+```
 
-    ```yaml
-    pipelinesascode.tekton.dev/on-comment: "retest"
-    ```
+### Force Sync with Remote
 
-2. **Check comment format**: Commands must be on their own line or at the start of a line
+Reset local branch to match remote:
 
-3. **Verify Merge Request exists**: Comment commands only work in Merge Requests
+```bash
+git fetch origin
+git reset --hard origin/<branch-name>
+```
 
-4. **Check PAC controller logs**:
-
-    ```bash
-    kubectl logs -n <pac-namespace> -l app=pipelines-as-code-controller --tail=100 | grep -i comment  # Replace <pac-namespace> with your actual namespace (default: tekton-pipelines)
-    ```
-
-### Multiple Pipelines Triggering
-
-If multiple pipelines are triggering unexpectedly:
-
-1. **Check for multiple pipeline files**:
-
-    ```bash
-    find .tekton -name "*.yaml" -o -name "*.yml"
-    ```
-
-Example output:
-
-    ```
-    .tekton/pipelinerun.yaml
-    .tekton/pull-request.yaml
-    .tekton/deploy.yaml
-    ```
-
-2. **Review annotations**: Ensure branch patterns are specific
-
-3. **Use path filtering**: Limit triggers to specific file changes
-
-## Best Practices
-
-### 1. Use Specific Branch Patterns
-
-Avoid triggering on all branches unless necessary:
-
-    ```yaml
-    # Good
-    pipelinesascode.tekton.dev/on-target-branch: "[main, develop]"
-    pipelinesascode.tekton.dev/on-event: "[push]"
-
-    # Avoid (unless necessary)
-    pipelinesascode.tekton.dev/on-target-branch: "[refs/heads/*]"
-    pipelinesascode.tekton.dev/on-event: "[push]"
-    ```
-
-### 2. Use Path Filtering
-
-Only trigger when relevant files change:
-
-    ```yaml
-    pipelinesascode.tekton.dev/on-path-change: "[src/**,*.go]"
-    ```
-
-:::warning Technology Preview
-
-Path filtering is a Technology Preview feature. See the [Path Filtering](#path-filtering) section above for details.
-
-:::
-
-### 3. Separate Merge Request and Push Pipelines
-
-Use different pipelines for Merge Requests (testing) and pushes (deployment):
-
-    ```yaml
-    # Merge Request pipeline - test only
-    pipelinesascode.tekton.dev/on-target-branch: "[main]"
-    pipelinesascode.tekton.dev/on-event: "[pull_request]"
-
-    # Push pipeline - deploy
-    pipelinesascode.tekton.dev/on-target-branch: "[refs/heads/main]"
-    pipelinesascode.tekton.dev/on-event: "[push]"
-    ```
-
-### 4. Use Comment Commands for Manual Triggers
-
-Allow manual triggering via comments for flexibility:
-
-    ```yaml
-    pipelinesascode.tekton.dev/on-comment: "retest,test"
-    ```
+**Warning**: This will discard local changes.
 
 ## Next Steps
 
-- [Maintain Pipeline Code](./maintain_pipeline_code.mdx) - Learn how to define pipelines
+- [Maintain Pipeline Code](./maintain_pipeline_code.mdx) - Learn how to define pipelines and configure event triggers
 - [Configure Repository](./configure_gitlab_repo.mdx) - Repository setup guide
 - [Common Issues](../trouble_shooting/common_issues.mdx) - Troubleshooting guide
-
