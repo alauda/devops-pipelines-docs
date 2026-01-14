@@ -1,0 +1,113 @@
+---
+weight: 40
+---
+
+# Quick Start
+
+This guide helps you quickly understand and creating your first configuration for `Tekton Pruner`.
+
+## Prerequisites
+
+1. **Environment Requirements**
+- `Tekton Operator` installed
+- Ensure that `Tekton Pipelines` is installed and ready through the Operator
+
+2. **Required Tools**
+- `kubectl` command line tool
+
+### Step 1: Configure Tekton Pruner
+
+:::warning
+
+Important: Tekton Pruner is a `event-based` pruner, and is disabled by default. To enable the `event-based` pruner, the existing `job-based` pruner **MUST** be disabled.
+
+- Both pruners (`job-based` and `event-based`) cannot be enabled simultaneously
+- The `event-based` pruner responds to resource events in real-time, providing more efficient cleanup
+
+If you want to use `job-based` pruner, please refer to [Regular Cleanup of TaskRun and PipelineRun Resources](../../configure/pruner_resources).
+
+:::
+
+Configure Tekton Pruner to delete completed resources after 5 minutes and keep the last 3 runs by applying the following configuration:
+
+```bash
+kubectl patch tektonconfigs.operator.tekton.dev config --type=merge -p='{
+  "spec": {
+    "pruner": {
+      "disabled": true
+    },
+    "tektonpruner": {
+      "disabled": false,
+      "global-config": {
+        "enforcedConfigLevel": "global",
+        "ttlSecondsAfterFinished": 300,
+        "successfulHistoryLimit": 3,
+        "failedHistoryLimit": 3
+      }
+    }
+  }
+}'
+# tektonconfig.operator.tekton.dev/config patched
+```
+
+| Setting                   | Description                                                                                                 | Example                 |
+|---------------------------|-------------------------------------------------------------------------------------------------------------|-------------------------|
+| `ttlSecondsAfterFinished` | Time in seconds to retain completed runs before pruning                                                     | `300` (5 min)           |
+| `successfulHistoryLimit`  | Maximum number of successful runs to retain                                                                 | `3`                     |
+| `failedHistoryLimit`      | Maximum number of failed runs to retain                                                                     | `3`                     |
+| `historyLimit`            | Maximum number of runs to retain for each status (applies independently to both successful and failed runs) | `5`                     |
+| `enforcedConfigLevel`     | Config hierarchy level                                                                                      | `global` or `namespace` |
+
+The `enforcedConfigLevel` determines the configuration hierarchy:
+
+- `global`: Cluster-wide defaults apply to all namespaces (no namespace overrides allowed)
+- `namespace`: Allows namespace-level overrides via ConfigMaps in individual namespaces
+
+For more information, please refer to [Pruner Configuration](./configure/pruner_configuration).
+
+### Step 2: Test the Configuration
+
+Create test PipelineRuns to verify pruning:
+
+```bash
+# Create a simple pipeline
+kubectl apply -f - <<EOF
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: hello-pipeline
+spec:
+  tasks:
+    - name: hello
+      taskSpec:
+        steps:
+          - name: echo
+            image: busybox:latest
+            command: ['echo']
+            args: ['hello world']
+EOF
+
+# Create multiple runs
+for i in {1..5}; do
+  kubectl create -f - <<EOF
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: hello-pipeline-run-
+spec:
+  pipelineRef:
+    name: hello-pipeline
+EOF
+done
+
+# Watch pruning in action (after 5 minutes + completion time)
+kubectl get pipelineruns -w
+```
+
+## Next Steps
+
+- **[Pruner Configuration](./configure/pruner_configuration)** - Detail of the configuration options
+- **[Namespace Configuration](./how_to/namespace_configuration)** - Per-namespace settings and validation boundaries
+- **[Resource Groups](./how_to/resource_groups)** - Fine-grained control with selectors
+- **[Time-based Pruning](./how_to/time_based_pruning)** - TTL strategies for different environments
+- **[History-based Pruning](./how_to/history_based_pruning)** - Retention strategies by status

@@ -1,0 +1,68 @@
+---
+weight: 10
+i18n:
+  title:
+    en: Tekton Pruner Is Not Deployed
+    zh: Tekton Pruner 未部署
+title: Tekton Pruner Is Not Deployed
+---
+
+# Tekton Pruner Is Not Deployed
+
+## Problem Description
+
+The Tekton Pruner components are missing after installation, so pruning does not work.
+
+### Error Manifestation
+
+- The `tekton-pruner-controller` and `tekton-pruner-webhook` Deployments are not present in the `tekton-pipelines` namespace.
+- The corresponding Pods are not created.
+
+## Root Cause Analysis
+
+Tekton Pruner is an **event-based** pruner and is **disabled by default**.
+If the `job-based` pruner is not disabled, or the `event-based` pruner remains disabled, the operator will not deploy the Tekton Pruner components.
+
+For more information, see [Tekton Pruner Configuration](../configure/pruner_configuration).
+
+## Troubleshooting
+
+:::tip
+The following instructions assume that you have installed Tekton into the `tekton-pipelines` namespace by default.
+
+If you have installed it into a different namespace, please replace `tekton-pipelines` with your namespace.
+:::
+
+Follow these steps to enable the event-based pruner:
+
+1. Edit the TektonConfig resource by setting `spec.pruner.disabled` to `true` and `spec.tektonpruner.disabled` to `false`:
+
+   ```yaml
+   apiVersion: operator.tekton.dev/v1alpha1
+   kind: TektonConfig
+   metadata:
+     name: config
+   spec:
+     pruner:
+       disabled: true
+     tektonpruner:
+       disabled: false
+   ```
+
+2. Wait for the operator to reconcile the changes.
+
+3. Verify that the Deployments and Pods are created:
+
+   ```bash
+   kubectl get deploy -n tekton-pipelines | grep -E 'tekton-pruner-(controller|webhook)'
+   # tekton-pruner-controller            1/1     1            1           10s
+   # tekton-pruner-webhook               1/1     1            1           10s
+
+   kubectl get pods -n tekton-pipelines | grep -E 'tekton-pruner-(controller|webhook)'
+   # tekton-pruner-controller-c57b4df49-qbghd             1/1     Running   0          93m
+   # tekton-pruner-webhook-67c56df4b-twd4p                1/1     Running   0          93m
+   ```
+
+## Related Content
+
+- [Tekton Pruner Configuration](../configure/pruner_configuration)

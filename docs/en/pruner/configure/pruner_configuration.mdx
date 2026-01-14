@@ -1,0 +1,143 @@
+---
+title: Pruner Configuration
+weight: 50
+---
+
+# Pruner Configuration
+
+## Overview
+
+Tekton Pruner manages the lifecycle of Tekton resources by automatically cleaning up completed PipelineRuns and TaskRuns based on configurable time-based (TTL) and history-based policies.
+
+## Configuration
+
+Pruner configuration is stored in a ConfigMap with `app.kubernetes.io/part-of: tekton-pruner` and `pruner.tekton.dev/config-type: <global|namespace>` labels. You can modify this ConfigMap to change the behavior of Pruner.
+
+By default, Tekton Pruner is disabled by `TektonConfig` resource. You can modify the `TektonConfig` resource to configure Pruner.
+
+Essentially, Tekton Operator will synchronize the Pruner configuration from the `TektonConfig` resource to the `TektonPruner` resource, and finally reflect in the ConfigMap.
+
+:::warning
+If you deploy `Pruner` through `TektonConfig`, you must configure `Pruner` through `TektonConfig`.
+
+If you only modify the configuration in the ConfigMap, and it is not synchronized to the `TektonPruner` resource, the configuration may be lost.
+
+When the configuration in `TektonConfig` changes, or some other reason triggers a reconciliation, the configuration in the ConfigMap will be overwritten.
+
+:::
+
+Below is a simple demonstration of the different ways to configure Pruner.
+
+### Configuration in ConfigMap
+
+:::warning
+**CRITICAL**: All pruner ConfigMaps **MUST** have these labels:
+
+```yaml
+labels:
+  app.kubernetes.io/part-of: tekton-pruner
+  pruner.tekton.dev/config-type: <global|namespace>
+```
+
+These labels enable the pruner webhook to validate ConfigMaps and controllers to process them correctly.
+
+:::
+
+The following is an example of the Tekton Pruner ConfigMap:
+
+```yaml
+apiVersion: v1
+data:
+  global-config: |
+    enforcedConfigLevel: global
+    ttlSecondsAfterFinished: 300
+    successfulHistoryLimit: 3
+    failedHistoryLimit: 3
+    historyLimit: 100
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/part-of: tekton-pruner
+    operator.tekton.dev/operand-name: pruner
+    pruner.tekton.dev/config-type: global
+    pruner.tekton.dev/release: v0.3.4
+  name: tekton-pruner-default-spec
+```
+
+**Explanation of YAML fields:**
+
+| Setting                   | Description                                                                                                 | Example                 |
+|---------------------------|-------------------------------------------------------------------------------------------------------------|-------------------------|
+| `ttlSecondsAfterFinished` | Time in seconds to retain completed runs before pruning                                                     | `300` (5 min)           |
+| `successfulHistoryLimit`  | Maximum number of successful runs to retain                                                                 | `3`                     |
+| `failedHistoryLimit`      | Maximum number of failed runs to retain                                                                     | `3`                     |
+| `historyLimit`            | Maximum number of runs to retain for each status (applies independently to both successful and failed runs) | `5`                     |
+| `enforcedConfigLevel`     | Config hierarchy level                                                                                      | `global` or `namespace` |
+
+The `enforcedConfigLevel` determines the configuration hierarchy:
+
+- `global`: Cluster-wide defaults apply to all namespaces (no namespace overrides allowed)
+- `namespace`: Allows namespace-level overrides via ConfigMaps in individual namespaces
+
+### Configuration in TektonConfig
+
+At the `TektonConfig` resource, the configuration of Pruner is roughly as follows:
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  pruner:
+    disabled: true  # Must disable job-based pruner
+  tektonpruner:
+    disabled: false  # Enable event-based pruner
+    global-config:
+      enforcedConfigLevel: global  # Options: global, namespace
+      ttlSecondsAfterFinished: 3600  # Delete runs older than 1 hour (optional)
+      historyLimit: 100              # Keep only 100 runs total (optional)
+      successfulHistoryLimit: 50     # Keep only 50 successful runs (optional)
+      failedHistoryLimit: 20         # Keep only 20 failed runs (optional)
+      namespaces:
+        dev-namespace:
+          historyLimit: 50
+          ttlSecondsAfterFinished: 1800  # 30 minutes for dev
+        prod-namespace:
+          successfulHistoryLimit: 200
+          failedHistoryLimit: 50
+          ttlSecondsAfterFinished: 86400  # 24 hours for prod
+```
+
+:::warning
+
+Important: Tekton Pruner is a `event-based` pruner, and is disabled by default. To enable the `event-based` pruner, the existing `job-based` pruner **MUST** be disabled.
+
+- Both pruners (`job-based` and `event-based`) cannot be enabled simultaneously
+- The `event-based` pruner responds to resource events in real-time, providing more efficient cleanup
+
+If you want to use `job-based` pruner, please refer to [Regular Cleanup of TaskRun and PipelineRun Resources](../../configure/pruner_resources).
+
+:::
+
+**Explanation of YAML fields:**
+
+- `spec.pruner`: This section contains the configuration for `job-based` pruner.
+    - `disabled`: Whether to disable `job-based` pruner.
+- `spec.tektonpruner`: This section contains the configuration for `event-based` pruner.
+    - `disabled`: Whether to disable `event-based` pruner.
+    - `enforcedConfigLevel`: determines the configuration hierarchy. For more detail, please refer to [Namespace Configuration](../how_to/namespace_configuration).
+        - `global`: Cluster-wide defaults apply to all namespaces (no namespace overrides allowed).
+        - `namespace`: Allows namespace-level overrides via ConfigMaps in individual namespaces.
+    - `ttlSecondsAfterFinished`: Time in seconds to retain completed runs before pruning. For more detail, please refer to [Time-based Pruning (TTL)](../how_to/time_based_pruning).
+    - `historyLimit`: Maximum number of runs to retain for each status (applies independently to both successful and failed runs). For more detail, please refer to [History-based Pruning](../how_to/time_based_pruning).
+    - `successfulHistoryLimit`: Maximum number of successful runs to retain. For more detail, please refer to [History-based Pruning](../how_to/time_based_pruning).
+    - `failedHistoryLimit`: Maximum number of failed runs to retain. For more detail, please refer to [History-based Pruning](../how_to/time_based_pruning).
+    - `namespaces`: Configure different default pruning policies for specific namespaces. For more detail, please refer to [Namespace Configuration](../how_to/namespace_configuration).
+    - `options`: The options for the Tekton Pruner controller. More detailed support can be found in [Additional fields as options](https://tekton.dev/docs/operator/tektonconfig/#additional-fields-as-options).
+
+## References
+
+- [Tekton Pruner Configuration by Tetkon Config](https://tekton.dev/docs/operator/tektonconfig/#event-based-pruner)
+- [Tekton Pruner](https://tekton.dev/docs/operator/tektonpruner)
+- [Additional fields as options](https://tekton.dev/docs/operator/tektonconfig/#additional-fields-as-options)

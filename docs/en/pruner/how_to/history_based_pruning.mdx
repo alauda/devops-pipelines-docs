@@ -1,0 +1,128 @@
+---
+title: History-based Pruning
+weight: 200
+---
+
+# History-based Pruning
+
+Retain a fixed number of runs based on their status, regardless of age.
+
+## How It Works
+
+History limits and TTL can both apply. A run is eligible for deletion if it exceeds history limits or its TTL has expired. This means the shortest retention wins.
+
+## Configuration Options
+
+| Setting                  | Description                                               |
+|--------------------------|-----------------------------------------------------------|
+| `successfulHistoryLimit` | Keep N most recent successful runs                        |
+| `failedHistoryLimit`     | Keep N most recent failed runs                            |
+| `historyLimit`           | Keep N runs of EACH status (when specific limits not set) |
+
+## Basic Configuration
+
+**Separate limits by status:**
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  pruner:
+    disabled: true  # Must disable job-based pruner
+  tektonpruner:
+    disabled: false  # Enable event-based pruner
+    global-config:
+      successfulHistoryLimit: 5    # Keep last 5 successful
+      failedHistoryLimit: 10       # Keep last 10 failed (for debugging)
+```
+
+**Same limit for both:**
+```yaml
+spec:
+  tektonpruner:
+    global-config:
+      historyLimit: 5  # Keep last 5 successful AND last 5 failed
+```
+
+## Environment-specific Limits
+
+```yaml
+spec:
+  tektonpruner:
+    global-config:
+      enforcedConfigLevel: namespace
+      namespaces:
+        dev:
+          successfulHistoryLimit: 3
+          failedHistoryLimit: 5     # More failed runs for debugging
+        staging:
+          successfulHistoryLimit: 5
+          failedHistoryLimit: 5
+        prod:
+          successfulHistoryLimit: 10
+          failedHistoryLimit: 20
+```
+
+## Pipeline-specific Limits
+
+Use selectors in namespace ConfigMaps for pipeline-specific limits:
+
+:::warning
+
+Namespace-level ConfigMaps are outside the TektonConfig lifecycle. If you need to back up or restore Tekton configuration later, save these ConfigMaps separately.
+
+:::
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tekton-pruner-namespace-spec
+  namespace: my-app
+  labels:
+    app.kubernetes.io/part-of: tekton-pruner
+    pruner.tekton.dev/config-type: namespace
+data:
+  ns-config: |
+    successfulHistoryLimit: 3
+    pipelineRuns:
+      - selector:
+          matchLabels:
+            critical: "true"
+        successfulHistoryLimit: 20
+        failedHistoryLimit: 30
+      - selector:
+          matchLabels:
+            pipeline-type: test
+        successfulHistoryLimit: 3
+        failedHistoryLimit: 5
+```
+
+## Interaction with TTL
+
+History limits do not override TTL:
+
+```yaml
+data:
+  ns-config: |
+    ttlSecondsAfterFinished: 300
+    successfulHistoryLimit: 5
+    failedHistoryLimit: 10
+```
+
+**Result**: Runs older than 5 minutes are deleted even if they are within the last 5 successful or last 10 failed. History limits can still delete older runs sooner if more than the configured counts exist.
+
+## Best Practices
+
+1. **Keep more failed runs** than successful for debugging
+2. **Critical pipelines**: Higher limits for audit trails
+3. **Development**: Lower limits (3-5) for rapid iteration
+4. **Production**: Higher limits (10-20) for analysis
+5. **Monitor storage**: Adjust limits based on cluster capacity
+
+## Related
+
+- [Time-based Pruning](./time_based_pruning) - Age-based deletion
+- [Namespace Configuration](./namespace_configuration) - Per-environment limits
+- [Resource Groups](./resource_groups) - Pipeline-specific limits

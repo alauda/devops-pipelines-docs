@@ -1,0 +1,87 @@
+---
+weight: 20
+---
+
+# Architecture
+
+## Overview
+
+Tekton Pruner is a Kubernetes controller system that automatically manages the lifecycle of Tekton PipelineRun and TaskRun resources. It follows the Kubernetes operator pattern, implementing event-driven and periodic reconciliation to enforce configurable time-based (TTL) and history-based pruning policies.
+
+## Architecture Principles
+
+![Tekton Pruner architecture](/pruner/pruner_functional_abstract.png)
+
+### 1. Controller Pattern Implementation
+
+- **Reconciliation Loops**: Multiple controllers watch and react to resource changes
+- **Event-Driven Processing**: Controllers respond to Kubernetes events (ConfigMaps, PipelineRuns, TaskRuns)
+- **ConfigMap-Driven Configuration**: Declarative policy specifications
+
+### 2. Hierarchical Configuration Model
+
+- **Three-Level Hierarchy**: Global → Namespace → Resource Selector
+- **Precedence-Based Resolution**: More specific configurations override general defaults
+- **Flexible Enforcement Modes**: Configurable granularity (global, namespace, resource)
+
+### 3. Separation of Concerns
+
+- **TTL Handler**: Time-based cleanup logic
+- **History Limiter**: Count-based retention logic
+- **Selector Matcher**: Resource identification and matching
+- **Validation Webhook**: Admission-time configuration validation
+
+### 4. Kubernetes-Native Design
+
+- **Controller Runtime**: Leverages controller-runtime framework
+- **Annotation-Based State**: TTL values stored in resource annotations
+- **Minimal RBAC**: Only requires list, get, watch, delete, patch permissions
+- **Namespace Isolation**: Per-namespace configuration independence
+
+## Component Interactions
+
+### Controller Responsibilities
+
+| Controller         | Trigger           | Purpose                                                                      |
+|--------------------|-------------------|------------------------------------------------------------------------------|
+| Main Pruner        | ConfigMap changes | Runs full garbage collection across all namespaces for TTL-expired resources |
+| PipelineRun        | Kubernetes events | Updates TTL annotations, enforces history limits                             |
+| TaskRun            | Kubernetes events | Updates TTL annotations, enforces history limits                             |
+| Namespace Config   | ConfigMap watch   | Reloads configuration when ConfigMaps change                                 |
+| Validating Webhook | Admission request | Validates ConfigMap syntax and rules                                         |
+
+### Core Logic Components
+
+| Component          | Responsibility                                                               |
+|--------------------|------------------------------------------------------------------------------|
+| Config Store       | In-memory cache of global and namespace configurations                       |
+| Hierarchy Resolver | Determines which config applies (selector > namespace > global)              |
+| TTL Handler        | Calculates expiration time and marks expired resources for deletion          |
+| History Limiter    | Counts resources by status and marks oldest for deletion when limit exceeded |
+| Selector Matcher   | Matches resources to policies via labels/annotations                         |
+
+## Design Decisions
+
+### Why Event-Driven + ConfigMap-Triggered GC?
+
+- **Event-Driven (PipelineRun/TaskRun)**: Immediate annotation updates and history limit enforcement
+- **ConfigMap-Triggered GC**: Full cluster scan for TTL cleanup when configuration changes
+- **Efficient Design**: Avoids constant polling, only cleans up when policies change
+
+### Why Hierarchical Configuration?
+
+- **Flexibility**: Single-tenant (global) or multi-tenant (namespace) support
+- **Delegation**: Namespace owners control their own retention policies
+- **Centralized Defaults**: Platform teams set reasonable fallbacks
+
+### Why Separate TTL and History?
+
+- **Independent Concerns**: Time-based vs count-based retention are different requirements
+- **Combined Use**: Both can apply simultaneously (shortest retention wins)
+- **Clear Semantics**: Each mechanism has distinct configuration and behavior
+
+### Why Annotations for TTL State?
+
+- **Auditability**: TTL value visible in resource metadata
+- **Debugging**: Users can inspect computed TTL on resources
+- **Idempotency**: Prevents recomputation on every reconcile

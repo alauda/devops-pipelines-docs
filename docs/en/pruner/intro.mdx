@@ -1,0 +1,25 @@
+---
+weight: 10
+---
+
+# Introduction
+
+Tekton Pruner manages the lifecycle of Tekton resources by automatically cleaning up completed PipelineRuns and TaskRuns based on configurable time-based (TTL) and history-based policies.
+
+## Overview
+
+Tekton Pruner provides event-driven and configuration-based cleanup through four controllers:
+
+- **Main Pruner Controller**: Processes cleanup based on ConfigMap settings
+- **Namespace Pruner Config Controller**: Watches namespace-level ConfigMaps
+- **PipelineRun Controller**: Handles PipelineRun events
+- **TaskRun Controller**: Handles standalone TaskRun events
+
+![Tekton Pruner overview](/pruner/pruner_functional_abstract.png)
+
+## Key Features
+
+- **[Time-based Pruning (TTL)](./how_to/time_based_pruning)**: Delete resources after specified duration (in seconds) using `ttlSecondsAfterFinished`
+- **[History-based Pruning](./how_to/history_based_pruning)**: Retain fixed number of runs using `successfulHistoryLimit`, `failedHistoryLimit`, or `historyLimit`
+- **[Hierarchical Configuration](./how_to/namespace_configuration)**: Allows users to specify cluster-wide or per Namespace or per group of resources within a Namespace
+- **[Flexible Selectors](./how_to/resource_groups)**: Group resources by labels, annotations, or names (name refers to the pipeline name) for fine-grained control
