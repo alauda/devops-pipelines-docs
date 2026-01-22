@@ -591,7 +591,7 @@ git push origin --delete your-upgrade-branch
 
 ### Issue 1: Patches Fail to Apply
 
-**Symptom:** Patches fail during Docker build or manual application
+**Symptom:** Patches fail during image build or manual application
 
 **Solution:**
 1. Review upstream changes that affected the patched code

@@ -370,7 +370,7 @@ metadata:
   name: registry-credentials
 type: kubernetes.io/dockerconfigjson
 data:
-  .dockerconfigjson: <config.{{.toolchains.harbor.dockerConfig}}>
+  .dockerconfigjson: <config.{{.toolchains.harbor.registryConfig}}>
 ---
 apiVersion: tekton.dev/v1
 kind: TaskRun
