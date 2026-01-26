@@ -27,7 +27,7 @@ This guide explains how to configure `Tekton Pipelines` to meet the `restricted`
 - `Tekton Pipelines` is installed via `TektonPipeline` or `TektonConfig` CR
 - You have permission to modify `TektonPipeline` or `TektonConfig` resources
 - You can create or edit `Task` definitions
-- For custom images, you have access to modify `Dockerfiles` and rebuild images
+- For custom images, you have access to modify `Containerfiles` and rebuild images
 
 ## Understanding the Restricted Standard
 
@@ -144,9 +144,9 @@ spec:
 
 Container images must be configured to run as a non-root user. The user must be specified using a numeric UID rather than a username.
 
-In your `Dockerfile`, add a non-root user and set it as the default. Here's an example for Alpine-based images:
+In your `Containerfile`, add a non-root user and set it as the default. Here's an example for Alpine-based images:
 
-```dockerfile
+```text
 # Add a non-root user with UID 65532 (Alpine syntax)
 RUN adduser -u 65532 -h /home/nonroot -D nonroot
 
@@ -168,7 +168,7 @@ $ podman run -it --rm ${registry} id
 uid=65532(nonroot) gid=65532(nonroot) groups=65532(nonroot)
 ```
 
-For detailed guidance on adjusting `Dockerfiles`, see [Adjust Dockerfile for Building Task-Compatible Custom Images](./adjust_dockerfile_for_task_compatible_image.mdx).
+For detailed guidance on adjusting `Containerfiles`, see [Adjust Containerfile for Building Task-Compatible Custom Images](./adjust_containerfile_for_task_compatible_image.mdx).
 
 ## Operation Results
 
@@ -240,7 +240,7 @@ securityContext:
 
 You may encounter one of the following errors:
 
-- **"container has runAsNonRoot and image will run as root"** - The container image has no `USER` directive in the `Dockerfile` (defaults to root) or explicitly sets `USER 0` or `USER root`
+- **"container has runAsNonRoot and image will run as root"** - The container image has no `USER` directive in the `Containerfile` (defaults to root) or explicitly sets `USER 0` or `USER root`
 - **"container has runAsNonRoot and image has non-numeric user"** - The container image uses a symbolic username (e.g., `USER appuser`) instead of a numeric UID
 
 **Solutions:**
@@ -311,5 +311,5 @@ If init containers fail with permission errors after setting `set-security-conte
 
 - [Kubernetes Pod Security Standards](https://kubernetes.io/docs/concepts/security/pod-security-standards/)
 - [Tekton Pipelines Additional Configuration Options](https://tekton.dev/vault/pipelines-main/additional-configs/)
-- [Adjust Dockerfile for Building Task-Compatible Custom Images](./adjust_dockerfile_for_task_compatible_image.mdx)
+- [Adjust Containerfile for Building Task-Compatible Custom Images](./adjust_containerfile_for_task_compatible_image.mdx)
 - [Kyverno Policy Engine](https://kyverno.io/)

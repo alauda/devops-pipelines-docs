@@ -1,0 +1,122 @@
+---
+weight: 50
+i18n:
+  title:
+    en: TaskRun Results Missing When Using Sidecar Logs
+    zh: 使用 Sidecar Logs 读取结果时任务结果缺失
+title: TaskRun Results Missing When Using Sidecar Logs
+---
+
+# TaskRun Results Missing When Using Sidecar Logs
+
+## Problem Description
+
+When `results-from: sidecar-logs` is enabled, a `PipelineRun` or `TaskRun` may fail to resolve results if the controller cannot read pod logs. This usually presents as missing Task results or Pipeline results during result collection.
+
+### Error Manifestation
+
+- PipelineRun shows result collection failure:
+
+  ```text
+  Failed to get PipelineResult from TaskRun Results for PipelineRun <pipelinerun-name>: invalid pipelineresults [<result-name>], the referenced results don't exist
+  ```
+
+- TaskRun shows missing Task result reference:
+
+  ```text
+  Invalid task result reference: Could not find result with name variables for task <task-name>
+  ```
+
+- Pod still exists, but the sidecar log cannot be retrieved:
+
+  ```text
+  unable to retrieve container logs for containerd://<container-id>
+  ```
+
+## Root Cause Analysis
+
+To bypass the 4 KB termination message limit, Tekton can read results from sidecar logs using `results-from: sidecar-logs` (a beta feature since Tekton v0.61.0). This mechanism relies on the Kubernetes pod logs API to fetch the sidecar output. If the log API cannot return data, Tekton cannot parse the results, leading to missing TaskResult or PipelineResult references.
+
+Common triggers include:
+
+- Pod logs are unavailable even though the Pod still exists.
+- On nodes using file-based logs, entries under `/var/log/containers` or `/var/log/pods` are removed or rotated too aggressively.
+- kubelet or container runtime is temporarily inconsistent or restarted.
+- Pod or container garbage collection removes logs before results are collected.
+
+## Troubleshooting
+
+1. Verify that `results-from: sidecar-logs` is enabled in TektonConfig and the feature-flags ConfigMap.
+   ```bash
+   $ kubectl get tektonconfig config -o yaml
+
+   spec:
+     pipeline:
+       results-from: sidecar-logs
+   ```
+   ```bash
+   $ kubectl get configmap feature-flags -n tekton-pipelines -o yaml
+
+   data:
+     results-from: sidecar-logs
+   ```
+2. Inspect the PipelineRun and TaskRun events to confirm result collection failures.
+   ```bash
+   $ kubectl describe pipelinerun -n ${namespace} ${pipelinerun_name}
+
+   Failed to get PipelineResult from TaskRun Results for PipelineRun <pipelinerun-name>: invalid pipelineresults [<result-name>], the referenced results don't exist
+   ```
+   ```bash
+   $ kubectl describe taskrun -n ${namespace} ${taskrun_name}
+
+   Invalid task result reference: Could not find result with name variables for task <task-name>
+   ```
+3. Check the sidecar logs directly. If the following command returns an error like the one below, it indicates the logs are no longer accessible:
+   ```bash
+   $ kubectl logs -n ${namespace} ${taskrun_pod} -c sidecar-tekton-log-results
+
+   unable to retrieve container logs for containerd://<container-id>
+   ```
+4. Check whether the pod log RBAC is in place for the Tekton controller. Missing RBAC permissions can also cause log retrieval failures:
+   ```bash
+   $ kubectl auth can-i get pods/log \
+     -n ${namespace} \
+     --as=system:serviceaccount:tekton-pipelines:tekton-pipelines-controller
+
+   yes
+   ```
+5. On the node, verify that the pod log files and symlinks still exist and that kubelet/containerd are healthy.
+
+## Solution
+
+The recommended approach is to retain terminated Pods longer so that sidecar logs remain accessible while results are collected.
+
+1. Increase the `terminated-pod-gc-threshold` (for example, to `1000`) on the control plane and observe the behavior.
+   - Why it helps: In busy environments, many TaskRun pods can finish around the same time. If the number of terminated Pods exceeds the threshold, the pod GC removes them immediately. Once the pod is deleted, the log API for the sidecar becomes unavailable, so results cannot be collected. Raising the threshold delays this cleanup window and gives Tekton more time to read sidecar logs and extract results.
+   - How to change: See [kube-controller-manager flags](https://kubernetes.io/docs/reference/command-line-tools-reference/kube-controller-manager/) for `--terminated-pod-gc-threshold`.
+   - How to size: Estimate how many Pods enter `Succeeded` or `Failed` within a short window (for example, 1 minute), then add headroom. Use the platform's workload metrics or pipeline completion counts to approximate the peak completions per minute, and set the threshold above that peak.
+   - Note: This parameter may not be configurable in managed Kubernetes services (such as EKS, AKS, or GKE) where users do not have access to the control plane.
+2. Ensure node disk space is sufficient.
+   - Why it helps: When nodes hit disk pressure, kubelet and containerd may aggressively clean up logs and pod directories. This can delete or truncate the sidecar logs before the controller reads them.
+   - How to change: Review kubelet eviction configuration in [KubeletConfiguration](https://kubernetes.io/docs/reference/config-api/kubelet-config.v1beta1/) and tune disk pressure thresholds to fit your capacity planning.
+   - Operational tip: Monitor build node storage utilization in your platform and schedule proactive cleanup before disk pressure triggers eviction or log cleanup.
+3. Confirm that log retention settings (such as kubelet log rotation) are aligned with the expected pipeline duration.
+   - Why it helps: If logs rotate too quickly or retain too few files, the sidecar output can disappear before results are parsed, even though the Pod still exists.
+   - How to change: Check `containerLogMaxSize` and `containerLogMaxFiles` in [KubeletConfiguration](https://kubernetes.io/docs/reference/config-api/kubelet-config.v1beta1/).
+4. Consider switching back to the default `termination-message` method.
+   - Why it helps: The `termination-message` approach does not rely on pod logs, so it completely avoids the log availability issues described above.
+   - Trade-off: This method has a 4 KB size limit for results. If your Task results exceed this limit, the pipeline will fail. This can negatively impact the user experience when larger results are needed.
+   - How to change: Set `results-from: termination-message` in TektonConfig. Note that modifying the feature-flags ConfigMap directly will not take effect if Tekton is deployed via TektonConfig, as the operator will reconcile and overwrite ConfigMap changes.
+
+## Preventive Measures
+
+- Monitor the availability of the pod logs API in the cluster.
+- Keep Task results reasonably sized and collect results as early as possible.
+- Treat beta features as potentially less stable than GA features in unstable log environments and review their usage periodically.
+
+## Related Content
+
+- [Result Limit Exceeded When Writing Tekton Task Results](./result-limit-exceeded.mdx)
+- [TektonPipeline Configuration](https://tekton.dev/docs/operator/tektonpipeline/)
+- [Kubernetes Logging Architecture](https://kubernetes.io/docs/concepts/cluster-administration/logging/)
+- [kube-controller-manager flags](https://kubernetes.io/docs/reference/command-line-tools-reference/kube-controller-manager/)
