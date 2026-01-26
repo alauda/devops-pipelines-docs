@@ -190,7 +190,8 @@ results.tekton.dev/v1alpha2/parents/default/results?filter=summary.status==SUCCE
 | Parameter | Description | Default | Usage |
 |-----------|-------------|---------|-------|
 | `runAt` | When to run the retention policy job | `0 0 * * *` (daily) | Cron expression for scheduling cleanup |
-| `maxRetention` | Maximum time to keep data | `720h` (30 days) | Duration to retain data before deletion |
+| `maxRetention` | (Deprecated) Maximum time to keep data | `720h` (30 days) | (Deprecated) Duration to retain data before deletion |
+| `defaultRetention` | Maximum time to keep data | `720h` (30 days) | Duration to retain data before deletion |
 
 ## References
 

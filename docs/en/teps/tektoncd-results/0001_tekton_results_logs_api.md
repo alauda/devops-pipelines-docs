@@ -196,19 +196,22 @@ Platform admins, DevOps engineers, product/backend/frontend engineers
 
 ```yaml
 apiVersion: operator.tekton.dev/v1alpha1
-kind: TektonResult
+kind: TektonConfig
+metadata:
+  name: config
 spec:
-  logs_api: true
-  logs_type: S3
-  db_secret_name: tekton-results-postgres
-  is_external_db: true
-  db_host: "postgres.external.svc.cluster.local"
-  options:
-    configMaps:
-      tekton-results-config-results-retention-policy:
-        data:
-          defaultRetention: "30"  # days
-          runAt: "0 2 * * *"      # daily 2AM
+  result:
+    logs_api: true
+    logs_type: S3
+    db_secret_name: tekton-results-postgres
+    is_external_db: true
+    db_host: "postgres.external.svc.cluster.local"
+    options:
+      configMaps:
+        tekton-results-config-results-retention-policy:
+          data:
+            defaultRetention: "30"  # days
+            runAt: "0 2 * * *"      # daily 2AM
 ```
 
 #### Full Configuration Example (External DB + S3)
@@ -608,6 +611,5 @@ Production `ACP` deployments: Platform/`SRE` team owns day-2 ops (on-call, capac
 
 ## Operational Runbooks
 Separate deliverables: `LokiStack` deployment, `DB` backup/restore, disaster recovery, troubleshooting guides
-
 
 

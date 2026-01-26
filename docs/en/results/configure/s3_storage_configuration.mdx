@@ -1,0 +1,807 @@
+---
+weight: 52
+i18n:
+  title:
+    en: S3 Storage Configuration
+    zh: S3存储配置
+title: S3 Storage Configuration
+---
+
+# S3 Storage Configuration
+
+This document describes how to configure S3-compatible storage (such as Ceph) for Tekton Results log archival.
+
+## Overview
+
+Tekton Results supports storing archived logs in S3-compatible object storage systems like Ceph, AWS S3, MinIO, etc. This provides a scalable and durable solution for long-term log retention, replacing less efficient storage mechanisms like PVC-based storage.
+
+### Key Benefits
+
+- **Scalability**: Object storage scales horizontally without the limitations of block storage
+- **Durability**: Built-in redundancy and replication in object storage systems
+- **Cost-effectiveness**: Lower storage costs compared to persistent volumes
+- **Long-term retention**: Suitable for compliance and historical troubleshooting
+
+## Prerequisites
+
+### Storage System Requirements
+
+- S3-compatible object storage service (Ceph, AWS S3, MinIO, etc.)
+- Access to create buckets and manage credentials
+- Network connectivity from your Kubernetes cluster to the S3 endpoint
+
+### Permissions
+
+- Ability to create buckets
+- Read/write/delete permissions for the designated log bucket
+- Proper IAM policies or access controls configured
+
+## Configuration Overview
+
+S3 storage configuration for Tekton Results involves two main components:
+
+1. **S3 credentials and connection parameters** are stored in Kubernetes Secrets
+2. **S3 configuration** is enabled in the TektonConfig custom resource under `spec.result`
+
+### Configuration Parameters Reference
+
+| Field | Description | Default Value | Required |
+|-------|-------------|---------------|----------|
+| `logs_api` | Enable logs storage service | `false` | Yes (set to `true` for S3 storage) |
+| `logs_type` | Logs storage backend type | `File` | Yes (set to `S3` for S3 storage) |
+| `secret_name` | Secret name containing S3 credentials | Empty | Yes |
+
+### S3-Specific Parameters in Secret
+
+| Field | Description | Example Value | Required | Notes |
+|-------|-------------|---------------|----------|-------|
+| `S3_BUCKET_NAME` | S3 bucket name for storing logs | `tekton-logs` | Yes | Bucket must exist and be accessible |
+| `S3_ENDPOINT` | S3 service endpoint URL | `https://s3.example.com` | No (for AWS S3) | Required for non-AWS S3-compatible services |
+| `S3_REGION` | S3 region | `us-east-1` | Yes | For AWS S3 or region-aware S3-compatible services |
+| `S3_ACCESS_KEY_ID` | S3 access key ID | `AKIAIOSFODNN7EXAMPLE` | Yes | Access key for S3 authentication |
+| `S3_SECRET_ACCESS_KEY` | S3 secret access key | `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY` | Yes | Secret key for S3 authentication |
+| `S3_HOSTNAME_IMMUTABLE` | S3 hostname immutable flag | `false` | No | Set to `true` if hostname should not be modified by AWS SDK |
+| `S3_MULTI_PART_SIZE` | S3 multipart upload size in bytes | `5242880` | No | Size threshold for multipart uploads (default 5MB) |
+
+### Parameter Details
+
+- **S3_BUCKET_NAME**: The name of the S3 bucket where Tekton logs will be stored. Ensure this bucket exists and has appropriate permissions.
+- **S3_ENDPOINT**: The S3 service endpoint URL. For AWS S3, this can be omitted. For S3-compatible services like Ceph, MinIO, etc., this is required.
+- **S3_REGION**: The region where the S3 service is hosted. For AWS S3, use the appropriate AWS region identifier. For S3-compatible services, use the region identifier configured in your service.
+- **S3_ACCESS_KEY_ID** and **S3_SECRET_ACCESS_KEY**: Credentials for authenticating with the S3 service.
+- **S3_HOSTNAME_IMMUTABLE**: Used for certain S3-compatible services that require hostname immutability.
+- **S3_MULTI_PART_SIZE**: Defines the size threshold for when to use multipart uploads. Larger values can improve performance for large files.
+
+## Basic Configuration
+
+For a basic S3 storage setup, follow these steps:
+
+### 1. Prepare Your S3 Storage
+
+Before configuring Tekton Results, ensure you have:
+
+- An S3-compatible storage system ready (Ceph, AWS S3, MinIO, etc.)
+- A dedicated bucket for Tekton logs
+- Valid access credentials with appropriate permissions (read, write, delete)
+- Network connectivity from your Kubernetes cluster to the S3 endpoint
+
+### 2. Create S3 Credentials Secret
+
+Create a Kubernetes Secret containing your S3 credentials and configuration:
+
+```yaml
+apiVersion: v1
+kind: Secret
+type: Opaque
+metadata:
+  name: my-s3-secret
+  namespace: tekton-pipelines
+stringData:
+  S3_BUCKET_NAME: tekton-logs
+  S3_ENDPOINT: https://your-ceph-endpoint.example.com
+  S3_HOSTNAME_IMMUTABLE: "false"
+  S3_REGION: region-1
+  S3_ACCESS_KEY_ID: your-access-key-id
+  S3_SECRET_ACCESS_KEY: your-secret-access-key
+  S3_MULTI_PART_SIZE: "5242880"
+```
+
+**Step-by-step creation process:**
+
+1. **Identify your S3 parameters**:
+   - Bucket name where logs will be stored
+   - S3 endpoint URL (e.g., `https://ceph.example.com` for Ceph)
+   - Appropriate region identifier
+   - Access credentials with read/write/delete permissions
+
+2. **Create the secret using kubectl**:
+   ```bash
+   kubectl create secret generic my-s3-secret \
+     --namespace="tekton-pipelines" \
+     --from-literal=S3_BUCKET_NAME=tekton-logs \
+     --from-literal=S3_ENDPOINT=https://your-ceph-endpoint.example.com \
+     --from-literal=S3_HOSTNAME_IMMUTABLE=false \
+     --from-literal=S3_REGION=region-1 \
+     --from-literal=S3_ACCESS_KEY_ID=your-access-key-id \
+     --from-literal=S3_SECRET_ACCESS_KEY=your-secret-access-key \
+     --from-literal=S3_MULTI_PART_SIZE=5242880
+   ```
+   
+   **Example Output:**
+   ```
+   secret/my-s3-secret created
+   ```
+
+3. **Verify the secret was created**:
+   ```bash
+   kubectl get secret my-s3-secret -n tekton-pipelines
+   ```
+   
+   **Example Output:**
+   ```
+   NAME           TYPE     DATA   AGE
+   my-s3-secret   Opaque   7      5m
+   ```
+
+### 3. Configure TektonConfig Resource
+
+Enable S3 storage in your TektonConfig configuration:
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  result:
+    # Enable logs API and specify S3 as storage type
+    logs_api: true
+    logs_type: S3
+    
+    # Reference the S3 credentials secret
+    secret_name: my-s3-secret
+    
+    # If using external database (recommended for production)
+    is_external_db: true
+    db_host: your-postgres-host.example.com
+    db_port: 5432
+    db_name: tekton_results
+    db_sslmode: require
+    db_secret_name: tekton-results-postgres
+```
+
+:::tip
+You can combine S3 storage configuration with external database configuration for a complete production setup.
+:::
+
+### 4. Apply the Configuration
+
+1. **Apply the TektonConfig configuration**:
+   ```bash
+   kubectl apply -f tekton-config-s3-config.yaml
+   ```
+   
+   **Example Output:**
+   ```
+   tektonconfig.operator.tekton.dev/config configured
+   ```
+
+2. **Wait for the components to restart**:
+   ```bash
+   kubectl rollout status -n tekton-pipelines deployment/tekton-results-api
+   ```
+
+   **Example Output:**
+   ```
+   deployment "tekton-results-api" successfully rolled out
+   ```
+
+   ```bash
+   kubectl rollout status -n tekton-pipelines deployment/tekton-results-watcher
+   ```
+
+   **Example Output:**
+   ```
+   deployment "tekton-results-watcher" successfully rolled out
+   ```
+
+3. **Verify the configuration is active**:
+   ```bash
+   kubectl get pods -n tekton-pipelines
+   ```
+   
+   **Example Output:**
+   ```
+   NAME                                          READY   STATUS    RESTARTS   AGE
+   tekton-results-api-7d5b8c9c4-xl2v9            1/1     Running   0          10m
+   tekton-results-watcher-6b4f7c8d5-z3n4p        1/1     Running   0          10m
+   tekton-results-retention-policy-agent-5c9g2   1/1     Running   0          10m
+   ```
+
+## Advanced Configuration
+
+### Custom Multipart Size
+
+For optimizing upload performance, you can adjust the multipart size:
+
+```yaml
+# In your S3 secret
+stringData:
+  S3_MULTI_PART_SIZE: "10485760"  # 10MB multipart size
+```
+
+### Ceph-Specific Configuration
+
+When using Ceph as your S3-compatible storage:
+
+- Set `S3_HOSTNAME_IMMUTABLE` to `"true"` if required by your Ceph configuration
+- Use the correct endpoint URL provided by your Ceph cluster
+- Ensure your Ceph RGW (RADOS Gateway) is properly configured for S3 compatibility
+
+### Complete Production Configuration Example
+
+Complete configuration combining S3 storage and external database with detailed explanations:
+
+```yaml
+---
+# S3 credentials secret
+apiVersion: v1
+kind: Secret
+type: Opaque
+metadata:
+  name: tekton-results-s3-credentials
+  namespace: tekton-pipelines
+stringData:
+  # S3 Configuration
+  S3_BUCKET_NAME: tekton-logs-prod
+  S3_ENDPOINT: https://ceph-storage.company.com
+  S3_HOSTNAME_IMMUTABLE: "false"
+  S3_REGION: ceph-region
+  S3_ACCESS_KEY_ID: your-ceph-access-key
+  S3_SECRET_ACCESS_KEY: your-ceph-secret-key
+  S3_MULTI_PART_SIZE: "5242880"  # 5MB multipart threshold
+---
+# TektonConfig configuration
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  result:
+    # Enable S3-based log storage
+    logs_api: true
+    logs_type: S3
+    
+    # External database configuration
+    is_external_db: true
+    db_host: postgres.company.com
+    db_port: 5432
+    db_name: tekton_results
+    db_sslmode: require
+    db_secret_name: tekton-results-postgres  # Separate DB credentials
+    secret_name: tekton-results-s3-credentials  # S3 credentials
+```
+
+### MinIO-Specific Configuration Example
+
+Configuration example for MinIO object storage:
+
+```yaml
+---
+apiVersion: v1
+kind: Secret
+type: Opaque
+metadata:
+  name: minio-s3-credentials
+  namespace: tekton-pipelines
+stringData:
+  S3_BUCKET_NAME: tekton-logs
+  S3_ENDPOINT: https://minio.company.com
+  S3_HOSTNAME_IMMUTABLE: "false"
+  S3_REGION: us-east-1
+  S3_ACCESS_KEY_ID: MINIO_ACCESS_KEY
+  S3_SECRET_ACCESS_KEY: MINIO_SECRET_KEY
+  S3_MULTI_PART_SIZE: "5242880"
+---
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  result:
+    logs_api: true
+    logs_type: S3
+    secret_name: minio-s3-credentials
+```
+
+### Max Log Size Configuration
+
+To limit the size of logs stored per TaskRun, you can configure the `max-log-size` parameter using the `spec.result.options` field in TektonConfig. **IMPORTANT: This feature requires enabling the MaxLogSize feature gate first.** This is a enhancement feature (patch-based) and is not currently available in community Tekton Results.
+
+#### Feature Gate Configuration
+
+Before configuring max-log-size, you need to enable the MaxLogSize feature gate by setting the appropriate feature flags.
+
+To enable the feature gate, you can set the FEATURE_GATES environment variable with MaxLogSize=true:
+
+```bash
+FEATURE_GATES='PartialResponse=true,MaxLogSize=true'
+```
+
+Another method is to configure the FEATURE_GATES environment variable directly on the tekton-results-api deployment via TektonConfig options:
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  result:
+    options:
+      deployments:
+        tekton-results-api:
+          spec:
+            template:
+              spec:
+                containers:
+                - name: api  # This should match the container name in the original deployment
+                  env:
+                  - name: FEATURE_GATES
+                    value: "PartialResponse=true,MaxLogSize=true"
+```
+
+**Note**: The MaxLogSize feature flag is typically implemented via the MaxResultSize configuration in the Tekton feature flags (as seen in the FeatureFlags struct), which controls the maximum size of results that can be stored.
+
+#### Max Log Size Configuration Example
+
+Once the feature gate is enabled, you can configure the max-log-size parameter:
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  result:
+    logs_api: true
+    logs_type: S3
+    secret_name: my-s3-secret
+    
+    # Optional: Configure max log size limit via options
+    options:
+      configMaps:
+        tekton-results-api-config:  # This ConfigMap must exist
+          data:
+            max-log-size: "5242880"  # Size in bytes (5 MiB)
+```
+
+**Configuration Details**:
+
+- **Purpose**: Limits the size of each TaskRun log to prevent unbounded storage growth and ensure stable query performance
+- **Default**: 5 MiB (5242880 bytes) is used as the default value
+- **Behavior**: When a TaskRun log exceeds the configured limit, the system preserves the **Head** of the log and discards the tail. Set `max-log-size` to "0" to disable this size limit feature and upload the full logs content.
+- **Note**: This is an **enhancement feature** (patch-based) and is not currently available in upstream Tekton Results
+- **Prerequisite**: The MaxLogSize feature gate must be enabled for this functionality to work.
+
+:::warning
+
+**Important Warning**
+
+This is an alpha stage feature, the behavior may be changed in the later released version.
+
+:::
+
+## Operations
+
+### Updating S3 Configuration
+
+After modifying the S3 configuration, you need to restart the Tekton Results components for changes to take effect.
+
+**Restart the API server:**
+```bash
+kubectl delete pod -n tekton-pipelines -l app.kubernetes.io/name=tekton-results-api
+```
+
+**Example Output:**
+```
+pod "tekton-results-api-7d5b8c9c4-xl2v9" deleted
+```
+
+**Restart the watcher:**
+```bash
+kubectl delete pod -n tekton-pipelines -l app.kubernetes.io/name=tekton-results-watcher
+```
+
+**Example Output:**
+```
+pod "tekton-results-watcher-6b4f7c8d5-z3n4p" deleted
+```
+
+### Verification Commands
+
+```bash
+# Check TektonConfig status
+kubectl get tektonconfig config -o yaml
+```
+
+**Example Output:**
+```
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  result:
+    logs_api: true
+    logs_type: S3
+    secret_name: my-s3-secret
+    is_external_db: true
+    db_host: postgres.company.com
+status:
+  conditions:
+  - type: Ready
+    status: "True"
+    reason: InstallSucceeded
+    message: "Install successful"
+```
+
+```bash
+# Check pod logs for S3 connectivity
+kubectl logs -n tekton-pipelines -l app.kubernetes.io/name=tekton-results-api
+```
+
+**Example Output:**
+```
+{"level":"info","ts":"2023-05-15T10:30:45.123Z","caller":"api/main.go:89","msg":"Starting Tekton Results API server"}
+{"level":"info","ts":"2023-05-15T10:30:45.124Z","caller":"s3/client.go:45","msg":"Successfully connected to S3 storage"}
+{"level":"info","ts":"2023-05-15T10:30:45.125Z","caller":"api/server.go:123","msg":"API server listening on :8080"}
+```
+
+```bash
+# Verify Secret exists
+kubectl get secret my-s3-secret -n tekton-pipelines
+```
+
+```bash
+# Verify pods are running with S3 configuration
+kubectl get pods -n tekton-pipelines -l app.kubernetes.io/name=tekton-results-api
+```
+
+**Example Output:**
+```
+NAME                                    READY   STATUS    RESTARTS   AGE
+tekton-results-api-7d5b8c9c4-xl2v9       1/1     Running   0          10m
+```
+
+```bash
+kubectl get pods -n tekton-pipelines -l app.kubernetes.io/name=tekton-results-watcher
+```
+
+**Example Output:**
+```
+NAME                                    READY   STATUS    RESTARTS   AGE
+tekton-results-watcher-6b4f7c8d5-z3n4p    1/1     Running   0          10m
+```
+
+## Best Practices
+
+### Security Considerations
+
+1. **Use dedicated credentials**: Create specific S3 credentials for Tekton Results with minimal required permissions (read, write, delete on the specific bucket)
+2. **Secure credential storage**: Store credentials in Kubernetes Secrets, not in plain text configuration files
+3. **Regular credential rotation**: Implement a process to rotate S3 access keys periodically (e.g., quarterly)
+4. **Network security**: Ensure secure network connectivity between cluster and S3 endpoint, preferably using private networks or VPNs
+5. **Least privilege principle**: Grant only the minimum required permissions to the S3 credentials
+6. **Encryption**: Ensure your S3-compatible storage supports server-side encryption for stored logs
+
+### Performance Optimization
+
+1. **Proper multipart size**: Adjust `S3_MULTI_PART_SIZE` based on your network conditions (default is 5MB, but 10-15MB may be better for high-latency networks)
+2. **Bucket placement**: Place S3 bucket in the same region as your cluster when possible to minimize latency
+3. **Monitoring**: Set up monitoring for S3 storage usage, upload/download performance, and error rates
+4. **Connection pooling**: Tekton Results automatically manages connection pooling to S3 services
+5. **Bandwidth considerations**: Ensure adequate network bandwidth between your cluster and S3 storage
+
+### Storage Management
+
+1. **Retention policies**: Implement S3 bucket lifecycle policies for automatic cleanup of old logs
+2. **Storage classes**: Consider using different S3 storage classes for different log retention periods
+3. **Compression**: Enable compression on your S3-compatible storage if supported
+4. **Object tagging**: Use S3 object tagging to organize logs by namespace, pipeline, or other criteria
+
+### Naming Conventions
+
+- Use descriptive bucket names that include environment information (e.g., `tekton-logs-prod`, `tekton-logs-staging`)
+- Apply consistent naming for secrets (e.g., `tekton-results-s3-credentials`)
+- Include environment-specific prefixes when running multiple instances
+- Use clear, consistent naming for configuration resources
+
+### Operational Recommendations
+
+1. **Health monitoring**: Regularly monitor the health of both Tekton Results components and S3 storage connectivity
+2. **Backup strategies**: While S3 provides durability, ensure you have procedures for accessing logs in case of system failures
+3. **Capacity planning**: Plan for log storage growth based on your typical PipelineRun/TaskRun volume
+4. **Testing**: Regularly test log retrieval functionality to ensure S3 connectivity remains operational
+5. **Documentation**: Maintain updated documentation of your S3 endpoint details and access procedures
+
+### S3-Compatible Storage Specific Recommendations
+
+- **Ceph**: Ensure your Ceph RGW is properly configured and tested for S3 compatibility
+- **MinIO**: Verify MinIO server settings for optimal performance with Tekton Results
+- **AWS S3**: Review AWS IAM policies and ensure proper cross-account access if applicable
+- **Performance tuning**: Different S3-compatible storage systems may require different multipart sizes or connection settings
+
+## Security Considerations
+
+### Credential Management
+
+1. **Secure Storage**: Store S3 credentials in Kubernetes Secrets, never in plain text configuration files
+2. **Access Control**: Restrict access to the secrets containing S3 credentials using RBAC
+3. **Rotation Process**: Implement a regular rotation schedule for S3 access credentials
+4. **Principle of Least Privilege**: Grant only the minimum required permissions (read, write, delete on the specific bucket)
+
+### Network Security
+
+1. **Encrypted Connections**: Always use HTTPS/SSL for connections to S3-compatible storage
+2. **Private Networks**: Where possible, use private networks or VPNs to connect to S3 endpoints
+3. **Firewall Rules**: Configure appropriate firewall rules to restrict access to S3 endpoints
+4. **Certificate Validation**: Ensure proper certificate validation is configured for SSL connections
+
+### Monitoring and Auditing
+
+1. **Access Logging**: Enable access logging on your S3-compatible storage to track operations
+2. **Anomaly Detection**: Monitor for unusual access patterns or failed authentication attempts
+3. **Audit Trails**: Maintain audit trails for credential access and configuration changes
+4. **Security Alerts**: Set up alerts for security-related events
+
+## Troubleshooting
+
+### Common Issues
+
+1. **S3 Connection Errors**:
+   - Verify S3 endpoint URL is correct and accessible
+   - Check network connectivity from cluster to S3 endpoint
+   - Validate SSL certificates if using HTTPS
+   - Confirm the endpoint is reachable from inside the cluster
+
+2. **Authentication Failures**:
+   - Confirm access key and secret key are correct
+   - Verify IAM policies grant required permissions
+   - Check region configuration matches S3 service region
+   - Ensure credentials haven't expired or been rotated
+
+3. **Permission Denied**:
+   - Ensure credentials have read/write/delete permissions on the bucket
+   - Verify bucket policies allow access from your cluster
+   - Check if bucket exists and is accessible with provided credentials
+
+4. **Slow Log Uploads**:
+   - Adjust multipart size for optimal performance
+   - Check network bandwidth between cluster and S3 endpoint
+   - Verify S3 service performance
+   - Monitor for network congestion or throttling
+
+5. **Missing Logs**:
+   - Verify that the watcher component is properly capturing logs
+   - Check if logs are being stored in S3 but not accessible through the API
+   - Confirm retention policies aren't prematurely removing logs
+
+6. **Configuration Issues**:
+   - Ensure all required S3 parameters are correctly specified
+   - Verify that the TektonConfig resource is properly configured
+   - Check that secrets are correctly formatted and accessible
+
+### Security-Related Issues
+
+1. **Credential Exposure**:
+   - Check that secrets are not exposed in logs or error messages
+   - Verify that credentials are not stored in configuration files
+   - Ensure RBAC policies properly restrict access to sensitive resources
+
+2. **Unauthorized Access**:
+   - Monitor for unexpected access patterns
+   - Verify that only authorized services can access the S3 storage
+   - Check that authentication is properly enforced
+
+### Diagnostic Commands
+
+```bash
+# Check TektonConfig resource status
+kubectl get tektonconfig config -o yaml
+```
+
+**Example Output:**
+```
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  result:
+    logs_api: true
+    logs_type: S3
+    secret_name: my-s3-secret
+status:
+  conditions:
+  - type: Ready
+    status: "True"
+    reason: ReconcileSuccess
+    message: "All components are reconciled successfully"
+```
+
+```bash
+# View detailed status
+kubectl describe tektonconfig config
+```
+
+**Example Output:**
+```
+Name:         config
+Namespace:    
+Labels:       operator.tekton.dev/release-version=v0.76.0-1070dfb
+Annotations:  <none>
+API Version:  operator.tekton.dev/v1alpha1
+Kind:         TektonConfig
+Metadata:
+  Creation Timestamp:  2026-01-26T04:40:31Z
+  Finalizers:
+    tektonconfigs.operator.tekton.dev
+  Generation:        16
+  Resource Version:  2363257
+  UID:               4ae317c9-7bb9-40b5-94fe-2c3cf708a21d
+Spec:
+    Result:
+    auth_disable:              false
+    db_enable_auto_migration:  true
+    db_host:                   postgresql.example.svc.cluster.local
+    db_name:                   tekton_results
+    db_port:                   5432
+    db_secret_name:            tekton-results-postgres
+    db_sslmode:                verify-full
+    db_sslrootcert:            /etc/tls/db/ca.crt
+    Disabled:                  false
+# .....
+```
+
+```bash
+# Check all related pods
+kubectl get pods -n tekton-pipelines | grep tekton-results
+```
+
+**Example Output:**
+```
+NAME                                          READY   STATUS    RESTARTS   AGE
+tekton-results-api-7d5b8c9c4-xl2v9            1/1     Running   0          10m
+tekton-results-watcher-6b4f7c8d5-z3n4p        1/1     Running   0          10m
+tekton-results-retention-policy-agent-5c9g2   1/1     Running   0          10m
+```
+
+```bash
+# View API server logs for S3-related messages
+kubectl logs -n tekton-pipelines deployment/tekton-results-api | grep -i s3
+```
+
+**Example Output:**
+```
+{"level":"info","ts":"2023-05-15T10:30:45.123Z","caller":"s3/client.go:45","msg":"Successfully connected to S3 storage"}
+{"level":"info","ts":"2023-05-15T10:30:45.124Z","caller":"api/server.go:123","msg":"S3 storage configured with bucket: tekton-logs"}
+```
+
+```bash
+# View watcher logs for upload operations
+kubectl logs -n tekton-pipelines deployment/tekton-results-watcher | grep -i upload
+```
+
+**Example Output:**
+```
+{"level":"info","ts":"2023-05-15T10:30:46.234Z","caller":"watcher/upload.go:67","msg":"Successfully uploaded log to S3: namespace/pipeline-run-name"}
+{"level":"info","ts":"2023-05-15T10:30:47.345Z","caller":"watcher/upload.go:67","msg":"Log upload completed for task-run: namespace/task-run-name"}
+```
+
+```bash
+# Verify secret contents (carefully!)
+kubectl get secret my-s3-secret -n tekton-pipelines -o yaml
+```
+
+**Example Output:**
+```
+apiVersion: v1
+kind: Secret
+metadata:
+  name: my-s3-secret
+  namespace: tekton-pipelines
+data:
+  s3-secret-key: <s3 secret data>
+  ......
+type: Opaque
+```
+
+```bash
+# Test S3 connectivity from within cluster
+kubectl run s3-test --image=minio/mc --restart=Never -n tekton-pipelines --rm -it -- \
+  mc alias set my-s3 https://your-endpoint your-access-key your-secret-key || echo "Connection failed"
+```
+
+**Example Output:**
+```
+s3-test
+If you don't see a command prompt, try pressing enter.
+Connection established. Waiting for command completion.
+Pod s3-test terminated
+```
+
+### Verification Steps
+
+1. **Verify Components Are Running**:
+   ```bash
+   kubectl get pods -n tekton-pipelines
+   # Look for tekton-results-api, tekton-results-watcher, and optionally tekton-results-retention-policy-agent
+   ```
+   
+   **Example Output:**
+   ```
+   NAME                                          READY   STATUS    RESTARTS   AGE
+   tekton-results-api-7d5b8c9c4-xl2v9            1/1     Running   0          10m
+   tekton-results-watcher-6b4f7c8d5-z3n4p        1/1     Running   0          10m
+   tekton-results-retention-policy-agent-5c9g2   1/1     Running   0          10m
+   ```
+
+2. **Create PipelineRun for Log Upload**:
+   ```bash
+   # Create a simple test pipelinerun
+   kubectl get pods -n tekton-pipelines -l app.kubernetes.io/name=tekton-results-watcher
+   ```
+
+   **Example Output:**
+
+   ```
+   NAME                                     READY   STATUS    RESTARTS   AGE
+   tekton-results-watcher-6b4f7c8d5-z3n4p   1/1     Running   0          10m
+   ```
+
+3. **Validate S3 Connectivity**:
+   - Check if logs appear in your S3 bucket
+   - Verify the log structure matches expectations
+   - Confirm retention policies are working as expected
+
+## Log Analysis
+
+Monitor these key logs to troubleshoot S3 configuration:
+
+- Tekton Results API logs for S3 upload/download operations
+- Tekton Results Watcher logs for initial log capture and forwarding
+- S3 service logs (if available) to confirm object creation/deletion
+- Kubernetes event logs for any resource-related issues
+
+Look for specific error patterns:
+- Authentication failures
+- Connection timeouts
+- Permission errors
+- Network connectivity issues
+- SSL/TLS handshake failures
+
+## Performance Issues
+
+If experiencing performance issues:
+
+1. **Check resource utilization**:
+   ```bash
+   # kubectl top command requires metrics-server to be installed in the cluster
+   kubectl top pods -n tekton-pipelines
+   ```
+   
+   **Example Output:**
+   ```
+   NAME                                          CPU(cores)   MEMORY(bytes)
+   tekton-results-api-7d5b8c9c4-xl2v9            15m          55Mi
+   tekton-results-watcher-6b4f7c8d5-z3n4p        8m           32Mi
+   tekton-results-retention-policy-agent-5c9g2   5m           28Mi
+   ```
+
+2. **Monitor network performance**:
+   - Check bandwidth between cluster and S3 endpoint
+   - Monitor for packet loss or high latency
+
+3. **Adjust multipart settings**:
+   - Increase `S3_MULTI_PART_SIZE` for better performance on high-latency networks
+   - Consider tuning worker pool sizes if processing large volumes of logs

@@ -46,7 +46,7 @@ CREATE DATABASE tekton_results;
 Tekton Results supports using external PostgreSQL databases. The configuration is divided into two parts:
 
 1. **Database credentials** (username and password) are stored in Kubernetes Secrets
-2. **Database connection parameters** (host, port, database name, SSL settings) are configured in the TektonResult custom resource
+2. **Database connection parameters** (host, port, database name, SSL settings) are configured in the TektonConfig custom resource under `spec.result`
 
 ### Configuration Parameters Reference
 
@@ -55,10 +55,10 @@ Tekton Results supports using external PostgreSQL databases. The configuration i
 | `is_external_db` | Whether to use external database | `false` | Yes (set to `true` for external DB) |
 | `db_host` | Database host address | `localhost` | Yes |
 | `db_port` | Database port | `5432` | Yes |
-| `db_name` | Database name | `tekton-results` | Yes |
+| `db_name` | Database name | `tekton_results` | Yes |
 | `db_sslmode` | SSL connection mode | `disable` | No |
 | `db_sslrootcert` | SSL root certificate path | Empty | No (required when using SSL) |
-| `secret_name` | Secret name for database credentials | Empty  | Yes |
+| `db_secret_name` | Secret name for database credentials | Empty  | Yes |
 
 > The valid options for `db_sslmode` are explained here https://www.postgresql.org/docs/current/libpq-ssl.html#LIBPQ-SSL-PROTECTION.
 
@@ -92,25 +92,27 @@ kind: Secret
 type: Opaque
 metadata:
   name: tekton-results-postgres
+  namespace: tekton-pipelines # your tekton pipelines namespace
 data:
   POSTGRES_USER: <base64 encoded username>
   POSTGRES_PASSWORD: <base64 encoded password>
 ```
 
-### 2. Configure TektonResult Resource
+### 2. Configure TektonConfig Resource
 
 ```yaml
 apiVersion: operator.tekton.dev/v1alpha1
-kind: TektonResult
+kind: TektonConfig
 metadata:
-  name: result
+  name: config
 spec:
-  is_external_db: true
-  db_host: your-postgres-host.example.com
-  db_port: 5432
-  db_name: tekton_results
-  db_sslmode: allow
-  secret_name: tekton-results-postgres
+  result:
+    is_external_db: true
+    db_host: your-postgres-host.example.com
+    db_port: 5432
+    db_name: tekton_results
+    db_sslmode: allow
+    db_secret_name: tekton-results-postgres
 ```
 
 :::tip
@@ -120,7 +122,7 @@ This document only lists the database-related configuration fields. For the comp
 ### 3. Verify Configuration
 
 ```bash
-kubectl get tektonresults.operator.tekton.dev result
+kubectl get tektonconfig config
 kubectl get pods -n tekton-pipelines -l app.kubernetes.io/name=tekton-results-api
 ```
 
@@ -171,56 +173,57 @@ If you have a CA certificate file named `root.crt`, create a ConfigMap:
 kubectl create configmap db-root-crt -n tekton-pipelines --from-file ca.crt=./root.crt
 ```
 
-#### Step 2: Configure TektonResult with Volume Mounts
+#### Step 2: Configure TektonConfig with Volume Mounts
 
-To make the CA certificate available in the containers, you need to configure the TektonResult resource with additional `options` to mount the ConfigMap:
+To make the CA certificate available in the containers, you need to configure the TektonConfig resource with additional `options` under `spec.result` to mount the ConfigMap:
 
 ```yaml
 apiVersion: operator.tekton.dev/v1alpha1
-kind: TektonResult
+kind: TektonConfig
 metadata:
-  name: result
+  name: config
 spec:
-  is_external_db: true
-  # Database connection configuration
-  db_host: your-postgres-host.example.com
-  db_port: 5432
-  db_name: tekton_results
-  db_sslmode: verify-full
-  db_sslrootcert: /etc/tls/db/ca.crt
-  # Secret configuration
-  secret_name: tekton-results-postgres
-  # Options for mounting CA certificate
-  options:
-    deployments:
-      tekton-results-api:
-        spec:
-          template:
-            spec:
-              containers:
-                - name: api
-                  volumeMounts:
-                    - mountPath: /etc/tls/db
-                      name: postgredb-tls-ca
-                      readOnly: true
-              volumes:
-                - configMap:
-                    name: db-root-crt
-                  name: postgredb-tls-ca
-      tekton-results-retention-policy-agent:
-        spec:
-          template:
-            spec:
-              containers:
-                - name: retention-policy-agent
-                  volumeMounts:
-                    - mountPath: /etc/tls/db
-                      name: postgredb-tls-ca
-                      readOnly: true
-              volumes:
-                - configMap:
-                    name: db-root-crt
-                  name: postgredb-tls-ca
+  result:
+    is_external_db: true
+    # Database connection configuration
+    db_host: your-postgres-host.example.com
+    db_port: 5432
+    db_name: tekton_results
+    db_sslmode: verify-full
+    db_sslrootcert: /etc/tls/db/ca.crt
+    # Secret configuration
+    db_secret_name: tekton-results-postgres
+    # Options for mounting CA certificate
+    options:
+      deployments:
+        tekton-results-api:
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: api
+                    volumeMounts:
+                      - mountPath: /etc/tls/db
+                        name: postgredb-tls-ca
+                        readOnly: true
+                volumes:
+                  - configMap:
+                      name: db-root-crt
+                    name: postgredb-tls-ca
+        tekton-results-retention-policy-agent:
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: retention-policy-agent
+                    volumeMounts:
+                      - mountPath: /etc/tls/db
+                        name: postgredb-tls-ca
+                        readOnly: true
+                volumes:
+                  - configMap:
+                      name: db-root-crt
+                    name: postgredb-tls-ca
 ```
 
 With this configuration:
@@ -243,10 +246,10 @@ kubectl delete pod -n tekton-pipelines -l app.kubernetes.io/name=tekton-results-
 kubectl delete pod -n tekton-pipelines -l app.kubernetes.io/name=tekton-results-retention-policy-agent
 ```
 
-**Option 2: Recreate the TektonResult resource**
+**Option 2: Recreate the TektonConfig resource**
 ```bash
-# Get the current TektonResult resource and recreate it
-kubectl get tektonresults.operator.tekton.dev result -o yaml | kubectl replace --force -f -
+# Get the current TektonConfig resource and recreate it
+kubectl get tektonconfig config -o yaml | kubectl replace --force -f -
 ```
 
 **Verify the changes:**
@@ -257,10 +260,10 @@ kubectl get pods -n tekton-pipelines -l app.kubernetes.io/name=tekton-results-re
 ```
 
 :::warning
-If you update the `db_sslmode` field, you may need to recreate the `TektonResult` resource for the changes to take effect.
+If you update the `db_sslmode` field, you may need to recreate the `TektonConfig` resource for the changes to take effect.
 
 ```bash
-kubectl get tektonresults.operator.tekton.dev result -o yaml | kubectl replace --force -f -
+kubectl get tektonconfig config -o yaml | kubectl replace --force -f -
 ```
 :::
 
@@ -285,8 +288,8 @@ kubectl get tektonresults.operator.tekton.dev result -o yaml | kubectl replace -
 #### Verification Commands
 
 ```bash
-# Check TektonResult status
-kubectl get tektonresults.operator.tekton.dev result -o yaml
+# Check TektonConfig status
+kubectl get tektonconfig config -o yaml
 
 # Check pod logs
 kubectl logs -n tekton-pipelines -l app.kubernetes.io/name=tekton-results-api
@@ -312,7 +315,7 @@ kubectl get secret -n <ns-of-postgresql-instance> -l middleware.instance/type=Po
 
 This Secret contains `host`, `port`, `username`, `password` information. You need to supplement `database` information based on this Secret, and create a new secret in the namespace where the Tekton Results instance is located.
 
-If you need to set `sslmode`, please set `db_sslmode` in `TektonResult` to `allow` or `prefer` etc.
+If you need to set `sslmode`, please set `db_sslmode` in the `TektonConfig` `spec.result` section to `allow` or `prefer`, etc.
 
 For more PostgreSQL deployment parameters and requirements, please refer to <ExternalSiteLink name="postgresql" href="/installation.html" children="PostgreSQL Deployment Documentation" />.
 :::
