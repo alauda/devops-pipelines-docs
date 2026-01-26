@@ -168,11 +168,11 @@ Description:
 - After the configuration manifest is downloaded, it is automatically formatted with the `yq` command.
   - This is to facilitate the subsequent automatic update of image addresses and reduce interference information in `git diff`.
 
-#### 2.4 Initialize Component Build `Dockerfile` Configuration
+#### 2.4 Initialize Component Build `Containerfile` Configuration
 
-The `Dockerfile` files for building each component are usually maintained in the `.tekton/dockerfiles` directory.
+The `Containerfile` files for building each component are usually maintained in the `.tekton/containerfiles` directory.
 
-```dockerfile
+```text
 ARG GO_BUILDER=build-harbor.alauda.cn/devops/builder-go:1.23
 ARG RUNTIME=build-harbor.alauda.cn/ops/distroless-static:20220806
 
@@ -241,7 +241,7 @@ metadata:
         #   - `.tekton/**` matches all file changes within the `.tekton` directory.
         #   - `.tekton/.*` does not match all file changes within the `.tekton` directory.
         ".tekton/pr-build-controller-image.yaml".pathChanged() ||
-        ".tekton/dockerfiles/controller.Dockerfile".pathChanged() ||
+        ".tekton/containerfiles/controller.Containerfile".pathChanged() ||
         ".tekton/patches".pathChanged() ||
         "upstream".pathChanged()
       ) && (
@@ -293,9 +293,9 @@ spec:
     - name: image-repository
       value: build-harbor.alauda.cn/test/devops/tektoncd/pipeline/controller
 
-    # **Must adjust** to the actual Dockerfile being built
-    - name: dockerfile-path
-      value: .tekton/dockerfiles/controller.Dockerfile
+    # **Must adjust** to the actual Containerfile being built
+    - name: containerfile-path
+      value: .tekton/containerfiles/controller.Containerfile
 
     # **Must adjust** to the actual build context for the image
     - name: context
@@ -308,15 +308,15 @@ spec:
       value:
         - upstream
         - .tekton/patches
-        - .tekton/dockerfiles/controller.Dockerfile
+        - .tekton/containerfiles/controller.Containerfile
         - .tekton/pr-build-controller-image.yaml
 
     # **Must adjust** to the actual operations needed
     - name: update-files-based-on-image
       value: |
         # The script can use this environment variable:
-        #    - IMAGE: the image URL with tag and digest, such as `registry.alauda.cn:60080/devops/nonroot/alauda-docker-buildx:latest@sha256:1234567890`
-        #    - IMAGE_URL: the image URL without tag and digest, such as `registry.alauda.cn:60080/devops/nonroot/alauda-docker-buildx`
+        #    - IMAGE: the image URL with tag and digest, such as `registry.alauda.cn:60080/devops/nonroot/alauda-buildx:latest@sha256:1234567890`
+        #    - IMAGE_URL: the image URL without tag and digest, such as `registry.alauda.cn:60080/devops/nonroot/alauda-buildx`
         #    - IMAGE_TAG: the image tag, such as `latest`
         #    - IMAGE_DIGEST: the image digest, such as `sha256:1234567890`
         #    - LAST_CHANGED_COMMIT: the last changed commit sha
@@ -353,7 +353,7 @@ spec:
 
     # **Must adjust** Add as needed. The `prepare-tools-image` and `prepare-command` are for pre-build tasks.
     # For instance, a few tasks performed here are:
-    #   - Generate the `head` file containing the commit sha of the `upstream` directory. This is generally used in the `Dockerfile`.
+    #   - Generate the `head` file containing the commit sha of the `upstream` directory. This is generally used in the `Containerfile`.
     #   - Set Golang environment variables
     #   - Update go mod dependencies to fix security issues (optional)
 
@@ -416,7 +416,7 @@ spec:
           resources:
             requests:
               storage: 1Gi
-    - name: dockerconfig
+    - name: registryconfig
       secret:
         secretName: build-harbor.kauto.docfj
     # This secret will be replaced by the pac controller

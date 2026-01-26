@@ -1,19 +1,22 @@
 ---
 weight: 10
+aliases:
+  - /pipelines/how_to/adjust_dockerfile_for_task_compatible_image/
+  - /pipelines/how_to/adjust_dockerfile_for_task_compatible_image
 i18n:
   title:
-    en: Adjust Dockerfile for Building Task-Compatible Custom Images
-    zh: 调整 Dockerfile 构建适用于 Task 的自定义镜像
-title: Adjust Dockerfile for Building Task-Compatible Custom Images
+    en: Adjust Containerfile for Building Task-Compatible Custom Images
+    zh: 调整 Containerfile 构建适用于 Task 的自定义镜像
+title: Adjust Containerfile for Building Task-Compatible Custom Images
 ---
 
-# Adjust Dockerfile for Building Task-Compatible Custom Images
+# Adjust Containerfile for Building Task-Compatible Custom Images
 
 ## Feature Overview
 
-In Tekton, to enhance security, Tasks may be configured with `runAsNonRoot: true`, which requires containers to run as non-root users. Therefore, special attention must be given to the configuration of the Dockerfile when building custom images to ensure that the images can operate correctly in such Tasks.
+In Tekton, to enhance security, Tasks may be configured with `runAsNonRoot: true`, which requires containers to run as non-root users. Therefore, special attention must be given to the configuration of the Containerfile when building custom images to ensure that the images can operate correctly in such Tasks.
 
-This document describes how to adjust the Dockerfile to build custom images that are compatible with Tasks, focusing on user permission configurations.
+This document describes how to adjust the Containerfile to build custom images that are compatible with Tasks, focusing on user permission configurations.
 
 ## Use Cases
 
@@ -30,10 +33,10 @@ Before using this feature, ensure:
 - You have a OCI image building environment
   - You can use the platform's native build pipeline
   - If you need to use community/open-source tools, ensure you have internet access or have prepared offline packages
-- You have a basic understanding of Dockerfile writing
+- You have a basic understanding of Containerfile writing
   - You can refer to the [Dockerfile Official Documentation](https://docs.docker.com/get-started/docker-concepts/building-images/writing-a-dockerfile/)
   - Understand [Dockerfile Best Practices](https://docs.docker.com/build/building/best-practices/)
-- A Dockerfile file and related configuration
+- A Containerfile file and related configuration
 
 ## Steps
 
@@ -57,9 +60,9 @@ NAME="CentOS Linux"
 
 ### 2. Add a Non-Root User
 
-Add a non-root user in the Dockerfile (it is recommended to use UID 65532):
+Add a non-root user in the Containerfile (it is recommended to use UID 65532):
 
-```dockerfile
+```text
 # Based on the base image, choose the corresponding command
 
 # Alpine
@@ -80,7 +83,7 @@ RUN groupadd -g 65532 nonroot && useradd -u 65532 -U -d /home/nonroot -m nonroot
 
 If the user needs to access certain directories or files, necessary permissions should be added for that user.
 
-```dockerfile
+```text
 # Set the owner of the directory or file to nonroot
 RUN chown -R nonroot:nonroot /path/to/directory
 
@@ -90,11 +93,11 @@ RUN chmod -R a+rwx /path/to/directory
 
 ### 4. Set the Default User
 
-Set the default user in the Dockerfile (using UID instead of the username):
+Set the default user in the Containerfile (using UID instead of the username):
 
 > Since Pods configured with `runAsNonRoot` will check if the user ID is a non-root user rather than checking the username.
 
-```dockerfile
+```text
 # Set the default user to nonroot (using UID)
 USER 65532
 ```
@@ -125,7 +128,7 @@ With this configuration:
 
 2. Application Configuration
    - Ensure applications can run normally as non-root users
-   - Pre-configure necessary directory permissions in the Dockerfile
+   - Pre-configure necessary directory permissions in the Containerfile
    - Use the `VOLUME` instruction to define directories that need to be persisted
 
 3. Security Recommendations
