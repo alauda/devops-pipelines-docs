@@ -85,20 +85,20 @@ metadata:
 spec:
   params:
     - default: |-
-        echo "Generate a Dockerfile for building an image."
+        echo "Generate a Containerfile for building an image."
 
-        cat << 'EOF' > Dockerfile
+        cat << 'EOF' > Containerfile
         FROM ubuntu:latest
         ENV TIME=1
         EOF
 
-        echo -e "\nDockerfile contents:"
+        echo -e "\nContainerfile contents:"
         echo "-------------------"
-        cat Dockerfile
+        cat Containerfile
         echo "-------------------"
-        echo -e "\nDockerfile generated successfully!"
-      description: A script to generate a Dockerfile for building an image.
-      name: generate-dockerfile
+        echo -e "\nContainerfile generated successfully!"
+      description: A script to generate a Containerfile for building an image.
+      name: generate-containerfile
       type: string
     - default: <registry>/test/chains/demo-5:latest
       description: The target image address built
@@ -112,10 +112,10 @@ spec:
         digest: $(tasks.build-image.results.IMAGE_DIGEST)
         uri: $(tasks.build-image.results.IMAGE_URL)
   tasks:
-    - name: generate-dockerfile
+    - name: generate-containerfile
       params:
         - name: script
-          value: $(params.generate-dockerfile)
+          value: $(params.generate-containerfile)
       taskRef:
         params:
           - name: kind
@@ -139,7 +139,7 @@ spec:
         - name: TLS_VERIFY
           value: "false"
       runAfter:
-        - generate-dockerfile
+        - generate-containerfile
       taskRef:
         params:
           - name: kind
@@ -155,8 +155,8 @@ spec:
       workspaces:
         - name: source
           workspace: source
-        - name: dockerconfig
-          workspace: dockerconfig
+        - name: registryconfig
+          workspace: registryconfig
     - name: syft-sbom
       params:
         - name: COMMAND
@@ -191,25 +191,25 @@ spec:
       workspaces:
         - name: source
           workspace: source
-        - name: dockerconfig
-          workspace: dockerconfig
+        - name: registryconfig
+          workspace: registryconfig
         - name: signkey
           workspace: signkey
   workspaces:
     - name: source
       description: The workspace for source code.
-    - name: dockerconfig
+    - name: registryconfig
       description: The workspace for distribution registry configuration.
     - name: signkey
       description: The workspace for private keys and passwords used for image signatures.
 ```
 
 :::tip
-This tutorial demonstrates a simplified workflow by generating the `Dockerfile` and `git-clone` task output inline within the pipeline.
+This tutorial demonstrates a simplified workflow by generating the `Containerfile` and `git-clone` task output inline within the pipeline.
 In production environments, you would typically:
 
 1. Use the `git-clone` task to fetch source code from your repository
-2. Build the image using the Dockerfile that exists in your source code
+2. Build the image using the Containerfile that exists in your source code
 3. This approach ensures proper version control and maintains the separation between code and pipeline configuration
 :::
 
@@ -247,7 +247,7 @@ spec:
   taskRunTemplate:
     serviceAccountName: <default>
   workspaces:
-    - name: dockerconfig
+    - name: registryconfig
       secret:
         secretName: <registry-credentials>
     - name: source

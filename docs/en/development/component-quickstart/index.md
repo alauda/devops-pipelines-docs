@@ -195,11 +195,11 @@ Description:
 - After the configuration manifest is downloaded, it is automatically formatted with the `yq` command.
   - This is to facilitate the subsequent automatic update of image addresses and reduce interference information in `git diff`.
 
-#### 2.5 Initialize Component Build `Dockerfile` Configuration
+#### 2.5 Initialize Component Build `Containerfile` Configuration
 
-The `Dockerfile` files for building each component are usually maintained in the `.tekton/dockerfiles` directory.
+The `Containerfile` files for building each component are usually maintained in the `.tekton/containerfiles` directory.
 
-```dockerfile
+```text
 ARG GO_BUILDER=build-harbor.alauda.cn/devops/nonroot/builder-go:latest
 ARG RUNTIME=build-harbor.alauda.cn/ops/distroless-static:12-alauda-202502271510
 

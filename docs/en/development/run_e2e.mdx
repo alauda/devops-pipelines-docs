@@ -38,7 +38,7 @@ podman version
 podman pull registry.alauda.cn:60070/devops/tektoncd/e2e/operator/operator-e2e:latest
 ```
 
-> **Note**: The test image is built from the Dockerfile located at `.tekton/dockerfiles/operator-e2e.Dockerfile`.
+> **Note**: The test image is built from the Containerfile located at `.tekton/containerfiles/operator-e2e.Containerfile`.
 
 
 ### Step 2: Prepare config.yaml
@@ -91,7 +91,7 @@ toolchains:
       # Default test group
       default: e2e-automation
     # Base64 encoded distribution registry configuration file
-    dockerConfig: <BASE64_ENCODED_DOCKER_CONFIG>
+    registryConfig: <BASE64_ENCODED_DOCKER_CONFIG>
 
   nexus:
     # Server endpoint address
@@ -238,7 +238,7 @@ Each toolchain contains the following common configuration items:
 - `token`: Admin user access token
 
 **Harbor**:
-- `dockerConfig`: Base64 encoded distribution registry configuration file
+- `registryConfig`: Base64 encoded distribution registry configuration file
 
 **SonarQube**:
 - `token`: Admin user access token
