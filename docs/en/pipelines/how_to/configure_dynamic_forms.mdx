@@ -173,8 +173,8 @@ spec:
 # value: string
 - urn:alm:descriptor:com.tectonic.ui:select
 # Options
-- urn:alm:descriptor:com.tectonic.ui:select:valueA
-- urn:alm:descriptor:com.tectonic.ui:select:valueB
+- urn:alm:descriptor:props:select:options:valueA
+- urn:alm:descriptor:props:select:options:valueB
 # Set the select box to multiple selection mode
 # value: array
 - urn:alm:descriptor:props:select:multiple
@@ -383,6 +383,7 @@ metadata:
       - path: params.namespace
         x-descriptors:
           - urn:alm:descriptor:label:en:namespace
+          - urn:alm:descriptor:label:zh:namespace(zh)
           - urn:alm:descriptor:com.tectonic.ui:select
           - urn:alm:descriptor:expression:props.options:api:/kubernetes/${context.cluster}/api/v1/namespaces
           - urn:alm:descriptor:expression:props.options:path:items
@@ -416,6 +417,7 @@ metadata:
       - path: params.target-namespace
         x-descriptors:
           - urn:alm:descriptor:label:en:target-namespace
+          - urn:alm:descriptor:label:zh:target-namespace(zh)
           - urn:alm:descriptor:com.tectonic.ui:select
           - urn:alm:descriptor:expression:props.options:api:/kubernetes/${context.cluster}/api/v1/namespaces
           - urn:alm:descriptor:expression:props.options:label:path:metadata.name
