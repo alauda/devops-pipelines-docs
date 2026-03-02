@@ -39,11 +39,11 @@ Refer to the [catalog convention](./convention.md) and the existing `maven` proj
 
 ### 2. Build Dependent Images
 
-a. Prepare `Containerfile` and other files for building image dependencies in `images/{taskname}/`.
+a. Prepare `Dockerfile` and other files for building image dependencies in `images/{taskname}/`.
 
 ```yaml
 ./images/maven
-└── Containerfile
+└── Dockerfile
 ```
 
 b. Prepare the image build pipeline file `build-maven.yaml`.

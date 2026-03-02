@@ -158,7 +158,7 @@ Key fields and labels:
 
 #### Custom Image Builds
 
-If Tasks in the catalog depend on custom images, provide the `Containerfile` and build pipelines in the catalog so they can be reproduced.
+If Tasks in the catalog depend on custom images, provide the `Dockerfile` and build pipelines in the catalog so they can be reproduced.
 
 - Build environments are stored in the `images/{image-name}` directory.
 - Image build pipeline orchestration files are stored in `.tekton/images/build-{image-name}.yaml`.
@@ -166,10 +166,10 @@ If Tasks in the catalog depend on custom images, provide the `Containerfile` and
 #### Image Security
 
 - For security considerations, it is recommended to create a `nonroot` user with ID `65532` as the default user when the image is finally executed.
-- It is also recommended to add `USER 65532` instead of `USER nonroot` in the `Containerfile` to specify this user.
+- It is also recommended to add `USER 65532` instead of `USER nonroot` in the `Dockerfile` to specify this user.
   - This is because when a Pod specifies `runAsNonRoot`, it cannot confirm that the user is non-root when using `USER nonroot`, which will result in a `CreateContainerConfigError`.
 
-    ```text
+    ```dockerfile
     # Add a non-root user
     
     # For Alpine images

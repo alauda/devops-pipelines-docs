@@ -113,10 +113,10 @@ spec:
     - busybox:latest
     - busybox:v1.30.1
 
-- **containerfile-path**
+- **dockerfile-path**
   - **type**: string
-  - **default**: ./Containerfile
-  - **description**: Path to the Containerfile to build.
+  - **default**: ./Dockerfile
+  - **description**: Path to the Dockerfile to build.
 
 - **build-extra-args**
   - **type**: string
@@ -126,7 +126,7 @@ spec:
 - **build-args**
   - **type**: array
   - **default**: [""]
-  - **description**: Specifies a build argument and its value, which will be interpolated in instructions read from the Containerfile in the same way that environment variables are, but which will not be added to environment variable list in the resulting image's configuration. eg. HTTP_PROXY=http://10.10.10.10:8080
+  - **description**: Specifies a build argument and its value, which will be interpolated in instructions read from the Dockerfile in the same way that environment variables are, but which will not be added to environment variable list in the resulting image's configuration. eg. HTTP_PROXY=http://10.10.10.10:8080
 
 - **build-context**
   - **type**: string
@@ -191,7 +191,7 @@ spec:
 - **pip-conf**: An [optional workspace](https://github.com/tektoncd/pipeline/blob/v0.65.5/docs/workspaces.md#using-workspaces-in-pipelines) consisting of the custom pip settings.
 - **sonar-settings**: An [optional workspace](https://github.com/tektoncd/pipeline/blob/v0.65.5/docs/workspaces.md#using-workspaces-in-pipelines) where SonarQube properties can be mounted.
 - **sonar-credentials**: An [optional workspace](https://github.com/tektoncd/pipeline/blob/v0.65.5/docs/workspaces.md#using-workspaces-in-pipelines) containing credentials for use within SonarQube.
-- **registryconfig**: An [optional workspace](https://github.com/tektoncd/pipeline/blob/v0.65.5/docs/workspaces.md#using-workspaces-in-pipelines) for distribution registry configuration files, such as `config.json` or `.dockerconfigjson`. This is optional and is used for authentication when pushing images to the registry.
+- **dockerconfig**: An [optional workspace](https://github.com/tektoncd/pipeline/blob/v0.65.5/docs/workspaces.md#using-workspaces-in-pipelines) for distribution registry configuration files, such as `config.json` or `.dockerconfigjson`. This is optional and is used for authentication when pushing images to the registry.
 - **kubeconfig**: An [Optional workspace](https://github.com/tektoncd/pipeline/blob/v0.65.5/docs/workspaces.md#using-workspaces-in-pipelines) containing kubeconfig file. The name of kubeconfig should be `kubeconfig`. If there is no kubeconfig in this workspace, the workspace will be ignored.
 
 ## Platforms
@@ -226,9 +226,9 @@ spec:
     - name: git-basic-auth
       secret:
         secretName: gitconfig
-    - name: registryconfig
+    - name: dockerconfig
       secret:
-        secretName: registryconfig
+        secretName: dockerconfig
 ```
 
 ### Configuration of SonarQube properties \{#sonarqube-properties}
@@ -324,9 +324,9 @@ spec:
     - name: git-basic-auth
       secret:
         secretName: gitconfig
-    - name: registryconfig
+    - name: dockerconfig
       secret:
-        secretName: registryconfig
+        secretName: dockerconfig
 ```
 
 ### Skip tasks with Params
@@ -390,7 +390,7 @@ spec:
     - name: sonar-credentials
       secret:
         secretName: sonar-credentials
-    - name: registryconfig
+    - name: dockerconfig
       secret:
         secretName: registry-creds
     - name: kubeconfig

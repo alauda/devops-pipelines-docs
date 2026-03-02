@@ -15,10 +15,6 @@ Currently, the built-in PostgreSQL database is not supported, please use an exte
 About external database please refer to [Using PostgreSQL from Data Services](./configure/database_configuration.mdx#using-postgresql-from-data-services)
 :::
 
-:::tip
-Tekton Results supports storing logs in various storage backends. **S3-compatible object storage (such as AWS S3, Ceph, MinIO) is now the recommended approach** for scalable and durable log retention. For detailed S3 storage configuration, see the [S3 Storage Configuration Guide](./configure/s3_storage_configuration.mdx). Local PVC storage is not recommended for production use.
-:::
-
 ### Prerequisites
 
 1. Tekton Pipelines must be installed in the cluster.
@@ -76,13 +72,7 @@ Tekton Results supports storing logs in various storage backends. **S3-compatibl
         --key=key.pem
       ```
 
-4. (For quick start only) Create a `PVC` if you are using the legacy `File` storage type (not recommended for production).
-
-   :::warning
-   PVC-based local storage is not recommended for production use. **S3-compatible object storage is the recommended approach** for scalable and durable log retention. For S3 storage configuration, see the [S3 Storage Configuration Guide](./configure/s3_storage_configuration.mdx).
-   :::
-
-   If you still need to use PVC for testing purposes:
+4. Create a `PVC` if you are using `PVC` to store logs.
 
    ```sh
    cat <<EOF | kubectl create -f -
@@ -101,54 +91,48 @@ Tekton Results supports storing logs in various storage backends. **S3-compatibl
    ```
 
    - Please adjust the PVC size as needed.
-   - Note: This is only required if using the legacy File storage type.
 
 ### Installing using operator CRD
 
 ```sh
 $ cat <<EOF | kubectl create -f -
 apiVersion: operator.tekton.dev/v1alpha1
-kind: TektonConfig
+kind: TektonResult
 metadata:
-  name: config
+  name: result
 spec:
+  # Update with database address
+  db_host: <database_host>
+  db_port: 5432
+  db_name: <database_name>
+  # Use external database
+  is_external_db: true
+  # secret containing database account information created earlier
+  secret_name: tekton-results-postgres
+  # Basic settings
+  server_port: 8080
   # Target namespace
   targetNamespace: tekton-pipelines
-  result:
-    # Update with database address
-    db_host: <database_host>
-    db_port: 5432
-    db_name: <database_name>
-    # Use external database
-    is_external_db: true
-    # secret containing database account information created earlier
-    db_secret_name: tekton-results-postgres
-    # Basic settings
-    server_port: 8080
-    # Disable authentication
-    auth_disable: true
-    db_enable_auto_migration: true
-    log_level: debug
-    # Use logs storage service
-    logs_api: true
-    log_type: File
-    logging_pvc_name: tekton-logs
-    # logs_type: S3  # Recommended: S3-compatible storage for scalable log retention
-    # secret_name: tekton-results-s3-credentials  # Secret containing S3 credentials
-    logs_path: /logs
-    logs_buffer_size: 92160
-    # S3 storage does not require PVC, unlike legacy File storage
+  # Disable authentication
+  auth_disable: true
+  db_enable_auto_migration: true
+  log_level: debug
+  # Use logs storage service
+  logs_api: true
+  logs_type: File
+  logs_path: /logs
+  logs_buffer_size: 92160
+  logging_pvc_name: tekton-logs
 EOF
 ```
 
-:::details
-  All Tekton Results configuration fields are nested under `spec.result` in the TektonConfig resource.
+:::details \{title="Explanation of YAML fields"}
   - `db_host`: The host of the database.
   - `db_port`: The port of the database.
   - `db_name`: The name of the database.
   - `is_external_db`: Whether to use an external database.
     - `true`: Use an external database.
-  - `db_secret_name`: The name of the secret containing the database account information.
+  - `secret_name`: The name of the secret containing the database account information.
     - This is the secret created in the previous step.
   - `server_port`: The port of the server.
   - `targetNamespace`: The namespace where the Results is deployed.
@@ -158,13 +142,11 @@ EOF
   - `logs_api`: Whether to enable the logs API.
     - `true`: Enable the logs API.
   - `logs_type`: The type of the logs.
-    - `File`: Store logs in a file (not recommended for production use).
-    - `S3`: Store logs in S3-compatible object storage (e.g., AWS S3, Ceph, MinIO). **This is the recommended approach** for scalable and durable log retention. For detailed configuration, see the [S3 Storage Configuration Guide](./configure/s3_storage_configuration.mdx).
-  - `secret_name`: The name of the secret containing the S3 account information. For detailed configuration, see the [S3 Storage Configuration Guide](./configure/s3_storage_configuration.mdx).
+    - `File`: Store logs in a file.
   - `logs_path`: The path of the logs.
   - `logs_buffer_size`: The buffer size of the logs.
-  - `logging_pvc_name`: The name of the PVC to store the logs (only required when using legacy File storage type).
-    - This is the PVC created in the previous step (not needed for S3 storage).
+  - `logging_pvc_name`: The name of the PVC to store the logs.
+    - This is the PVC created in the previous step.
 :::
 
 :::tip
@@ -216,7 +198,121 @@ hello                                        Unknown     Pending     3s
 hello                                        True        Succeeded   11s         0s
 ```
 
-#### 3. Use tkn-results CLI to query results
+#### 3. Use curl to query results
+
+> For more usage patterns, refer to the official documentation [Tekton Results API](https://github.com/tektoncd/results/blob/main/docs/api/README.md)
+
+##### Prepare permissions
+
+```yaml
+$ cat <<EOF | kubectl create -f -
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tekton-results-readonly
+rules:
+  - apiGroups: ["results.tekton.dev"]
+    resources: ["results", "records"]
+    verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tekton-results-impersonate
+rules:
+  - apiGroups: [""]
+    resources: ["users", "groups", "serviceaccounts"]
+    verbs: ["impersonate"]
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["uids"]
+    verbs: ["impersonate"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tekton-results-impersonate
+subjects:
+  - kind: ServiceAccount
+    name: impersonate-admin
+    namespace: tekton-pipelines
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tekton-results-impersonate
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tekton-results-user
+  namespace: default
+subjects:
+  - kind: ServiceAccount
+    name: impersonate-user
+    namespace: user-namespace
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tekton-results-readonly
+EOF
+```
+
+##### Verify permissions
+
+```sh
+$ kubectl create --validate=false --as=system:serviceaccount:tekton-pipelines:tekton-results-watcher -n tekton-pipelines -f - -o yaml << EOF
+apiVersion: authorization.k8s.io/v1
+kind: SelfSubjectAccessReview
+spec:
+  resourceAttributes:
+    group: results.tekton.dev
+    resource: results
+    verb: get
+EOF
+
+apiVersion: authorization.k8s.io/v1
+kind: SelfSubjectAccessReview
+metadata:
+  creationTimestamp: null
+spec:
+  resourceAttributes:
+    group: results.tekton.dev
+    resource: results
+    verb: get
+status:
+  allowed: true
+  reason: 'RBAC: allowed by ClusterRoleBinding "tekton-results-watcher" of ClusterRole
+    "tekton-results-watcher" to ServiceAccount "tekton-results-watcher/tekton-pipelines"'
+```
+
+##### Forward Ports
+
+Proxy the service to the local port 8080
+
+```sh
+$ kubectl port-forward -n tekton-pipelines service/tekton-results-api-service 8080
+```
+
+##### Get Token
+
+```sh
+$ token=$(kubectl create token impersonate-admin -n tekton-pipelines)
+```
+
+##### Query Results
+
+```sh
+$ curl -s -k \
+  -H 'authorization: Bearer '${token} \
+  -H 'Impersonate-User: system:serviceaccount:user-namespace:impersonate-user' \
+  https://localhost:8080/apis/results.tekton.dev/v1alpha2/parents/default/results
+
+{"results":[{"name":"default/results/0b165174-fd12-47f9-a8d8-c4ffcb1be0d4", "id":"65662a09-216a-4e6b-960c-260a2b05de9c", "uid":"65662a09-216a-4e6b-960c-260a2b05de9c", "createdTime":"2025-02-20T05:59:52.403661Z", "createTime":"2025-02-20T05:59:52.403661Z", "updatedTime":"2025-02-20T06:00:09.033206Z", "updateTime":"2025-02-20T06:00:09.033206Z", "annotations":{"object.metadata.name":"large-result-pipeline-run-c2mg4", "tekton.dev/pipeline":"large-result-pipeline"}, "etag":"65662a09-216a-4e6b-960c-260a2b05de9c-1740031209033206096", "summary":{"record":"default/results/0b165174-fd12-47f9-a8d8-c4ffcb1be0d4/records/0b165174-fd12-47f9-a8d8-c4ffcb1be0d4", "type":"tekton.dev/v1.PipelineRun", "startTime":null, "endTime":"2025-02-20T06:00:09Z", "status":"SUCCESS", "annotations":{}}}, {"name":"default/results/c308db48-9613-4652-8b5a-edd10eb9bda9", "id":"98d2bda3-2039-4e03-b78a-4e44637df4f2", "uid":"98d2bda3-2039-4e03-b78a-4e44637df4f2", "createdTime":"2025-02-20T05:25:44.226246Z", "createTime":"2025-02-20T05:25:44.226246Z", "updatedTime":"2025-02-20T13:12:20.823170Z", "updateTime":"2025-02-20T13:12:20.823170Z", "annotations":{"object.metadata.name":"hello"}, "etag":"98d2bda3-2039-4e03-b78a-4e44637df4f2-1740057140823170246", "summary":{"record":"default/results/c308db48-9613-4652-8b5a-edd10eb9bda9/records/c308db48-9613-4652-8b5a-edd10eb9bda9", "type":"tekton.dev/v1.TaskRun", "startTime":null, "endTime":"2025-02-20T13:12:20Z", "status":"SUCCESS", "annotations":{}}}, {"name":"default/results/e536090f-0819-46ae-86e6-1fe2fce6dc56", "id":"a7e8b252-bbce-4cb1-aa22-71cfb5a83639", "uid":"a7e8b252-bbce-4cb1-aa22-71cfb5a83639", "createdTime":"2025-02-20T13:13:33.323381Z", "createTime":"2025-02-20T13:13:33.323381Z", "updatedTime":"2025-02-20T13:13:45.480690Z", "updateTime":"2025-02-20T13:13:45.480690Z", "annotations":{"object.metadata.name":"large-result-pipeline-run-twnxc", "tekton.dev/pipeline":"large-result-pipeline"}, "etag":"a7e8b252-bbce-4cb1-aa22-71cfb5a83639-1740057225480690745", "summary":{"record":"default/results/e536090f-0819-46ae-86e6-1fe2fce6dc56/records/e536090f-0819-46ae-86e6-1fe2fce6dc56", "type":"tekton.dev/v1.PipelineRun", "startTime":null, "endTime":"2025-02-20T13:13:45Z", "status":"SUCCESS", "annotations":{}}}], "nextPageToken":""}
+```
+
+#### 4. Use tkn-results CLI to query results
 
 ##### Preparing the CLI
 
@@ -297,6 +393,6 @@ data: "[prepare] 2025/02/19 08:17:12 Entrypoint initialization\n\n[hello] hello\
 ## References
 
 - [Tekton Results Docs](https://github.com/tektoncd/results/tree/main/docs)
-- [Installation of Tekton Results](https://tekton.dev/docs/operator/tektonconfig/)
+- [Installation of Tekton Results](https://tekton.dev/docs/operator/tektonresult/)
 - [Tekton Results API](https://github.com/tektoncd/results/blob/main/docs/api/README.md)
 - [Download tkn](https://github.com/tektoncd/cli/releases)

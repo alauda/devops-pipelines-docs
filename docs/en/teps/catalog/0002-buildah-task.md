@@ -22,11 +22,11 @@ Currently, there are multiple image building tools in the community, such as Doc
 
 | Tool | Caching Mechanism | Configuration Complexity | Build Speed | Community | Flexibility | Daemon Compatibility | Multi-Architecture Build |
 |------|------------------|-------------------------|-------------|-----------|-------------|---------------------|-------------------------|
-| Docker | Layer caching, medium efficiency | Simple (Containerfile) | Fast | Very large (mainstream) | Medium (depends on Containerfile) | Requires Docker Daemon | Supported (requires BuildKit or docker buildx) |
+| Docker | Layer caching, medium efficiency | Simple (Dockerfile) | Fast | Very large (mainstream) | Medium (depends on Dockerfile) | Requires Docker Daemon | Supported (requires BuildKit or docker buildx) |
 | Buildah | Manual cache management, high flexibility | Medium (CLI commands) | Medium | Medium (Red Hat) | Very high (layer-by-layer control) | No Daemon required | Supported (using QEMU) |
 | BuildKit | Advanced caching (remote/parallel/incremental) | High (requires separate config files) | Very fast | Large (cloud-native) | Very high (multi-platform support) | Optional mode (Daemonless) | Supported (supports cross-compilation and QEMU) |
 | S2I | Depends on builder cache, limited optimization | Low (preset templates) | Fast | Medium (OpenShift) | Low (templated) | No Daemon required | Not supported (depends on builder image architecture) |
-| Kaniko | Supports image layer caching, medium speed | Medium (K8s integration) | Medium | Large (K8s ecosystem) | Medium (Containerfile compatible) | No Daemon required | Not supported (requires multi-node build) |
+| Kaniko | Supports image layer caching, medium speed | Medium (K8s integration) | Medium | Large (K8s ecosystem) | Medium (Dockerfile compatible) | No Daemon required | Not supported (requires multi-node build) |
 
 Based on previous usage and the goal of migrating OCP image builds, we consider using Buildah for image building first, and then adding other Tasks as needed.
 
@@ -44,7 +44,7 @@ OverlayFS: Introduced in kernel version 3.18.0, improved by docker 4.0.
 
 ### Goals
 
-1. Ability to build images through Containerfile
+1. Ability to build images through Dockerfile
 2. Provide default images for building
 3. Provide building documentation and use cases (Docker migration to Buildah, OCP build migration to Buildah)
 
@@ -65,7 +65,7 @@ OverlayFS: Introduced in kernel version 3.18.0, improved by docker 4.0.
 
 ### Requirements
 
-- Support Containerfile image building
+- Support Dockerfile image building
 - Ability to push to default image registry (http/https)
 - Ability to push to private image registry
 
@@ -80,7 +80,7 @@ Comparison of differences between OCP and Tekton task
 | IMAGE | Target image value for building (supports multiple tags) | Yes | | ✓ | ✓ | ✓ |
 | BUILDER_IMAGE | Image for executing builds | Yes | quay.io/buildah/stable:v1 | ✓ | ✗ | ✓ |
 | STORAGE_DRIVER | Storage driver | Yes | overlay | ✓ | ✓ | ✓ |
-| CONTAINERFILE | Containerfile path | Yes | ./Containerfile | ✓ | ✓ | ✓ |
+| DOCKERFILE | Dockerfile path | Yes | ./Dockerfile | ✓ | ✓ | ✓ |
 | CONTEXT | Build context | Yes | | ✓ | ✓ | ✓ |
 | TLSVERIFY | TLS verification | No | true | ✓ | ✓ | ✓ |
 | FORMAT | Image format | No | oci | ✓ | ✓ | ✓ |
@@ -96,7 +96,7 @@ Comparison of differences between OCP and Tekton task
 | ---- | ----------- | -------- | ------ | --- | ------ |
 | source | Source code directory | Yes | ✓ | ✓ | ✓ |
 | sslcertdir | Certificate directory | No | ✓ | ✗ | ✓ |
-| registryconfig | Configuration file directory | No | ✓ | ✓ | ✓ |
+| dockerconfig | Configuration file directory | No | ✓ | ✓ | ✓ |
 | rhel-entitlement | Subscription directory | No | ✗ | ✓ | ✗ |
 
 **Results**
@@ -148,9 +148,9 @@ spec:
     then pushes it to a container registry.
 
     Buildah Task builds source into a container image using Project Atomic's
-    Buildah build tool.It uses Buildah's support for building from Containerfiles,
+    Buildah build tool.It uses Buildah's support for building from Dockerfiles,
     using its buildah bud command.This command executes the directives in the
-    Containerfile to assemble a container image, then pushes that image to a
+    Dockerfile to assemble a container image, then pushes that image to a
     container registry.
 
   params:
@@ -162,9 +162,9 @@ spec:
   - name: STORAGE_DRIVER
     description: Set buildah storage driver
     default: overlay
-  - name: CONTAINERFILE
-    description: Path to the Containerfile to build.
-    default: ./Containerfile
+  - name: DOCKERFILE
+    description: Path to the Dockerfile to build.
+    default: ./Dockerfile
   - name: CONTEXT
     description: Path to the directory to use as context.
     default: .
@@ -185,7 +185,7 @@ spec:
     description: Skip pushing the built image
     default: "false"
   - name: BUILD_ARGS
-    description: Containerfile build arguments, array of key=value
+    description: Dockerfile build arguments, array of key=value
     type: array
     default:
     - ""
@@ -193,7 +193,7 @@ spec:
   - name: source
   - name: sslcertdir
     optional: true
-  - name: registryconfig
+  - name: dockerconfig
     description: >-
       An optional workspace that allows providing a .docker/config.json file
       for Buildah to access the container registry.
@@ -213,8 +213,8 @@ spec:
       value: $(params.IMAGE)
     - name: PARAM_STORAGE_DRIVER
       value: $(params.STORAGE_DRIVER)
-    - name: PARAM_CONTAINERFILE
-      value: $(params.CONTAINERFILE)
+    - name: PARAM_DOCKERFILE
+      value: $(params.DOCKERFILE)
     - name: PARAM_CONTEXT
       value: $(params.CONTEXT)
     - name: PARAM_TLSVERIFY

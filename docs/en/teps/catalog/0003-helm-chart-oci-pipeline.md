@@ -23,7 +23,7 @@ authors:
   - [Results](#results)
   - [Example PipelineRuns](#example-pipelineruns)
     - [Example A — Minimal Public to Public](#example-a--minimal-public-to-public)
-    - [Example B — Private Registry Auth via Registry Config](#example-b--private-registry-auth-via-registry-config)
+    - [Example B — Private Registry Auth via Docker Config](#example-b--private-registry-auth-via-docker-config)
     - [Example C — Custom CA + Version Override + Overwrite](#example-c--custom-ca--version-override--overwrite)
 - [Design Evaluation](#design-evaluation)
   - [Reusability](#reusability)
@@ -102,7 +102,7 @@ The pipeline comprises four primary stages:
 1. **Git Checkout** — Clone sources from `repoUrl` at `revision` (default `main`). Clear failure modes for auth, branch not found, and network issues.
 2. **Dependency Build** — When `dependencyUpdate=true`, run `helm dependency build` and surface diagnostic logs.
 3. **Package** — Run `helm package` on `chartPath`; validate `Chart.yaml` (`name`, `version`). When `versionOverride` is set, operate on a temporary copy to avoid mutating the repo. Emit the output chart path and `(name, version)` to results.
-4. **OCI Push** — Use `helm push` (OCI) to `ociRepo:version`. Use login credentials from `registry-config` workspace (registry config) or `helm registry login`. Deny overwrite by default; enable `--force` when `allowOverwrite=true`. Emit `artifact.ref` and `artifact.digest` on success (digest is best‑effort if the registry reports it). A `finally` step populates `status.*` and `summary-json` regardless of success/failure.
+4. **OCI Push** — Use `helm push` (OCI) to `ociRepo:version`. Use login credentials from `registry-config` workspace (Docker config) or `helm registry login`. Deny overwrite by default; enable `--force` when `allowOverwrite=true`. Emit `artifact.ref` and `artifact.digest` on success (digest is best‑effort if the registry reports it). A `finally` step populates `status.*` and `summary-json` regardless of success/failure.
 
 ### Notes and Caveats
 
@@ -131,7 +131,7 @@ The pipeline comprises four primary stages:
 | Name              | Required | Purpose                                                                                                                              |
 |-------------------|----------|--------------------------------------------------------------------------------------------------------------------------------------|
 | `source`          | Yes      | Main working directory for checkout, build cache, and packaging outputs.                                                             |
-| `registry-config` | No       | Registry config for OCI auth (expects `.docker/config.json` layout, typically from a Secret of type `kubernetes.io/dockerconfigjson`). |
+| `registry-config` | No       | Docker config for OCI auth (expects `.docker/config.json` layout, typically from a Secret of type `kubernetes.io/dockerconfigjson`). |
 | `custom-ca`       | No       | One or more PEM files to be merged into system trust for Git/OCI (e.g., `ca.crt`, `bundle.pem`).                                     |
 | `config`          | No       | Optional workspace for custom configs.                                                                                               |
 | `secret`          | No       | Optional workspace for custom secrets.                                                                                               |
@@ -183,7 +183,7 @@ spec:
 #   status.code, status.message, summary-json
 ```
 
-#### Example B — Private Registry Auth via Registry Config
+#### Example B — Private Registry Auth via Docker Config
 
 ```yaml
 apiVersion: tekton.dev/v1
@@ -208,7 +208,7 @@ spec:
       emptyDir: {}
     - name: registry-config
       secret:
-        secretName: harbor-registryconfigjson
+        secretName: harbor-dockerconfigjson
         items:
           - key: .dockerconfigjson
             path: config.json

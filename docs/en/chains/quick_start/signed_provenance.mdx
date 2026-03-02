@@ -25,7 +25,7 @@ Tekton Chains helps you secure your software supply chain by automatically gener
 
 - Tekton Chains is installed by default in the `tekton-pipelines` namespace when using Alauda Devops Pipelines Operator
 - The signing keys should be securely managed; in production environments, consider using a key management system (KMS)
-- This guide uses a simplified workflow by generating the Containerfile inline within the pipeline
+- This guide uses a simplified workflow by generating the Dockerfile inline within the pipeline
 - In production environments, you should use proper source code management and version control
 
 ## Prerequisites
@@ -150,30 +150,30 @@ metadata:
 spec:
   params:
     - default: |-
-        echo "Generate a Containerfile for building an image."
+        echo "Generate a Dockerfile for building an image."
 
-        cat << 'EOF' > Containerfile
+        cat << 'EOF' > Dockerfile
         FROM ubuntu:latest
         ENV TIME=1
         EOF
 
-        echo -e "\nContainerfile contents:"
+        echo -e "\nDockerfile contents:"
         echo "-------------------"
-        cat Containerfile
+        cat Dockerfile
         echo "-------------------"
-        echo -e "\nContainerfile generated successfully!"
-      description: A script to generate a Containerfile for building an image.
-      name: generate-containerfile
+        echo -e "\nDockerfile generated successfully!"
+      description: A script to generate a Dockerfile for building an image.
+      name: generate-dockerfile
       type: string
     - default: <registry>/test/chains/demo-1:latest
       description: The target image address built
       name: image
       type: string
   tasks:
-    - name: generate-containerfile
+    - name: generate-dockerfile
       params:
         - name: script
-          value: $(params.generate-containerfile)
+          value: $(params.generate-dockerfile)
       taskRef:
         params:
           - name: kind
@@ -197,7 +197,7 @@ spec:
         - name: TLS_VERIFY
           value: "false"
       runAfter:
-        - generate-containerfile
+        - generate-dockerfile
       taskRef:
         params:
           - name: kind
@@ -213,8 +213,8 @@ spec:
       workspaces:
         - name: source
           workspace: source
-        - name: registryconfig
-          workspace: registryconfig
+        - name: dockerconfig
+          workspace: dockerconfig
   results:
     - description: first image artifact output
       name: first_image_ARTIFACT_OUTPUTS
@@ -225,23 +225,23 @@ spec:
   workspaces:
     - name: source
       description: The workspace for source code.
-    - name: registryconfig
+    - name: dockerconfig
       description: The workspace for distribution registry configuration.
 ```
 
 :::tip
 In production environments, you should:
 1. Use the `git-clone` task to fetch source code from your repository
-2. Build the image using the Containerfile that exists in your source code
+2. Build the image using the Dockerfile that exists in your source code
 3. This approach ensures proper version control and maintains the separation between code and pipeline configuration
 :::
 
 :::details{title="Explanation of YAML fields"}
 - `params`: The parameters for the pipeline.
-  - `generate-containerfile`: The script to generate a Containerfile for building an image.
+  - `generate-dockerfile`: The script to generate a Dockerfile for building an image.
   - `image`: The target image address built.
 - `tasks`: The tasks for the pipeline.
-  - `generate-containerfile`: The task to generate a Containerfile for building an image.
+  - `generate-dockerfile`: The task to generate a Dockerfile for building an image.
   - `build-image`: The task to build and push the image to the registry.
     - `params.TLS_VERIFY`: Whether to verify the TLS certificate of the registry.
 - `results`: The results for the pipeline.
@@ -251,12 +251,12 @@ In production environments, you should:
   - This format is compliant with Tekton Chains, see [Tekton Chains Type Hinting](../concepts/understanding_tekton_chains.mdx#type-hinting) in above section for more details.
 - `workspaces`: The workspaces for the pipeline.
   - `source`: The workspace for source code.
-  - `registryconfig`: The workspace for distribution registry configuration.
+  - `dockerconfig`: The workspace for distribution registry configuration.
 :::
 
 **Need to adjust the configuration**
 - `params`:
-  - `generate-containerfile`
+  - `generate-dockerfile`
     - `default`: Adjust the from image address.
   - `image`:
     - `default`: The target image address built.
@@ -283,7 +283,7 @@ spec:
   taskRunTemplate:
     serviceAccountName: <default>
   workspaces:
-    - name: registryconfig
+    - name: dockerconfig
       secret:
         secretName: <registry-credentials>
     - name: source
@@ -303,7 +303,7 @@ spec:
 - `taskRunTemplate`: The task run template.
   - `serviceAccountName`: The service account to use for the pipeline.
 - `workspaces`: The workspaces for the pipeline.
-  - `registryconfig`: The workspace for distribution registry configuration.
+  - `dockerconfig`: The workspace for distribution registry configuration.
   - `source`: The workspace for source code.
 :::
 
@@ -312,7 +312,7 @@ spec:
 - `taskRunTemplate`:
   - `serviceAccountName`: The service account prepared in the previous step [ServiceAccount Configuration](../configure/authentication_for_chains.mdx#using-serviceaccount).
 - `workspaces`:
-  - `registryconfig`:
+  - `dockerconfig`:
     - `secret.secretName`: The registry secret prepared in the previous step [Creating Registry Credentials](../configure/authentication_for_chains.mdx#oci-registry-authentication).
   - `source`:
     - `volumeClaimTemplate.spec.storageClassName`: The storage class name for the volume claim template.
@@ -489,7 +489,7 @@ This image will be used to verify the signature.
                 ],
                 "BUILD_EXTRA_ARGS": "",
                 "CONTEXT": ".",
-                "CONTAINERFILE": "./Containerfile",
+                "DOCKERFILE": "./Dockerfile",
                 "FORMAT": "oci",
                 "IMAGES": [
                   "<registry>/test/chains/demo-1:latest"
