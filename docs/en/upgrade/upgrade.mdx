@@ -18,6 +18,8 @@ Before upgrading the `Alauda DevOps Pipelines` Operator, ensure you:
 - Review the release notes for the new version to understand any breaking changes
 - Verify that your existing Tekton component configurations are compatible with the new version
 - Confirm that all Tekton components are in a ready state
+- Upload a new version of the Operator, refer to the installation guide for [operator upload instructions
+](../install.mdx#prerequisites).
 
 ## Upgrade Process
 
@@ -70,7 +72,7 @@ Before upgrading the `Alauda DevOps Pipelines` Operator, ensure you:
    - Check that the `Alauda DevOps Pipelines` Operator version has been updated:
      ```bash
      $ kubectl get csv -n tekton-operator
-
+     
      NAME                        DISPLAY                   VERSION   REPLACES   PHASE
      tektoncd-operator.v4.x.x    Alauda DevOps Pipelines   4.x.x     x          Succeeded
      ```
@@ -86,7 +88,7 @@ You can also upgrade the `Alauda DevOps Pipelines` Operator using the command li
    - First, identify the current subscription and its channel:
      ```bash
      $ kubectl get subscriptions.operators.coreos.com -A | grep tektoncd-operator
-
+     
      NAMESPACE               NAME                    PACKAGE                 SOURCE     CHANNEL
      tekton-operator         tektoncd-operator       tektoncd-operator       platform   latest
      ```
@@ -102,7 +104,7 @@ You can also upgrade the `Alauda DevOps Pipelines` Operator using the command li
    - Monitor the subscription status until it shows `UpgradePending`:
      ```bash
      $ kubectl get subscriptions.operators.coreos.com tektoncd-operator -n tekton-operator -o yaml
-
+     
      status:
        installplan:
          apiVersion: operators.coreos.com/v1alpha1
@@ -116,7 +118,7 @@ You can also upgrade the `Alauda DevOps Pipelines` Operator using the command li
    - When the subscription is in `UpgradePending` state, find the corresponding InstallPlan:
      ```bash
      $ kubectl get installplan -n tekton-operator
-
+     
      NAME            CSV                        APPROVAL   APPROVED
      install-abc123  tektoncd-operator.v4.x.x  Manual     false
      ```
@@ -143,7 +145,7 @@ You can also upgrade the `Alauda DevOps Pipelines` Operator using the command li
    - Confirm the operator version has been updated:
      ```bash
      $ kubectl get csv -n tekton-operator
-
+     
      NAME                        DISPLAY                   VERSION   REPLACES   PHASE
      tektoncd-operator.v4.x.x    Alauda DevOps Pipelines   4.x.x     x          Succeeded
      ```

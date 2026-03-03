@@ -8,11 +8,66 @@ weight: 240
 
 This guide provides cluster administrators with the process to install the `Alauda DevOps Pipelines` Operator on a Kubernetes cluster.
 
-Prerequisites:
+### Prerequisites
 
 - You have access to the Kubernetes cluster with an account that has `cluster-admin` privileges.
+
 - You have installed the `kubectl` CLI.
+
 - Your cluster has the Marketplace feature enabled or the Operator Hub is accessible.
+
+- Download the operator package and save it to the working directory on the operation machine.
+
+  - Downloading the Operator
+
+    :::info 
+
+    Alauda Devops Pipelines can be retrieved from Alauda Cloud.
+
+    Please contact Consumer Support for more information.
+
+    :::
+
+  - Uploading the Operator
+
+    > Whether importing a new operator or adding a new version to an existing operator,you can use the `violet` tool to complete the task, and the commands are the same.
+
+    Execute the following command in the working directory:
+
+    ```bash
+    # [!code callout:7]
+    ./violet push \
+        <operator-package> \
+        --platform-address <platform-address> \
+        --platform-username <platform-username> \
+        --platform-password <platform-password> \
+        --clusters <clusters>
+        --force
+    ```
+
+    <Callouts>
+
+    1. Run the `violet` tool to upload the operator package to the platform.
+    2. `<operator-package>`: The name of the operator package (Example: `tektoncd-operator.latest.amd64.v4.7.0.tgz`).
+    3. `<platform-address>`: The url address of the platform (Example: `https://platform.example.com`).
+    4. `<platform-username>`: The platform username, which requires Platform Administrator privileges.
+    5. `<platform-password>`: The platform password.
+    6. `<clusters>`: The list of clusters where the operator needs to be uploaded, separated by comma (Example: `global, business`).
+    7. `--force`: Force override existing images and artifacts of registry.
+
+    </Callouts>
+
+    :::warning
+
+    If you are uploading a new version to update an existing `tektoncd-operator`, the `--force` parameter is required when using **violet** to upload the `Operator`, in order to overwrite existing images and artifacts in the registry.
+
+    :::
+
+    Then go to the platform's `Platform Management` -> `Marketplace` -> `Upload Packages` page,
+    search for the operator keyword, and then click on the operator name to enter the operator details page.
+
+    The details page will display the new version of the operator.
+    If the status is `Uploaded`, it indicates that the upload was successful.
 
 ### Installing Alauda DevOps Pipelines Using the Web Console
 
@@ -72,13 +127,13 @@ The `Alauda DevOps Pipelines` Operator provides the option to select which compo
   ```bash
   NAME                                          VERSION           READY   REASON
   tektonpipeline.operator.tekton.dev/pipeline   v0.65.5-c96b8b8   True
-
+  
   NAME                                        VERSION           READY   REASON
   tektontrigger.operator.tekton.dev/trigger   v0.30.1-f53d05d   True
-
+  
   NAME                                VERSION   READY   REASON   APIURL   UIURL
   tektonhub.operator.tekton.dev/hub   1.19.2    True
-
+  
   NAME                                    VERSION           READY   REASON
   tektonchain.operator.tekton.dev/chain   v0.23.0-927681d   True
   ```
