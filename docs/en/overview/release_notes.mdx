@@ -10,7 +10,7 @@ title: Release Notes
 # Release Notes
 
 ::: tip
-The maintenance period for version **v4.7.x** is from 15 Jan, 2026 to 15 May, 2026.
+The maintenance period for version **v4.8.x** is from 5 Mar, 2026 to 5 Jul, 2026.
 :::
 
 ## Compatibility and support matrix
@@ -20,339 +20,40 @@ The following table shows the compatibility and support matrix between the `Alau
 | Alauda DevOps Pipelines Version | Component Version | | | | | | | | | ACP Version |
 |:------:|:------:|:------:|:------:|:------:|:------:|:------:|:------:|--------|--------|--------|
 | **Operator** | **Pipelines** | **Triggers** | **CLI** | **Chains** | **Hub** | **Results** | **Pipelines as Code** | **Manual Approval Gate** | **Pruner** | |
-| 4.7.x | 1.6.x | 0.34.x | 0.41.x | 0.26.x | 1.23.x | 0.17.x | 0.39.x | 0.7.x | 0.3.x | 4.0, 4.1, 4.2 |
-| 4.6.x (LTS) | 1.0.x | 0.32.x | 0.41.x | 0.25.x | 1.22.x | 0.15.x |  |  |  | 4.0, 4.1, 4.2 |
+| 4.8.x | 1.6.x | 0.34.x | 0.43.x | 0.26.x | 1.23.x | 0.17.x | 0.39.x | 0.7.x | 0.3.x | 4.0, 4.1, 4.2 |
+| 4.7.x | 1.6.x | 0.34.x | 0.43.x | 0.26.x | 1.23.x | 0.17.x | 0.39.x | 0.7.x | 0.3.x | 4.0, 4.1, 4.2 |
+| 4.6.x (LTS) | 1.0.x | 0.32.x | 0.4.x | 0.25.x | 1.22.x | 0.15.x |  |  |  | 4.0, 4.1, 4.2 |
 | 4.4.x | 1.0.x | 0.32.x | 0.41.x | 0.25.x | 1.22.x | 0.15.x |  |  |  | 4.0, 4.1 |
 | 4.3.x | 1.0.x | 0.32.x | 0.41.x | 0.25.x | 1.22.x | 0.15.x |  |  |  | 4.0, 4.1 |
 | 4.2.x (LTS) | 1.0.x | 0.32.x | 0.41.x | 0.25.x | 1.22.x | 0.15.x |  |  |  | 4.0, 4.1 |
 | 4.1.x | 0.65.x | 0.30.x | 0.39.x | 0.23.x | 1.19.x | 0.14.x |  |  |  | 4.0, 4.1 |
 | 4.0.x (LTS) | 0.65.x | 0.30.x | 0.39.x | 0.23.x | 1.19.x | 0.13.x |  |  |  | 4.0, 4.1 |
 
-## v4.7.0
+## v4.8.0
 
 ### New and Optimized Features
 
 **Pipeline**
 
-- Pipeline Integration with `Sonarqube Connector`: When creating or executing a pipeline, supports selecting `SONAR_HOST_URL` and `sonar-credentials` of `sonarqube ` through sonarqube connectors.
-  - More about it, see [Pipeline Integration with Connector](../pipelines/concepts/integrate_with_connector.mdx).
-  - This feature depends on operator of `Alauda DevOps Connectors`(version >= v1.7.0).
-
-- With this update, `TaskRun` failures due to out of memory (OOMKilled) will include explicit reasons in the failure message.
-- With this update, the `managed-by` annotation is no longer propagated from the `Pipeline` controller to Pods, preventing label misattribution.
-- With this update, errors are properly handled when PVC resources have been deleted, avoiding exceptions during resource cleanup.
-- With this update, you can use the `THREADS_PER_CONTROLLER` environment variable to override the `threads-per-controller` value.
-- With this update, `podTemplate` in `TaskRunSpecs` supports parameter references, enabling multi-architecture builds using Matrix.
-
-  ```yaml
-  apiVersion: tekton.dev/v1
-  kind: PipelineRun
-  metadata:
-    name: multi-arch-build
-  spec:
-    taskRunSpecs:
-      - pipelineTaskName: build-and-push-manifest
-        podTemplate:
-          nodeSelector:
-            kubernetes.io/arch: $(params.arch)
-    pipelineSpec:
-      tasks:
-        - name: build-and-push-manifest
-          matrix:
-            params:
-              - name: arch
-                value: ["amd64", "arm64"]
-          taskSpec:
-            params:
-              - name: arch
-            steps:
-              - name: build-and-push
-                image: ubuntu
-                script: |
-                  echo "building on $(params.arch)"
-  ```
-
-- With this update, `PipelineRun` supports overriding individual Task timeout settings (via `spec.taskRunSpecs[].timeout`), providing more granular timeout control.
-
-  ```yaml
-  apiVersion: tekton.dev/v1
-  kind: PipelineRun
-  metadata:
-    name: timeout-override-demo
-  spec:
-    timeouts:
-      pipeline: "10m"    # 3. PipelineRun constraint
-    pipelineSpec:
-      tasks:
-      - name: task-a
-        timeout: "8m"     # 2. Pipeline spec timeout
-        taskSpec: { ... }
-      - name: task-b  
-        taskSpec: { ... } # 4. Uses global default (60m)
-    taskRunSpecs:
-    - pipelineTaskName: task-a
-      timeout: "5m"       # 1. Highest priority - overrides 8m Pipeline timeout
-  ```
-
-- With this update, `TaskRun` and `PipelineRun` introduce the `managedBy` field, allowing lifecycle control to be delegated to external controllers or systems.
-
-  ```yaml
-  apiVersion: tekton.dev/v1
-  kind: PipelineRun
-  metadata:
-    name: externally-managed-pipeline
-  spec:
-    pipelineRef:
-      name: my-pipeline
-    managedBy: "custom-controller"
-  ```
-
-- With this update, a configurable shared caching mechanism is introduced for bundle, git, and cluster resolvers, reducing redundant resource fetching and improving pipeline resolution performance.
-  - Git Resolver cache configuration example:
-
-    ```yaml
-    apiVersion: v1
-    kind: ConfigMap
-    metadata:
-      name: git-resolver-config
-      namespace: tekton-pipelines-resolvers
-    data:
-      default-cache-mode: "always"  # always, never, auto
-      enable-git-resolver: "true"
-    --- 
-    # Usage in Pipeline
-    apiVersion: tekton.dev/v1beta1
-    kind: PipelineRun
-    metadata:
-      name: git-clone-demo-pr
-    spec:
-      pipelineRef:
-        resolver: git
-        params:
-        - name: url
-          value: https://github.com/tektoncd/catalog.git
-        - name: revision
-          value: main
-        - name: pathInRepo
-          value: pipeline/simple/0.1/simple.yaml
-    ```
-
-- With this update, the `input` field in When expressions supports resolving array-type parameter values in Pipelines.
-
-  ```yaml
-  apiVersion: tekton.dev/v1
-  kind: Pipeline
-  metadata:
-    name: when-demo
-  spec:
-    params:
-      - name: user-env
-        type: string
-      - name: env-list
-        type: array
-        default: ["dev", "test"]
-    tasks:
-      - name: conditional-task
-        when:
-          - input: $(params.user-env)
-            operator: in
-            values: $(params.env-list[*])
-        taskSpec:
-          steps:
-            - name: echo
-              image: busybox
-              script: |
-                echo "env: $(params.user-env)"
-  ---
-  apiVersion: tekton.dev/v1
-  kind: PipelineRun
-  metadata:
-    generateName: when-demo-run-success-
-  spec:
-    pipelineRef:
-      name: when-demo
-    params:
-      - name: user-env
-        value: dev
-  ```
-
-- With this update, Pipelines-in-Pipelines is now supported: Pipelines can now execute embedded Pipelines through the `pipelineSpec` field in Tasks.
-
-  ```yaml
-  apiVersion: tekton.dev/v1
-  kind: Pipeline
-  metadata:
-    name: clone-scan-notify
-  spec:
-    tasks:
-      - name: git-clone
-        taskRef:
-          name: git-clone
-      - name: security-scans
-        pipelineSpec:  # Embedded pipeline definition
-          tasks:
-            - name: scorecards
-              taskRef:
-                name: scorecards
-            - name: codeql
-              taskRef:
-                name: codeql
-      - name: notification
-        taskRef:
-          name: notification
-  ```
-
-**Trigger**
-
-- With this update, the system automatically populates the HTTP request's `Content-Length` header value into the accessible context of `TriggerBinding` in Triggers.
-
-- With this update, `tkn` introduces dedicated bootstrap commands for Triggers, reducing the complexity of configuring Triggers using `tkn` commands. 
-
-**Chains**
-
-- With this update, you can disable image signing while retaining provenance/attestation signing. Previously, when Chains enabled signing capabilities, image signing, provenance generation, and attestation signing were typically "bundled" together. For more details, please refer to [Chains Configuration](https://tekton.dev/docs/chains/config/).
+- Pipeline management introduces the **GitOps Repo Update** pipeline template. This pipeline updates files in a GitOps repository, commits and pushes changes using `git-cli`, and optionally creates a Merge Request(Merge Request creation currently supports GitLab only).
+- A new **Helm Chart Build Push** `Task` is added. You can package a Helm chart from a specified directory and push it to an OCI registry using Helm or ORAS.
+- When orchestrating pipelines through the UI, variable referencing with `$` now supports a broader [set of Tekton variables](https://tekton.dev/vault/pipelines-v1.6.x-lts/variables/).
+- When orchestrating pipelines through the UI, if a `PipelineTask` fails, the remaining `PipelineTasks` will be skipped and the `PipelineRun` will be marked as failed. You can now configure [onError](https://tekton.dev/docs/pipelines/pipelines/#using-the-onerror-field) for tasks to allow the pipeline to continue executing subsequent tasks even if a task fails.
+- With this update, you can collect and display Tekton component metrics by referring to the [Metrics Collection for Tekton Components](../configure/metrics_collection.mdx).
+  
 
 **Results**
 
-- With this update, you can control the Result Watcher's storage behavior for incomplete runs by setting the `disable_storing_incomplete_runs` flag in TektonConfig, reducing system load.
-
-  ```yaml
-  #...
-  options:
-    deployments:
-      tekton-results-watcher:
-        spec:
-          template:
-            spec:
-              containers:
-              - args:
-                - "--disable_storing_incomplete_runs=true"
-                name: watcher
-                resources: {}
-  #...
-  ```
-
-- With this update, you can configure fine-grained retention policies for `PipelineRun` and `TaskRun` results based on namespace, labels, annotations, and status, achieving a balance between storage costs and compliance and debugging requirements.
-
-  - Example of a `ConfigMap` that defines multiple, comprehensive retention policies:
-
-    ```yaml
-    apiVersion: v1
-    kind: ConfigMap
-    metadata:
-      name: tekton-results-config-results-retention-policy
-      namespace: tekton-pipelines
-    data:
-      runAt: "0 2 * * *" # Run every day at 2:00 AM
-      defaultRetention: "30d"
-      policies: |
-        - name: "retain-critical-failures-long-term"
-          selector:
-            matchNamespaces:
-              - "production"
-              - "prod-east"
-            matchLabels:
-              "criticality": ["high"]
-            matchStatuses:
-              - "Failed"
-          retention: "180d"
-        - name: "retain-annotated-for-debug"
-          selector:
-            matchAnnotations:
-              "debug/retain": ["true"]
-          retention: "14d"
-        - name: "default-production-policy"
-          selector:
-            matchNamespaces:
-              - "production"
-              - "prod-east"
-          retention: "60d"
-        - name: "short-term-ci-retention"
-          selector:
-            matchNamespaces:
-              - "ci"
-          retention: "7d"
-    ```
-    In this example:
-    1.  A failed Result in the `production` or `prod-east` namespace with the label `criticality: high` will be kept for **180 days**.
-    2.  Any Result with the annotation `debug/retain: "true"` will be kept for **14 days**.
-    3.  Any other Result in the `production` or `prod-east` namespace will be kept for **60 days**.
-    4.  Any Result in the `ci` namespace will be kept for **7 days**.
-    5.  All other Results that do not match any of these policies will be kept for the default `defaultRetention` period of **30 days**.
-
-**Pipelines as Code**
-
-- Pipelines as Code supports detailed logging for GitHub API calls, providing insights into API interactions, durations, and rate-limiting. By setting the controller log level to 'debug', you can troubleshoot complex issues more efficiently. This enhancement refactors code to instrument GitHub calls and affects all types of GitHub API calls within the provider. For more information, see [Debugging API interactions](https://pipelinesascode.com/docs/install/logging/#debugging-api-interactions).
-- You can use relative paths to reference tasks from within a remote `Pipeline` definition. The Pipelines as Code resolver automatically builds the full URL for the task based on the location of the remote `PipelineSpec` definition. For more information, see [Overriding tasks from a remote pipeline on a PipelineRun](https://pipelinesascode.com/docs/guide/resolver/#overriding-tasks-from-a-remote-pipeline-on-a-pipelinerun).
-
-**Pruner**
-
-- With this update,  `Tekton Pruner` is integrated. For more configuration details about `Pruner`, please refer to [Tekton Pruner](https://tekton.dev/docs/operator/tektonpruner/).
+  - With this update, pipeline log archiving now supports configuring **S3** as the backend storage and enables log querying. [Learn more](../results/configure/s3_storage_configuration.mdx).
 
 ### Breaking Changes
 
-- `Chains` v0.26.0 upgrades to `Cosign` v2.6.0, which no longer supports `HS256` JWT tokens for keyless signing; users with private OIDC providers using `HS256` must switch to `RS256` before upgrading. For more information, please refer to [Chains](https://github.com/tektoncd/chains/releases/tag/v0.26.0).
+No breaking changes in this release.
 
 ### Fixed Issues
 
-#### Product Issues
-
-{/* release-notes-for-bugs?template=fixed&project=DEVOPS&version=v4.7.0 */}
-
-#### Community Issues
-
-The issue of `Pipeline` and `Trigger` repair from upstream Tekton Community has been resolved in this version:
-
-**Pipeline**
-
-- Before this update, the `PipelineRun` status was incorrect when `finally` tasks failed but the overall run was successful. In this release, the `PipelineRun` status calculation for scenarios with failed `finally` tasks has been corrected.
-
-- Before this update, `TaskRun` did not set Pod  affinity/anti-affinity configurations correctly, leading to unintended  scheduling behavior. In this release, the Pod affinity/anti-affinity  settings for `TaskRun` are applied as expected.
-
-- Before this update, validation for `PipelineResource` of git type failed incorrectly when the `revision` field was empty. In this release, the validation logic for empty `revision` in git-type `PipelineResource` has been fixed.
-
-- Before this update, `PipelineRun` cancellation did not propagate to `finally` tasks, leaving them running even after the main pipeline was canceled.  In this release, cancellation signals are correctly passed to `finally` tasks to ensure proper termination.
-
-- Before this update, the `TaskRun` pod was not deleted when the `TaskRun` resource was deleted while in the Running state, leading to orphaned pods. In this release, the `TaskRun` controller ensures pods are cleaned up when the parent `TaskRun` is deleted.
-
-- Before this update, the start time of a retried `PipelineRun` was calculated incorrectly, leading to misleading duration metrics. In this release, the start time calculation for retried `PipelineRuns` has been fixed to reflect the actual execution start.
-
-- Before this update, `PipelineRun` did not respect the configured `timeout` for `finally` tasks, allowing them to run indefinitely. In this release, `finally` tasks now adhere to the `PipelineRun` timeout configuration.
-
-- Before this update, `TaskRun` metrics lacked the correct  namespace label, making it difficult to filter metrics by namespace. In  this release, the namespace label is properly included in `TaskRun` metrics.
-
-- Before this update, validation did not catch duplicate task names in the `finally` section of a Pipeline, leading to runtime errors. In this release,  validation logic has been updated to detect and reject duplicate task  names in `finally`.
-
-- Before this update, `PipelineRun` remained stuck in the Running state when a main task failed and `finally` tasks were skipped. In this release, the `PipelineRun` state is correctly updated to Failed in such scenarios.
-
-- Before this update, `TaskRun` pods did not inherit  annotations from the associated service account, leading to missing  configuration. In this release, service account annotations are properly propagated to `TaskRun` pods.
-
-- Before this update, the `PipelineRun` duration displayed  in the Tekton CLI was calculated incorrectly, showing inaccurate values. In this release, the duration calculation for `PipelineRun` in the CLI has been corrected.
-
-- Before this update, completed `finally` tasks were not cleaned up when a `PipelineRun` was canceled, leading to resource leakage. In this release, the controller ensures completed `finally` tasks are cleaned up after `PipelineRun` cancellation.
-
-- Before this update, `TaskRun` failed to start when using a workspace with an empty `subPath` value, throwing an unnecessary error. In this release, `TaskRun` can start successfully with workspaces that have empty `subPath`.
-
-- Before this update, metrics for retried `PipelineRuns` were not recorded correctly, leading to incomplete monitoring data. In this release, retry-related metrics for `PipelineRuns` are captured accurately.
-
-- Before this update, `PipelineRun` status incorrectly  showed "Cancelling" even after the run was fully canceled, causing  confusion about the actual state. In this release, the `PipelineRun` status is updated correctly to "Canceled" once cancellation is complete.
-
-- Before this update, retrieving logs for `TaskRun` pods  with non-standard log paths failed, preventing access to task output. In this release, log retrieval logic has been adjusted to support  non-standard log paths for `TaskRun` pods.
-
-- Before this update, validation rejected `PipelineParams`  with empty default values, even though empty defaults are valid in many  scenarios. In this release, the validation for empty default values in `PipelineParams` has been fixed.
-
-**Trigger**
-
-- Before this update, standard `GitHub` webhooks are unaffected as they send both headers by default,  custom webhook implementations must update HMAC signature generation  from SHA-1 to SHA-256 to avoid "no X-Hub-Signature-256 header set"  errors.
-
-- Before this update, Tekton variable syntax in trigger parameters  was not escaped properly, now it is escaped to prevent unexpected  behavior.
-
-- Before this update, a data race in `TriggerGroup` selecting multiple Triggers  with extensions caused panic from concurrent map writes, now the panic  is fixed.
-
-- Before this update, a data race issue existed, now a deep-copy fix is implemented to resolve it.
-
-  
+{/* release-notes-for-bugs?template=fixed&project=DEVOPS&version=v4.8.0 */}
 
 ### Known Issues
 
-{/* release-notes-for-bugs?template=unfixed&project=DEVOPS&version=v4.7.0 */}
+{/* release-notes-for-bugs?template=unfixed&project=DEVOPS&version=v4.8.0 */}

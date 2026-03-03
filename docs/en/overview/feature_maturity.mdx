@@ -1,0 +1,38 @@
+---
+weight: 50
+---
+
+# Feature Maturity
+
+This page summarizes the maturity levels of `Alauda DevOps Pipelines` features, helping you evaluate their stability and suitability for your environment and make informed decisions.
+
+## Maturity Levels
+
+| Level     | Meaning                                                      |
+| --------- | ------------------------------------------------------------ |
+| **Alpha** | Feature is in an early development stage. Behavior and APIs may change without prior notice. Not recommended for production environments. |
+| **Beta**  | Feature is functional and reasonably stable. Minor changes may occur with advance notice. Suitable for non-critical business scenarios. |
+| **GA**    | Feature is stable and production-ready. APIs and behavior are stable across minor releases. |
+
+## Feature Maturity Overview
+
+| Module                   | Feature                         | Maturity | Description                                                  |
+| ------------------------ | ------------------------------- | -------- | ------------------------------------------------------------ |
+| **Pipelines**            | Pipelines Management            | GA       | Create, edit, delete, and view pipelines and their definitions. [Learn more](../pipelines/concepts/pipeline_concept.mdx). |
+|                          | Tasks Management                | GA       | Create, edit, delete, and view reusable task definitions. [Learn more](../pipelines/concepts/task_concept.mdx). |
+|                          | PipelineRun/TaskRun Management  | GA       | Trigger executions and monitor run status, logs, and results. [Learn more](../pipelines/concepts/pipelinerun_concept.mdx). |
+|                          | Pipeline Integration Connectors | Alpha    | Provides a unified abstraction for tool resources (e.g., repositories, images, artifacts), enabling discovery and use in pipelines. [Learn more](../pipelines/concepts/integrate_with_connector.mdx). |
+|                          | Custom Execution Summary        | Alpha    | Customize the result summary displayed after a PipelineRun completes. [Learn more](../pipelines/how_to/output-markdown-to-the-overview-tab.mdx). |
+|                          | Custom Dynamic Form             | Alpha    | Declaratively configure dynamic forms to provide a user-friendly interactive experience for Pipeline and Task resources. [Learn more](../pipelines/how_to/configure_dynamic_forms.mdx). |
+|                          | Custom Task Images to Selector  | Alpha    | Configure selector options for image parameters in the Task form UI. [Learn more](../pipelines/how_to/add-custom-task-images-to-selector.mdx). |
+| **Triggers**             | Triggers Management             | Alpha    | Manage event-driven triggers that automatically start pipeline runs. [Learn more](../triggers/concepts/trigger_concept.mdx). |
+|                          | TriggerTemplate Management      | Alpha    | Define templates that specify which resources to create when a trigger fires. [Learn more](../triggers/concepts/triggertemplate_concept.mdx). |
+|                          | ScheduledTriggers Management    | Alpha    | Schedule pipeline runs on a recurring basis using cron expressions. [Learn more](../triggers/concepts/scheduledtrigger_concept.mdx). |
+|                          | EventListener Management        | Alpha    | Manage listeners that receive and route incoming webhook events to triggers. [Learn more](../triggers/how_to/eventlistener.mdx). |
+| **Hub**                  | Custom Pipelines/Tasks in Hub   | Beta     | Add Custom Catalogs to Tekton Hub. [Learn more](../hub/configure/custom-catalogs.mdx). |
+|                          | Builtin Pipelines/Tasks         | GA       | Use pipelines and tasks provided by the platform.            |
+| **Manual Approval Gate** | Manual Approval                 | Alpha    | Pause pipeline execution at a defined step and require human approval to proceed. [Learn more](../pipelines/how_to/manual_approval_gate.mdx). |
+| **Chains**               | Configure Chains                | Alpha    | Configure Tekton Chains to automatically sign artifacts and attest supply chain provenance. [Learn more](../chains/concepts/understanding_tekton_chains.mdx). |
+| **Pruner**               | Configure Pruner                | Alpha    | Automatically clean up completed PipelineRuns and TaskRuns to reclaim cluster resources. [Learn more](../pruner/intro.mdx). |
+| **Pipelines as Code**    | Configure GitLab Repository     | Alpha    | Connect a GitLab repository to define and run pipelines directly from source code. [Learn more](../pac/how_to/configure_gitlab_repo.mdx). |
+| **Results**              | Archive                         | Alpha    | Archive completed PipelineRun and TaskRun records for long-term storage and auditing. [Learn more](../results/quick_start.mdx). |
