@@ -140,9 +140,20 @@ spec:
 ### Radio
 
 ```yaml
-# value: string
-- urn:alm:descriptor:com.tectonic.ui:radio:valueA
-- urn:alm:descriptor:com.tectonic.ui:radio:valueB
+# Declare a radio option with value "option-a"
+- urn:alm:descriptor:com.tectonic.ui:radio:option-a
+# Set the English display label of option-a to "Option A"
+- urn:alm:descriptor:com.tectonic.ui:radio:option-a:en:Option A
+# Set the Chinese display label of option-a to "Option A(zh)"
+- urn:alm:descriptor:com.tectonic.ui:radio:option-a:zh:Option A(zh)
+# Declare a radio option with value "option-b"
+- urn:alm:descriptor:com.tectonic.ui:radio:option-b
+# Set the English display label of option-b to "Option B"
+- urn:alm:descriptor:com.tectonic.ui:radio:option-b:en:Option B
+# Set the Chinese display label of option-b to "Option B(zh)"
+- urn:alm:descriptor:com.tectonic.ui:radio:option-b:zh:Option B(zh)
+# Set the default selected option to "option-a"
+- urn:alm:descriptor:com.tectonic.default:option-a
 ```
 
 ### Switch
@@ -363,6 +374,154 @@ Supports configuring various validation rules, multiple rules can be applied sim
     - urn:alm:descriptor:com.tectonic.ui:validation:minLength:8
     - urn:alm:descriptor:com.tectonic.ui:validation:maxLength:32
 ```
+
+## Advanced Features
+
+In complex CI/CD scenarios, the following advanced form components can help you handle more sophisticated configuration requirements.
+
+### Combine Component
+
+In complex CI/CD scenarios, you may encounter situations where a single array parameter needs to collect data from multiple different sources (different APIs). For example, a `workloads` parameter might need to include both "Deployments" and "StatefulSets", which require fetching data from entirely different Kubernetes APIs.
+
+To achieve this, you can use the **Combine Component (`widgets:combine`)**. It allows you to split a single parameter into multiple independent sub-form controls on the UI (e.g., a radio button to select the resource type, and a select box to pick the actual resources), and then combine their values into a final array or JSON object via JavaScript expressions before submitting to the Pipeline.
+
+**Configuration**
+
+```yaml
+# Declare the use of the combine widget
+- urn:alm:descriptor:widgets:combine
+
+# Parent combine logic: defines how to merge all sub-component values into the final parameter
+# Available variable: items (contains all sub-component values)
+# Example: (items.deployments || []).concat(items.statefulsets || []) - merge multiple arrays into one
+- urn:alm:descriptor:combine:value.exp:<js-expression>
+
+# Parent: define sub-components
+- urn:alm:descriptor:combine:items:
+    - path: <sub-component-name-1>
+      x-descriptors:
+        # Child split logic: defines how to extract this sub-component's value from the parent for echo display
+        # Available variable: parent (the current parameter value)
+        # Example: (parent || []).filter(p => p.startsWith('deploy:')) - extract items with 'deploy:' prefix
+        - urn:alm:descriptor:combine:value.exp:<js-expression>
+        # ... other descriptors for this sub-component
+
+    - path: <sub-component-name-2>
+      x-descriptors:
+        # Child split logic: defines how to extract this sub-component's value from the parent for echo display
+        - urn:alm:descriptor:combine:value.exp:<js-expression>
+        # ... other descriptors for this sub-component
+```
+
+> For more **js-expression** syntax, please refer to [JavaScript syntax](https://developer.mozilla.org/en-US/docs/Web/JavaScript).
+
+**Example**: Configure a multi-select parameter `target_resources` that allows users to pick resources from both Deployments and StatefulSets. The final parameter value will be an array combining selections from both APIs, with specific prefixes applied to distinguish their types (e.g., `["deploy:app-v1", "sts:db-v1"]`).
+
+```yaml
+- path: params.target_resources
+  x-descriptors:
+    # Declare the use of the combine widget
+    - urn:alm:descriptor:widgets:combine
+    
+    # [Parent] Combine logic: concat the arrays from both 'deployments' and 'statefulsets' sub-components
+    - urn:alm:descriptor:combine:value.exp:(items.deployments || []).concat(items.statefulsets || [])
+    
+    # Define sub-components
+    - urn:alm:descriptor:combine:items:
+        
+        # Sub-component 1: Select Deployments
+        - path: deployments
+          x-descriptors:
+            # [Child 1] Split logic: extract items starting with 'deploy:' from the parent array
+            - urn:alm:descriptor:combine:value.exp:(parent || []).filter(p => p.startsWith('deploy:'))
+            - urn:alm:descriptor:label:en:Deployments
+            - urn:alm:descriptor:label:zh:Deployments
+            - urn:alm:descriptor:widgets:select
+            - urn:alm:descriptor:props:select:multiple
+            - urn:alm:descriptor:expression:props.options:api:/kubernetes/${context.cluster}/apis/apps/v1/namespaces/${context.namespace}/deployments
+            - urn:alm:descriptor:expression:props.options:path:items
+            - urn:alm:descriptor:expression:props.options:label:path:metadata.name
+            # Prepend 'deploy:' prefix
+            - urn:alm:descriptor:expression:props.options:value:path.exp:'deploy:'+$.metadata.name
+            
+        # Sub-component 2: Select StatefulSets
+        - path: statefulsets
+          x-descriptors:
+            # [Child 2] Split logic: extract items starting with 'sts:' from the parent array
+            - urn:alm:descriptor:combine:value.exp:(parent || []).filter(p => p.startsWith('sts:'))
+            - urn:alm:descriptor:label:en:StatefulSets
+            - urn:alm:descriptor:label:zh:StatefulSets
+            - urn:alm:descriptor:widgets:select
+            - urn:alm:descriptor:props:select:multiple
+            - urn:alm:descriptor:expression:props.options:api:/kubernetes/${context.cluster}/apis/apps/v1/namespaces/${context.namespace}/statefulsets
+            - urn:alm:descriptor:expression:props.options:path:items
+            - urn:alm:descriptor:expression:props.options:label:path:metadata.name
+            # Prepend 'sts:' prefix
+            - urn:alm:descriptor:expression:props.options:value:path.exp:'sts:'+$.metadata.name
+```
+
+**How it works in the UI:**
+
+1. The user sees two separate multi-select boxes simultaneously: "Deployments" and "StatefulSets".
+2. The Deployments box fetches data from the Deployment API, and the StatefulSets box fetches from the StatefulSet API.
+3. When the user selects `dummy` and `alm` in Deployments, and `db-1` in StatefulSets, the final `target_resources` array submitted to the Task is naturally combined:
+
+    ```yaml
+    - name: target_resources
+      value:
+        - deploy:dummy
+        - deploy:alm
+        - sts:db-1
+    ```
+
+### Preview Component
+
+The **Preview Component** allows users to preview the YAML content of a selected resource directly from the form. This is particularly useful in scenarios where users need to verify resource configurations before using them in Pipelines, such as checking ConfigMap content, validating Secret data, or reviewing Task/Pipeline YAML definitions.
+
+For example, when a user selects a ConfigMap from a dropdown to use as a volume mount or environment variable source in a Task, they can preview the ConfigMap's data directly in the form to ensure the correct resource is selected.
+
+**Configuration**
+
+```yaml
+# Enable preview - show button when parameter has value
+- urn:alm:descriptor:enhance:preview:context.params.<param-name>
+
+# API endpoint to fetch resource content
+- urn:alm:descriptor:preview:resource:api:<api-url>
+
+# JSONPath or JS expression to extract content from response
+- urn:alm:descriptor:preview:resource:path:<jsonpath>
+- urn:alm:descriptor:preview:resource:path.exp:<js-expression>
+```
+
+**Example**: Configure a dropdown to select a ConfigMap, with a preview button to view its YAML content.
+
+```yaml
+- path: params.configmap
+  x-descriptors:
+    # Form label
+    - urn:alm:descriptor:label:en:ConfigMap
+    - urn:alm:descriptor:label:zh:ConfigMap
+
+    # Dropdown to select ConfigMap from current namespace
+    - urn:alm:descriptor:com.tectonic.ui:select
+    - urn:alm:descriptor:expression:props.options:api:/kubernetes/${context.cluster}/api/v1/namespaces/${context.namespace}/configmaps
+    - urn:alm:descriptor:expression:props.options:path:items
+    - urn:alm:descriptor:expression:props.options:label:path:metadata.name
+    - urn:alm:descriptor:expression:props.options:value:path:metadata.name
+    - urn:alm:descriptor:com.tectonic.ui:validation:required
+
+    # Preview feature
+    - urn:alm:descriptor:enhance:preview:context.params.configmap
+    - urn:alm:descriptor:preview:resource:api:/kubernetes/${context.cluster}/api/v1/namespaces/${context.namespace}/configmaps?fieldSelector=metadata.name%3D${context.params.configmap}
+    - urn:alm:descriptor:preview:resource:path:items[0]
+```
+
+**How it works in the UI:**
+1. User selects a ConfigMap from the dropdown (e.g., `my-config`).
+2. A preview button appears next to the dropdown.
+3. Clicking the preview button fetches the selected ConfigMap from the Kubernetes API.
+4. The raw YAML content is displayed in a preview panel with syntax highlighting.
 
 ## Usage Examples
 
