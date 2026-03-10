@@ -1,0 +1,197 @@
+---
+weight: 15
+i18n:
+  title:
+    en: Supported Template Parameters for Tasks
+title: Supported Template Parameters for Tasks
+---
+
+# Supported Template Parameters for Tasks
+
+## Introduction
+
+This guide explains the purpose and data model of template-driven parameter rendering for Tasks.
+With `renderTemplateName` and `renderTemplateNamespace`, a Task can point to a template `ConfigMap` and render params dynamically.
+
+## Scenarios
+
+Use this mechanism when you want to manage Task param values centrally through templates instead of hardcoding values in each TaskRun.
+For example, the Send Mail Task can render `subject`, `body`, and `contentType` from a shared mail template. See [Configure Custom Mail Template](./configure-custom-mail-template.mdx).
+
+## Prerequisites
+
+- Your Task supports `renderTemplateName` and `renderTemplateNamespace`.
+- The target template `ConfigMap` exists in the referenced namespace.
+- You are familiar with Go template (gotemplate) syntax.
+
+## How template rendering works
+
+Template rendering uses Go template (gotemplate) syntax. For syntax details, see [Go `text/template` documentation](https://pkg.go.dev/text/template).
+
+1. The webhook reads `renderTemplateName`, `renderTemplateNamespace`, and `renderTemplateValues`.
+2. It loads the target template `ConfigMap`.
+3. It renders template files in that `ConfigMap` using both `renderTemplateValues` and built-in variables.
+4. It injects rendered params into the TaskRun.
+
+## Template Data Model
+
+Template rendering data has two sources:
+
+- User-provided values from `renderTemplateValues`
+- Built-in variables prepared by template-render service
+
+### 1. User-provided values from `renderTemplateValues`
+
+`renderTemplateValues` is a YAML-formatted string. Values defined in it are available in template files as `{{ .values.<key> }}`.
+
+Example `renderTemplateValues` content:
+
+```yaml
+title: "Build {{ .tasks.status }}"
+summary: "Project={{ .project }}, Namespace={{ .namespace }}"
+```
+
+In template files stored under the template ConfigMap `data` field, you can reference them as `{{ .values.title }}` and `{{ .values.summary }}`.
+
+### 2. Built-in variables
+
+Besides `.values`, the renderer also injects built-in variables:
+
+| Variable | Type | Description | Pipeline only |
+|---|---|---|---|
+| `platformURL` | string | Base URL of the platform. It is read from `data.platformURL` in the `global-info` ConfigMap under the `kube-public` namespace. For example: `https://devops.example.com`. | No |
+| `detailsURL` | string | URL to the run details page. For example: `https://devops.example.com/console-acp/workspace/demo~cluster-a~dev/pipeline/pipelineRuns/detail/pr-abc123`. To adjust this value, update `template-render.details-url-template` in [configure-tektoncd-enhancement-configmap](../../configure/configure-tektoncd-enhancement-configmap.mdx#2-parameter-reference-and-defaults). | No |
+| `startsAt` | time | Start time of the current execution. | No |
+| `timeZone` | string | Global time zone configured for template rendering. The value must be the name of a valid [time zone](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). To adjust this value, update `template-render.time-zone` in [configure-tektoncd-enhancement-configmap](../../configure/configure-tektoncd-enhancement-configmap.mdx#2-parameter-reference-and-defaults). | No |
+| `creator` | string | User who triggered the execution. | No |
+| `project` | string | Project name of the execution context. | No |
+| `cluster` | string | Cluster name of the execution context. | No |
+| `namespace` | string | Namespace where the TaskRun is running. | No |
+| `taskRunName` | string | Current TaskRun name. | No |
+| `isPipelineRun` | bool | Whether current run belongs to a PipelineRun. | No |
+| `runType` | string | Execution type (`TaskRun` or `PipelineRun`). | No |
+| `pipelineRunName` | string | Current PipelineRun name. | Yes |
+| `pipelineRunUID` | string | Current PipelineRun UID. | Yes |
+| `params.<paramName>` | `string` \| `[]string` \| `map[string]string` | Value of a Pipeline parameter key. The exact type depends on the Pipeline param type. | Yes |
+| `context.pipeline.name` | string | Pipeline name. | Yes |
+| `context.pipelineRun.name` | string | PipelineRun name. | Yes |
+| `context.pipelineRun.namespace` | string | PipelineRun namespace. | Yes |
+| `workspaces.<workspaceName>.bound` | string | Whether a Workspace has been bound or not. `"false"` if the Workspace declaration has `optional: true` and the Workspace binding is omitted by the PipelineRun. | Yes |
+| `tasks.status` | string | An aggregate status of all the pipelineTasks under the `tasks` section (excluding the `finally` section). Values: `Succeeded`, `Failed`, `Completed`, or `None`. | Yes |
+| `tasks.<pipelineTaskName>.status` | string | Execution status of the specified pipelineTask. Values: `Succeeded`, `Failed`, or `None`. | Yes |
+| `tasks.<taskName>.results.<resultName>` | `string` \| `[]string` \| `map[string]string` | Result value of a specified task result. The exact type depends on the result type. | Yes |
+
+In gotemplate, you can reference variables with `{{ .xxx }}`.
+
+For example, `{{ .platformURL }}` is rendered as `https://devops.example.com`.
+
+## Steps
+
+### Step 1: Create a template ConfigMap
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: notification-template
+  namespace: kube-public
+  labels:
+    # replace template type as needed, such as "mail"
+    tekton.alaudadevops.io/template-type: "<template-type>"
+  annotations:
+    tekton.alaudadevops.io/template-display-name: "Notification Template"
+data:
+  title.tpl: "{{ .values.title }}"
+  summary.tpl: "{{ .values.summary }}"
+```
+
+### Step 2: Configure the TaskRun
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: notify-build-result
+  namespace: demo
+spec:
+  taskRef:
+    name: send-notification
+  params:
+    - name: renderTemplateName
+      value: notification-template
+    - name: renderTemplateNamespace
+      value: kube-public
+    - name: renderTemplateValues
+      value: |
+        title: "Build {{ .tasks.status }}"
+        summary: "Project={{ .project }}, Namespace={{ .namespace }}"
+```
+
+### Step 3: Check rendered params in TaskRun
+
+After rendering, each `*.tpl` entry in `ConfigMap.data` is converted into a TaskRun param:
+
+- `title.tpl` -> `title`
+- `summary.tpl` -> `summary`
+
+The rendered key-value pairs are appended to `spec.params` in the TaskRun.
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: notify-build-result
+  namespace: demo
+spec:
+  taskRef:
+    name: send-notification
+  params:
+    - name: renderTemplateName
+      value: notification-template
+    - name: renderTemplateNamespace
+      value: kube-public
+    - name: renderTemplateValues
+      value: |
+        title: "Build {{ .tasks.status }}"
+        summary: "Project={{ .project }}, Namespace={{ .namespace }}"
+    - name: title
+      value: "Build Succeeded"
+    - name: summary
+      value: "Project=demo, Namespace=demo"
+```
+
+## FAQ
+
+### What is the default value of `timeZone`, and how can I change it?
+
+The default value is `UTC`.
+If you want to change it, update `template-render.time-zone` in [configure-tektoncd-enhancement-configmap](../../configure/configure-tektoncd-enhancement-configmap.mdx#2-parameter-reference-and-defaults).
+
+### What should I do if `platformURL` or `detailsURL` is not as expected?
+
+`platformURL` is determined during cluster deployment.
+If it is not as expected, update `data.platformURL` in the `global-info` ConfigMap under the `kube-public` namespace.
+
+If `detailsURL` is not as expected, update `template-render.details-url-template` in [configure-tektoncd-enhancement-configmap](../../configure/configure-tektoncd-enhancement-configmap.mdx#2-parameter-reference-and-defaults).
+
+### What is the difference between `renderTemplateValues` and built-in variables?
+
+`renderTemplateValues` contains user-defined values and is exposed as `.values.<key>`.
+Built-in variables are generated by the renderer from runtime context, such as `.platformURL`, `.project`, and `.tasks.status`.
+
+### Do I have to use `renderTemplateValues`?
+
+No. You can use built-in variables only.
+Use `renderTemplateValues` when you need custom keys that are not part of built-in variables.
+
+### How do `*.tpl` keys in ConfigMap `data` map to TaskRun params?
+
+The `.tpl` suffix is removed from each key.
+For example, `subject.tpl` becomes the `subject` param in TaskRun.
+
+### Why are `project` or `cluster` variables empty?
+
+Generally, only namespaces created via the UI automatically inject `project` and `cluster` variables.
+This is because they are retrieved from the `cpaas.io/cluster` and `cpaas.io/project` labels on the `Namespace` resource.
+You can also manually add these labels to the namespace yourself.
+

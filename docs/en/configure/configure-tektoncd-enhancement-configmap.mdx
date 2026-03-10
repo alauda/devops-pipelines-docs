@@ -1,0 +1,86 @@
+---
+weight: 14
+i18n:
+  title:
+    en: Configure tektoncd-enhancement ConfigMap via TektonConfig
+title: Configure tektoncd-enhancement ConfigMap via TektonConfig
+---
+
+# Configure tektoncd-enhancement ConfigMap via TektonConfig
+
+This guide shows how to manage `tektoncd-enhancement-config` through `TektonConfig` using `spec.pipeline.options.configMaps`.
+
+> **Namespace Note**: Throughout this guide, `<tekton-pipelines>` is used as a placeholder for your `Tekton` namespace. Replace it with your actual namespace name. The default installation uses `tekton-pipelines` namespace.
+
+## Prerequisites
+
+- Tekton Operator is installed.
+- `TektonConfig` resource exists (usually named `config`).
+- You can edit `TektonConfig` in your cluster.
+
+## Steps
+
+### 1. Update TektonConfig with `spec.pipeline.options.configMaps`
+
+The options structure follows the same pattern as described in [Adjusting Optional Configuration Items of Subcomponents](./customize_options).
+
+Use a `TektonConfig` patch like this:
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  targetNamespace: <tekton-pipelines>
+  pipeline:
+    options:
+      configMaps:
+        tektoncd-enhancement-config:
+          data:
+            config: |
+              # Shared configuration for tektoncd-enhancement features.
+              template-render:
+                # Template to build the details URL.
+                details-url-template: "{{- if .isPipelineRun -}}{{ .platformURL }}/console-acp/workspace/{{ .project }}~{{ .cluster }}~{{ .namespace }}/pipeline/pipelineRuns/detail/{{ .pipelineRunName }}{{- else -}}{{ .platformURL }}/console-acp/workspace/{{ .project }}~{{ .cluster }}~{{ .namespace }}/pipeline/taskRuns/detail/{{ .taskRunName }}{{- end -}}"
+                # Empty value means using the container local time zone.
+                time-zone: ""
+```
+
+### 2. Parameter reference and defaults
+
+| Parameter                                  | Meaning                                                                      | Default                                                                                                                                                                                                                                                                                                                          |
+|--------------------------------------------|------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `template-render.details-url-template`     | Go template used to render `detailsURL` for mail/template rendering context. | `{{- if .isPipelineRun -}}{{ .platformURL }}/console-acp/workspace/{{ .project }}~{{ .cluster }}~{{ .namespace }}/pipeline/pipelineRuns/detail/{{ .pipelineRunName }}{{- else -}}{{ .platformURL }}/console-acp/workspace/{{ .project }}~{{ .cluster }}~{{ .namespace }}/pipeline/taskRuns/detail/{{ .taskRunName }}{{- end -}}` |
+| `template-render.time-zone`                | Global time zone setting for template rendering.                             | `""` (use container local time zone)                                                                                                                                                                                                                                                                                             |
+
+### 3. Verify ConfigMap update
+
+After updating `TektonConfig`, check whether `tektoncd-enhancement-config` has been reconciled:
+
+```bash
+kubectl get configmap tektoncd-enhancement-config -n <tekton-pipelines> -o yaml
+```
+
+### 4. Restart tektoncd-enhancement
+
+Restart the `tektoncd-enhancement` workload in namespace `<tekton-pipelines>`:
+
+```bash
+kubectl rollout restart deployment/tektoncd-enhancement -n <tekton-pipelines>
+# deployment.apps/tektoncd-enhancement restarted
+
+kubectl rollout status deployment/tektoncd-enhancement -n <tekton-pipelines>
+# Waiting for deployment "tektoncd-enhancement" rollout to finish: 1 old replica is pending termination...
+# deployment "tektoncd-enhancement" successfully rolled out
+```
+
+## FAQ
+
+### I updated `TektonConfig`, but the effective config did not change. What should I check?
+
+Check in this order:
+
+1. `TektonConfig` was updated successfully.
+2. `tektoncd-enhancement-config` in namespace `<tekton-pipelines>` has the expected `data.config`.
+3. `tektoncd-enhancement` has been restarted and rollout is complete.
