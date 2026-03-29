@@ -295,7 +295,7 @@ The `run_storage_latency_seconds` histogram uses the following bucket boundaries
 
 #### Watcher config-observability
 
-The Results Watcher has its own `config-observability` ConfigMap (named via the `CONFIG_OBSERVABILITY_NAME` environment variable, typically `tekton-results-config-observability`). This ConfigMap is managed by the Tekton Operator and should be configured via the `TektonConfig` resource's `spec.results.options.configMaps` field. See [Adjusting Optional Configuration Items for Subcomponents](./customize_options.mdx) for details.
+The Results Watcher has its own `config-observability` ConfigMap (named via the `CONFIG_OBSERVABILITY_NAME` environment variable, typically `tekton-results-config-observability`). This ConfigMap is managed by the Tekton Operator and should be configured via the `TektonConfig` resource's `spec.result.options.configMaps` field. See [Adjusting Optional Configuration Items for Subcomponents](./customize_options.mdx) for details.
 
 > **Hot reload behavior**: Results Watcher also watches this ConfigMap and applies most key changes without Pod restarts. A restart is only needed when Deployment-level settings (such as env vars/args) are changed.
 
