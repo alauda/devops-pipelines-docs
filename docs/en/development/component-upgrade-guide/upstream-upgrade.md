@@ -352,7 +352,7 @@ Don't forget to revert the temporary `--reject` modification in `base.mk` after 
 git checkout origin/main base.mk
 ```
 
-#### 4.2 Update Kustomize Configuration
+#### 4.2 Update Kustomize Configuration {#42-update-kustomize-configuration}
 
 Review and update the `kustomization.yaml` files in the `config` directory:
 

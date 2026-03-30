@@ -46,7 +46,7 @@ Image attestation is used for storing and verifying metadata information related
 - [Vulnerability scan results](#vulnerability-scan-results)
 - [Custom metadata](#custom-metadata-attestation)
 
-### SLSA Provenance
+### SLSA Provenance \{#slsa-provenance}
 
 [SLSA Provenance](https://slsa.dev/provenance/v1) is metadata containing verifiable information about software artifacts, describing how they were built, what sources were used, and who built them. In Tekton Chains, provenance is cryptographically signed to ensure its integrity and authenticity.
 
@@ -55,7 +55,7 @@ There are two types of provenance in Tekton Chains:
 - **Task-level provenance**: Captures details about a specific TaskRun execution
 - **Pipeline-level provenance**: Captures the entire PipelineRun execution, including all child TaskRuns
 
-### SBOM (Software bill of materials)
+### SBOM (Software bill of materials) \{#sbom-software-bill-of-materials}
 
 [SBOM](https://www.ntia.gov/page/software-bill-materials) is a nested inventory for software, a list of ingredients that make up software components, including:
 - Software components
@@ -67,7 +67,7 @@ SBOM can be in various formats, such as:
 - [SPDX](https://spdx.dev/use/specifications/)
 - [CycloneDX](https://cyclonedx.org/specification/overview/)
 
-### Vulnerability scan results
+### Vulnerability scan results \{#vulnerability-scan-results}
 
 [Cosign Vulnerability Scan results](https://github.com/sigstore/cosign/blob/main/specs/COSIGN_VULN_ATTESTATION_SPEC.md) record the security assessment of the software build process, including:
 - Scanner information (name, version)
@@ -130,3 +130,5 @@ Storage backends are where Tekton Chains stores the generated provenance and sig
 ## Controller
 
 The Tekton Chains controller is the core component that observes TaskRun and PipelineRun executions, captures relevant information, and generates, signs, and stores provenance. It runs as a Kubernetes deployment in the `tekton-pipelines` namespace.
+
+<a id="custom-metadata-attestation"></a>

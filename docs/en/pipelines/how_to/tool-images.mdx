@@ -72,7 +72,7 @@ This page helps you quickly choose the right tool image for your pipeline steps.
 
 ### General
 
-#### run-script
+#### run-script \{#run-script}
 
 | Field | Content |
 | --- | --- |
@@ -85,7 +85,7 @@ This page helps you quickly choose the right tool image for your pipeline steps.
 
 ### Source Control
 
-#### git-init
+#### git-init \{#git-init}
 
 | Field | Content |
 | --- | --- |
@@ -96,7 +96,7 @@ This page helps you quickly choose the right tool image for your pipeline steps.
 | Best For | Repository clone, checkout, submodule handling, authenticated clone |
 | Not Recommended | Build, scan, or deploy steps that don't involve code checkout |
 
-#### glab
+#### glab \{#glab}
 
 | Field | Content |
 | --- | --- |
@@ -109,7 +109,7 @@ This page helps you quickly choose the right tool image for your pipeline steps.
 
 ### Build
 
-#### maven
+#### maven \{#maven}
 
 | Field | Content |
 | --- | --- |
@@ -120,7 +120,7 @@ This page helps you quickly choose the right tool image for your pipeline steps.
 | Best For | Java project build, test, package, and publish |
 | Not Recommended | Non-Java tech stacks, or when Gradle/SBT is required |
 
-#### python
+#### python \{#python}
 
 | Field | Content |
 | --- | --- |
@@ -133,7 +133,7 @@ This page helps you quickly choose the right tool image for your pipeline steps.
 
 ### Image & Artifact
 
-#### buildah
+#### buildah \{#buildah}
 
 | Field | Content |
 | --- | --- |
@@ -144,7 +144,7 @@ This page helps you quickly choose the right tool image for your pipeline steps.
 | Best For | OCI image build and push |
 | Not Recommended | Vulnerability scanning, signing, or SBOM generation only |
 
-#### helm
+#### helm \{#helm}
 
 | Field | Content |
 | --- | --- |
@@ -157,7 +157,7 @@ This page helps you quickly choose the right tool image for your pipeline steps.
 
 ### Security & Compliance
 
-#### trivy
+#### trivy \{#trivy}
 
 | Field | Content |
 | --- | --- |
@@ -168,7 +168,7 @@ This page helps you quickly choose the right tool image for your pipeline steps.
 | Best For | Image, filesystem, and manifest vulnerability scanning |
 | Not Recommended | When signing/verification or SBOM generation is needed |
 
-#### syft
+#### syft \{#syft}
 
 | Field | Content |
 | --- | --- |
@@ -179,7 +179,7 @@ This page helps you quickly choose the right tool image for your pipeline steps.
 | Best For | SBOM generation, supply chain material output |
 | Not Recommended | Signing only (use `cosign`) or vulnerability scanning only (use `trivy`) |
 
-#### cosign
+#### cosign \{#cosign}
 
 | Field | Content |
 | --- | --- |
@@ -190,7 +190,7 @@ This page helps you quickly choose the right tool image for your pipeline steps.
 | Best For | Image/artifact signing, verification, attestation |
 | Not Recommended | When SBOM generation or vulnerability scanning is needed |
 
-#### sonarqube-scanner
+#### sonarqube-scanner \{#sonarqube-scanner}
 
 | Field | Content |
 | --- | --- |
@@ -201,7 +201,7 @@ This page helps you quickly choose the right tool image for your pipeline steps.
 | Best For | SonarQube code scanning and quality gate |
 | Not Recommended | Script execution, code checkout, or image build steps |
 
-#### sonarqube-shell
+#### sonarqube-shell \{#sonarqube-shell}
 
 | Field | Content |
 | --- | --- |
@@ -225,7 +225,7 @@ This page helps you quickly choose the right tool image for your pipeline steps.
 
 ### Deploy & Operations
 
-#### kubectl
+#### kubectl \{#kubectl}
 
 | Field | Content |
 | --- | --- |
@@ -236,7 +236,7 @@ This page helps you quickly choose the right tool image for your pipeline steps.
 | Best For | Kubernetes resource apply/patch/rollout and general operations |
 | Not Recommended | When Helm release workflow or Application CRD plugin is needed |
 
-#### kubectl-app-manager
+#### kubectl-app-manager \{#kubectl-app-manager}
 
 | Field | Content |
 | --- | --- |
@@ -247,7 +247,7 @@ This page helps you quickly choose the right tool image for your pipeline steps.
 | Best For | Application CRD lifecycle management and release |
 | Not Recommended | General Kubernetes operations (prefer `kubectl`) |
 
-#### kustomize
+#### kustomize \{#kustomize}
 
 | Field | Content |
 | --- | --- |

@@ -48,15 +48,15 @@ authors:
 - [References](#references)
 <!-- /toc -->
 
-## Summary
+## Summary {#summary}
 
 This TEP proposes a Tekton Pipeline that automates packaging a Helm Chart from a Git repository and pushing the resulting artifact to an OCI registry. The pipeline supports private repository authentication, dependency build, version override, configurable TLS/CA handling, a **common contract for workspaces and results**, structured status, and basic idempotency and retry semantics.
 
-## Motivation
+## Motivation {#motivation}
 
 Organizations often need a repeatable, observable, and secure path to move Helm Charts from source control to an OCI registry. Manually executing `helm dependency build`, `helm package`, and `helm push` is error‑prone, lacks standardized observability, and complicates policy enforcement (RBAC, CA, TLS). A **common contract** for workspaces and results makes this pipeline easy to adopt across teams and UIs.
 
-### Goals
+### Goals {#goals}
 
 - Fetch chart sources from HTTP(S)/SSH Git with `repoUrl`/`revision`.
 - Optionally build chart dependencies (`helm dependency build`).
@@ -66,20 +66,20 @@ Organizations often need a repeatable, observable, and secure path to move Helm 
 - Emit **standardized results** (`artifact.*`, `status.*`, `summary-json`) for diagnosability and UI consumption.
 - Provide bounded retries and predictable behavior under concurrency.
 
-### Non-Goals
+### Non-Goals {#non-goals}
 
 - Managing non-Helm packaging formats.
 - Replacing enterprise artifact policies or full supply‑chain signing/scanning (only referenced as optional enhancements).
 - Implementing a dedicated triggers/PR automation system (manual `PipelineRun` is sufficient; external CI can orchestrate).
 
-### Use Cases
+### Use Cases {#use-cases}
 
 - Push internal charts into a private OCI registry with credentials mounted through `kubernetes.io/dockerconfigjson`.
 - Environments with private CAs where the build and push steps must trust custom certificates.
 - Release workflows that need a temporary `versionOverride` without mutating the Git source.
 - Multi‑tenant namespaces requiring strict RBAC and minimal credential exposure.
 
-### Requirements
+### Requirements {#requirements}
 
 **Functional**
 - Support Git checkout, dependency build, packaging, and OCI push.
@@ -95,7 +95,7 @@ Organizations often need a repeatable, observable, and secure path to move Helm 
 - Minimal RBAC; credential isolation; non‑root, read‑only filesystem; no privilege escalation.
 - TLS verification on by default; CA injection supported; TLS skip only in controlled/sandbox environments.
 
-## Proposal
+## Proposal {#proposal}
 
 The pipeline comprises four primary stages:
 
@@ -104,15 +104,15 @@ The pipeline comprises four primary stages:
 3. **Package** — Run `helm package` on `chartPath`; validate `Chart.yaml` (`name`, `version`). When `versionOverride` is set, operate on a temporary copy to avoid mutating the repo. Emit the output chart path and `(name, version)` to results.
 4. **OCI Push** — Use `helm push` (OCI) to `ociRepo:version`. Use login credentials from `registry-config` workspace (registry config) or `helm registry login`. Deny overwrite by default; enable `--force` when `allowOverwrite=true`. Emit `artifact.ref` and `artifact.digest` on success (digest is best‑effort if the registry reports it). A `finally` step populates `status.*` and `summary-json` regardless of success/failure.
 
-### Notes and Caveats
+### Notes and Caveats {#notes-and-caveats}
 
 - **TLS** — `insecureSkipTLSVerify` is for _non‑production_ only. Prefer CA injection via `custom-ca` workspace; enforce policy to reject TLS skip in production namespaces.
 - **Idempotency** — Overwrite requires explicit opt‑in to avoid accidental clobbering.
 - **Observability** — Emit step durations, redacted parameter snapshots, and typed error codes such as `AUTH_GIT`, `DEP_BUILD_FAIL`, `CHART_INVALID`, `PACKAGE_FAIL`, `AUTH_OCI`, `PUSH_CONFLICT`, `NETWORK`.
 
-## Design Details
+## Design Details {#design-details}
 
-### Pipeline Parameters
+### Pipeline Parameters {#pipeline-parameters}
 
 | Name                    | Type   | Required | Default   | Description                                               |
 |-------------------------|--------|----------|-----------|-----------------------------------------------------------|
@@ -126,7 +126,7 @@ The pipeline comprises four primary stages:
 | `dependencyUpdate`      | string | No       | `"true"`  | Run `helm dependency build`.                              |
 | `insecureSkipTLSVerify` | string | No       | `"false"` | Skip TLS verification (non‑prod only).                    |
 
-### Workspaces
+### Workspaces {#workspaces}
 
 | Name              | Required | Purpose                                                                                                                              |
 |-------------------|----------|--------------------------------------------------------------------------------------------------------------------------------------|
@@ -136,7 +136,7 @@ The pipeline comprises four primary stages:
 | `config`          | No       | Optional workspace for custom configs.                                                                                               |
 | `secret`          | No       | Optional workspace for custom secrets.                                                                                               |
 
-### Results
+### Results {#results}
 
 | Name               | Example                                     | Description                                                |
 |--------------------|---------------------------------------------|------------------------------------------------------------|
@@ -149,11 +149,11 @@ The pipeline comprises four primary stages:
 | `status.message`   | `Packaged and pushed successfully.`         | Short human‑readable message (≤ 1024 chars).               |
 | `summary-json`     | `{"name":"mychart","version":"1.2.3",...}`  | Compact JSON with the above fields for UI consumption.     |
 
-### Example PipelineRuns
+### Example PipelineRuns {#example-pipelineruns}
 
 > Replace `namespace`, URLs, and Secret/ConfigMap names with your environment specifics.
 
-#### Example A — Minimal Public to Public
+#### Example A — Minimal Public to Public {#example-a--minimal-public-to-public}
 
 ```yaml
 apiVersion: tekton.dev/v1
@@ -183,7 +183,7 @@ spec:
 #   status.code, status.message, summary-json
 ```
 
-#### Example B — Private Registry Auth via Registry Config
+#### Example B — Private Registry Auth via Registry Config {#example-b--private-registry-auth-via-registry-config}
 
 ```yaml
 apiVersion: tekton.dev/v1
@@ -214,7 +214,7 @@ spec:
             path: config.json
 ```
 
-#### Example C — Custom CA + Version Override + Overwrite
+#### Example C — Custom CA + Version Override + Overwrite {#example-c--custom-ca--version-override--overwrite}
 
 ```yaml
 apiVersion: tekton.dev/v1
@@ -259,60 +259,60 @@ spec:
             path: ca.crt
 ```
 
-## Design Evaluation
+## Design Evaluation {#design-evaluation}
 
-### Reusability
+### Reusability {#reusability}
 
 Leverages common Tekton tasks/steps for Git, Helm, and OCI. Can be composed with optional supply‑chain tasks (signing, SBOM, scan).
 
-### Simplicity
+### Simplicity {#simplicity}
 
 Single pipeline with a linear flow. Defaults minimize configuration while exposing parameters for advanced use.
 
-### Flexibility
+### Flexibility {#flexibility}
 
 Supports both HTTPS and SSH Git, standard Helm OCI registries, optional dependency build, and optional overwrite. CA injection enables air‑gapped or private PKI.
 
-### Conformance
+### Conformance {#conformance}
 
 No Tekton API changes. Works with standard Kubernetes objects and Helm commands. Surface results via Tekton Results for UIs/dashboards.
 
-### User Experience
+### User Experience {#user-experience}
 
 UI can read **summary-json** or the discrete `artifact.*` and `status.*` results. Error codes improve triage and on‑call handoffs.
 
-### Performance
+### Performance {#performance}
 
 - End-to-end execution remains bounded and observable; parallelize independent steps (fetch, package, push) where safe.
 - Respect registry/API rate limits; enable short-lived caching to avoid repeated fetches; progressive logs for long pushes.
 
-### Reliability
+### Reliability {#reliability}
 
 - Bounded retries with exponential backoff for transient Git/OCI/network errors; fail fast on permanent errors (e.g., bad credentials).
 - Always publish final results in a `finally` task (`status.code`, `status.message`, `summary-json`) to keep UI signals deterministic.
 - Idempotent packaging path and an explicit `allowOverwrite` parameter avoid accidental duplication and make re-runs safe.
 
-### Security
+### Security {#security}
 
 - Least-privilege RBAC; mount secrets only to steps that need them; run as non-root with a read-only root filesystem.
 - TLS verification is enabled by default (custom CA supported); do not echo credentials in logs.
 - Optional hardening (signing, SBOM, scanning) can be composed as adjacent steps without changing the contract.
 
-### Usability
+### Usability {#usability}
 
 - Stable outputs (`artifact.*`, `status.*`, `summary-json`) for dashboards/CLI; clear, typed error codes to speed up triage.
 - Provide minimal examples for common auth/TLS/overwrite scenarios; parameters and defaults aim for least surprise.
 
-### High Availability
+### High Availability {#high-availability}
 
 - Pipeline runs are stateless and horizontally scalable; no single in-pipeline SPOF.
 - On dependency degradation (e.g., registry hiccups), surface actionable errors; safe to re-run due to idempotency.
 
-### Data Migration
+### Data Migration {#data-migration}
 
 - Not applicable for this feature.
 
-### Risks and Mitigations
+### Risks and Mitigations {#risks-and-mitigations}
 
 - **TLS Skip Misuse** — Enforce via admission policies; document redlines.  
 - **Credential Exposure** — Mount secrets only to steps that need them; redact logs; avoid persisting credentials in env vars.  
@@ -320,24 +320,24 @@ UI can read **summary-json** or the discrete `artifact.*` and `status.*` results
 - **Chart Invalid** — Validate `Chart.yaml` and fail fast with actionable logs.  
 - **Network Flakiness** — Bounded retries with backoff for transient errors.
 
-### Drawbacks
+### Drawbacks {#drawbacks}
 
 - Helm/OCI tooling must be present in the step images.  
 - Private CAs and air‑gapped registries add operational complexity.
 
-## Alternatives
+## Alternatives {#alternatives}
 
 - Use non‑OCI Helm repositories (index.yaml + object storage) — less aligned with modern OCI workflows.  
 - Run packaging in external CI (e.g., GitHub Actions) — loses in‑cluster policy controls and K8s‑native observability.  
 - Use ORAS directly — viable, but Helm OCI integrates metadata and is widely supported.
 
-## Implementation Plan
+## Implementation Plan {#implementation-plan}
 
 1. **MVP** — Git checkout, optional dependency build, package, push; results and error codes; minimal RBAC.  
 2. **Hardening** — CA injection, resource limits, retries, admission policies for TLS skip.  
 3. **Enhancements (optional)** — signing (cosign/helm provenance), SBOM (syft), vulnerability scan (trivy), and UI surfacing.
 
-### Test Plan
+### Test Plan {#test-plan}
 
 - **Unit/Step Tests** — verify parameter validation, version override on a temp copy, and results emission.  
 - **Integration** — end‑to‑end PipelineRuns against a test registry (with and without auth).  
@@ -346,13 +346,13 @@ UI can read **summary-json** or the discrete `artifact.*` and `status.*` results
 - **Performance** — measure P50/P95 time; load test with ~20 concurrent runs.  
 - **TLS/CA** — verify CA merge; ensure TLS skip is blocked in production namespaces (policy test).
 
-### Infrastructure Needed
+### Infrastructure Needed {#infrastructure-needed}
 
 - Access to an OCI registry for testing.  
 - Namespace with quotas and metrics collection (e.g., Prometheus/metrics‑server).  
 - Admission policy engine (e.g., OPA/Gatekeeper) for TLS skip governance (optional but recommended).
 
-### Upgrade and Migration Strategy
+### Upgrade and Migration Strategy {#upgrade-and-migration-strategy}
 
 We version the pipeline as a **product** using semantic versioning (SemVer).
 
@@ -362,12 +362,12 @@ We version the pipeline as a **product** using semantic versioning (SemVer).
 - **Fixes** and internal changes use **PATCH** bumps.
 - Old major versions SHOULD be maintained with security/backport patches for a deprecation window (recommended 6–12 months), documented in release notes.
 
-### Implementation Pull Requests
+### Implementation Pull Requests {#implementation-pull-requests}
 
 1. Task implementation and integration test PR
 2. Documentation and examples PR
 
-## References
+## References {#references}
 
 - [Helm OCI documentation](https://helm.sh/docs/topics/registries/)  
 - [Tekton Pipelines documentation](https://tekton.dev/docs/pipelines/pipelines/)

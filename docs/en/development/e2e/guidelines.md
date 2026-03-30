@@ -236,7 +236,7 @@ Use scenario outlines for data-driven tests:
 
 When writing E2E tests, follow these core principles to ensure tests are maintainable, portable, and reusable across different environments.
 
-### Principle 1: Prefer Built-in Steps Over Custom Scripts
+### Principle 1: Prefer Built-in Steps Over Custom Scripts {#principle-1-prefer-built-in-steps-over-custom-scripts}
 
 **Guideline**: Always use the BDD framework's built-in steps when possible. Avoid creating complex shell scripts to accomplish tasks that can be achieved with existing steps.
 
