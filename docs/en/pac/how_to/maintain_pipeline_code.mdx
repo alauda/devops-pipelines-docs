@@ -117,7 +117,7 @@ Pipeline resources can be defined:
         name: my-pipeline-resource
     ```
 
-## Event Annotations
+## Event Annotations \{#event-annotations}
 
 PAC uses annotations to determine when to trigger pipelines. These annotations are added to the PipelineRun metadata. You can match different Git provider events with each pipeline by using special annotations on the pipeline run. If there are multiple pipeline runs matching an event, Pipelines as Code runs them in parallel and posts the results to the Git provider as soon as a pipeline run finishes.
 
@@ -700,7 +700,7 @@ This ensures that if multiple pushes occur quickly to the main branch, only the 
 
 When a PR is updated with a new commit, any running pipeline for that PR will be cancelled and a new one will start.
 
-## Parameterizing Commits and URLs
+## Parameterizing Commits and URLs \{#parameterizing-commits-and-urls}
 
 You can specify the parameters of your commit and URL by using dynamic, expandable variables with the `{{<var>}}` format. These variables can be used in:
 
@@ -826,7 +826,7 @@ For private repositories, PAC automatically generates a secret for git authentic
 
 **Note**: The `{{ git_auth_secret }}` variable is only available for private repositories. PAC automatically creates this secret when you configure authentication for a private repository (see [Configure Authentication for Private Repositories](./configure_private_repo_auth.mdx)). The secret name format is `pac-gitauth-<repository-name>-<hash>`.
 
-## Task Resolution
+## Task Resolution \{#task-resolution}
 
 PAC can automatically resolve tasks from multiple sources. You can use either PAC annotations (recommended) or Tekton resolver syntax.
 

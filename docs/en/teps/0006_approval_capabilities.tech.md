@@ -666,7 +666,7 @@ This approval type will be implemented as part of the custom approval framework 
 
 For detailed architecture design, controller responsibilities, and execution patterns, see the [Design Details](#design-details) section below.
 
-## Design Details
+## Design Details {#design-details}
 
 ### Multi-Controller Architecture
 

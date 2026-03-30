@@ -47,7 +47,7 @@ metadata:
 type: Opaque
 ```
 
-### Get the Signing Public Key
+### Get the Signing Public Key \{#get-the-signing-public-key}
 
 :::tip
 If you don't have permission, you can ask the administrator to get the public key.
@@ -58,7 +58,7 @@ $ export NAMESPACE=<tekton-pipelines>
 $ kubectl get secret -n $NAMESPACE signing-secrets -o jsonpath='{.data.cosign\.pub}' | base64 -d > cosign.pub
 ```
 
-### Get the Signing Secret
+### Get the Signing Secret \{#get-the-signing-secret}
 
 ```shell
 $ export NAMESPACE=<tekton-pipelines>
