@@ -146,7 +146,8 @@ First, delete the `TektonConfig` CR and any other Tekton component CRs if they e
 - Click **Delete** to confirm the deletion of the CR.
   - Deleting the `TektonConfig` resource will cascade delete the automatically created `TektonPipelines`, `TektonTriggers`, `TektonHubs`, `TektonChains`, etc. components.
 - Repeat these steps for any other Tekton component CRs that may exist.
-  - If you manually created `TektonResults` or `OpenShiftPipelinesAsCodes`, you may need to manually delete it.
+  - If you manually created `OpenShiftPipelinesAsCodes`, you may need to manually delete it.
+  - For older clusters that still have a standalone `TektonResult` resource, delete it manually before uninstalling.
 
 ### Uninstalling the `Alauda DevOps Pipelines` Operator
 
