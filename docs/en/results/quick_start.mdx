@@ -201,7 +201,7 @@ hello                                        True        Succeeded   11s        
 ```yaml
 $ cat <<EOF | kubectl create -f -
 apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
+kind: ClusterRole
 metadata:
   name: tekton-results-readonly
 rules:
@@ -241,7 +241,6 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   name: tekton-results-user
-  namespace: default
 subjects:
   - kind: ServiceAccount
     name: impersonate-user
@@ -313,6 +312,9 @@ $ curl -s -k \
 > [tkn](https://github.com/tektoncd/cli/releases) is a command-line tool for interacting with Tekton. You can download it from the [official page](https://github.com/tektoncd/cli/releases).
 >
 > You need to build [tkn-results](https://github.com/tektoncd/results/blob/main/cmd/tkn-results/main.go) using golang.
+>
+> Do not always build from `main`. Use the release branch that matches the Tekton Results version deployed in your environment.
+> You can find the Results component version in [Release Notes](../overview/release_notes.mdx#compatibility-and-support-matrix) (the `Results` column), and then checkout the corresponding branch `release-v<version>.x`.
 
 ```sh
 # 1. Clone the repository
@@ -321,11 +323,24 @@ git clone https://github.com/tektoncd/results.git
 # 2. Change to the project directory
 cd results
 
-# 3. Build the binary
+# 3. Checkout the matching release branch (example: Results 0.15.x -> release-v0.15.x)
+git checkout release-v<version>.x
+
+# 4. Build the binary
 go build -o tkn-results ./cmd/tkn-results/main.go
 
-# 4. Copy the binary to a directory in your PATH
+# 5. Copy the binary to a directory in your PATH
 ```
+
+##### Connection behavior
+
+> When `--addr` is not set, `tkn-results` attempts to auto port-forward to the Results API service.
+>
+> In many versions (including `release-v0.15.x`), the auto target is `tekton-pipelines/tekton-results-api-service`.
+> If your Results deployment uses a different namespace or service name, auto mode may fail.
+>
+> When `--addr` is set, `tkn-results` connects to that address directly.
+> In that case, you typically need to run `kubectl port-forward` yourself.
 
 ##### Querying the execution record list
 
@@ -334,6 +349,19 @@ $ tkn results --insecure records list default/results/-
 
 default/results/209dcb81-e3c0-47cd-b082-d910e15702ae/records/209dcb81-e3c0-47cd-b082-d910e15702ae  tekton.dev/v1.TaskRun                   2025-02-19 16:17:11 +0800 CST           2025-02-19 16:17:21 +0800 CST
 default/results/209dcb81-e3c0-47cd-b082-d910e15702ae/records/a750035d-0479-34a1-9db2-9a256b53243f  results.tekton.dev/v1alpha3.Log         2025-02-19 16:17:21 +0800 CST           2025-02-19 16:17:21 +0800 CST
+```
+
+##### Fallback when auto port-forward fails
+
+```sh
+$ kubectl port-forward -n <results-namespace> service/tekton-results-api-service 8080
+
+$ tkn results --insecure --addr localhost:8080 records list default/results/-
+$ tkn results --insecure --addr localhost:8080 records get -o textproto default/results/<result-uid>/records/<record-uid>
+$ tkn results --insecure --addr localhost:8080 logs list default/results/-
+$ tkn results --insecure --addr localhost:8080 logs get -o textproto default/results/<result-uid>/logs/<log-uid>
+# If logs get returns "unknown service tekton.results.v1alpha3.Logs", retry with:
+$ tkn results --insecure --addr localhost:8080 --v1alpha2 logs get -o textproto default/results/<result-uid>/logs/<log-uid>
 ```
 
 ##### Querying a single execution record
@@ -376,6 +404,9 @@ default/results/209dcb81-e3c0-47cd-b082-d910e15702ae/logs/a750035d-0479-34a1-9db
 ```
 
 ##### Querying a single log
+
+> The Logs API version may vary by deployment.
+> If you encounter `unknown service tekton.results.v1alpha3.Logs`, retry the command with the `--v1alpha2` flag.
 
 ```sh
 $ tkn results --insecure logs get -o textproto default/results/209dcb81-e3c0-47cd-b082-d910e15702ae/logs/a750035d-0479-34a1-9db2-9a256b53243f
