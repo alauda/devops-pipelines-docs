@@ -96,7 +96,7 @@ After installing the Tekton Operator, you should verify that it's running proper
 
 The Tekton Operator uses custom resources to manage Tekton components.
 By default, the Operator will install Pipeline, Triggers, Chains, and Hub automatically.
-You can install Results, Pipelines-as-Code by creating these custom resources.
+To enable Tekton Results, configure the `spec.result` section in the `TektonConfig` custom resource. Pipelines-as-Code can be installed by creating its corresponding custom resource.
 
 
 ### Verify Component Installation
