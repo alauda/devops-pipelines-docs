@@ -1935,3 +1935,4 @@ status:
 - [Automatiko Approval Task](https://github.com/automatiko-io/automatiko-approval-task)
 - [Manual Tekton Approval Task](https://github.com/MoOyeg/manual-tekton-approval-task)
 - [TEP-0060: Remote Resource Resolution](https://github.com/tektoncd/community/blob/main/teps/0060-remote-resource-resolution.md)
+

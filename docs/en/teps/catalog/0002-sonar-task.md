@@ -314,6 +314,10 @@ Directly use officially provided images.
 1. Increased configuration complexity to support compatibility
 2. Need to maintain multiple authentication methods
 
+## Alternatives {#alternatives}
+
+At this stage, there are no better alternatives than a unified Sonar Task that preserves compatibility and improves secure defaults.
+
 ## Implementation Plan {#implementation-plan}
 
 ### Test Plan {#test-plan}

@@ -1234,3 +1234,4 @@ spec:
 - [Gherkin Syntax](https://cucumber.io/docs/gherkin/reference/) - Language reference
 - [AlaudaDevops BDD](https://github.com/AlaudaDevops/bdd) - BDD framework used in this project
 - [Allure Reports](https://docs.qameta.io/allure/) - Test reporting framework
+

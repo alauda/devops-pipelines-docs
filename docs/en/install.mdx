@@ -83,6 +83,12 @@ The `Alauda DevOps Pipelines` Operator provides the option to select which compo
 - **Basic**: Installs Tekton Pipelines and Tekton Triggers.
 - **All**: This is the default preset used when installing the `TektonConfig` CR. This preset installs all Tekton components, including Tekton Pipelines, Tekton Triggers.
 
+**Channel quick reference**
+
+- `stable` (default): Installs the latest LTS version. Recommended for production environments.
+- `latest`: Installs the latest available version, including non-LTS releases. Recommended for development and testing environments.
+- `pipelines-4.10`: Locks upgrades to `v4.10.z` patch releases only.
+
 **Steps**
 
 - In the Web console, navigate to **Marketplace** or **OperatorHub**.
@@ -155,14 +161,14 @@ metadata:
   name: tektoncd-operator
   namespace: tekton-operator
 spec:
-  channel: latest # [!code callout]
+  channel: stable # [!code callout]
   name: tektoncd-operator # [!code callout]
   source: platform # [!code callout]
   sourceNamespace: cpaas-system # [!code callout]
 ```
 
 <Callouts>
-  1. The channel name you want to subscribe to. The `latest` channel allows for the installation of the latest stable version of the `Alauda DevOps Pipelines` Operator.
+  1. The channel name you want to subscribe to. `stable` is the default and installs the latest LTS version. Use `latest` to receive every release, or `pipelines-4.10` to stay on `v4.10.z` patch updates.
   2. The name of the Operator to subscribe to.
   3. The name of the `CatalogSource` object providing the Operator.
   4. The namespace of the `CatalogSource` object. This may vary depending on your cluster configuration.
@@ -384,3 +390,4 @@ After successfully installing the `Alauda DevOps Pipelines` Operator:
 - [Adjusting Optional Configuration Items of Subcomponents](../configure/customize_options)
 - [Configuring Resource Quotas for Pipeline Components](../configure/customize_tekton_pipeline)
 - [Regular Cleanup of TaskRun and PipelineRun Resources](../configure/pruner_resources)
+

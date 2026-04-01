@@ -509,3 +509,4 @@ Long-term plan (implement as needed later):
 
 - Publishing pipeline for any enhancement components (if implemented).
 - Versioned dashboard resources shipped with the product.
+

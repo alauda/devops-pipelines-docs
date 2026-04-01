@@ -353,3 +353,4 @@ Test integration with GitLab webhook payloads: Validate Bindings with various pa
 - [Tekton Triggers Documentation](https://tekton.dev/docs/triggers/)
 - [OpenShift Pipelines Documentation](https://docs.openshift.com/container-platform/latest/cicd/pipelines/understanding-openshift-pipelines.html)
 - [OCP GitLab Events](https://github.com/openshift-pipelines/operator/blob/main/upstream/cmd/openshift/operator/kodata/tekton-addon/addons/01-clustertriggerbindings/gitlab.yaml)
+

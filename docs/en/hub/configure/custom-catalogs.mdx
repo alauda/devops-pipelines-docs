@@ -207,7 +207,7 @@ $ kubectl create secret generic tekton-hub-api-ssh-crds \
 - The secret must be created in the same namespace as your Tekton Hub installation
 - Include all three files: private key, public key, and known_hosts
 
-#### Generating known_hosts Entries
+#### Generating known_hosts Entries \{#generating-known_hosts-entries}
 
 **Important**: You must generate the `known_hosts` file by actually connecting to the Git server to capture its SSH fingerprint. Simply copying example entries may not work due to server key changes or different Git providers.
 
@@ -406,5 +406,3 @@ $ kubectl logs deployment/tekton-hub-api -n <tekton-pipelines>
      $ kubectl delete pod -l app=tekton-hub-api -n <tekton-pipelines>
      $ kubectl logs deployment/tekton-hub-api -n <tekton-pipelines>
      ```
-
-<a id="generating-known_hosts-entries"></a>

@@ -318,6 +318,10 @@ Default to latest LTS version (referencing Adoptium https://adoptium.net/temurin
 2. Need to maintain multiple authentication methods
 3. May require more storage space
 
+## Alternatives {#alternatives}
+
+At this stage, there are no better alternatives than a unified Maven Task that keeps compatibility while improving security defaults and usability.
+
 ## Implementation Plan {#implementation-plan}
 
 ### Test Plan {#test-plan}

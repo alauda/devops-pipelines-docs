@@ -717,3 +717,4 @@ Use this checklist to ensure all steps are completed:
 - [Operator Integration Guide](./operator-integration.md) - How to integrate components into the operator
 - [Branch Management Strategy](../component-quickstart/index.md#4-branch-management) - Understanding branch management
 - [CI/CD Pipeline](../e2e/index.md) - Understanding the build pipeline
+
