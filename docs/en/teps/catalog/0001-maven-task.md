@@ -10,39 +10,11 @@ authors:
 
 # TEP-0001: Maven Task
 
-<!-- toc -->
-- [Summary](#summary)
-- [Motivation](#motivation)
-  - [Goals](#goals)
-  - [Non-Goals](#non-goals)
-  - [Use Cases](#use-cases)
-  - [Requirements](#requirements)
-- [Proposal](#proposal)
-  - [Notes and Caveats](#notes-and-caveats)
-- [Design Details](#design-details)
-- [Design Evaluation](#design-evaluation)
-  - [Reusability](#reusability)
-  - [Simplicity](#simplicity)
-  - [Flexibility](#flexibility)
-  - [Conformance](#conformance)
-  - [User Experience](#user-experience)
-  - [Performance](#performance)
-  - [Risks and Mitigations](#risks-and-mitigations)
-  - [Drawbacks](#drawbacks)
-- [Alternatives](#alternatives)
-- [Implementation Plan](#implementation-plan)
-  - [Test Plan](#test-plan)
-  - [Infrastructure Needed](#infrastructure-needed)
-  - [Upgrade and Migration Strategy](#upgrade-and-migration-strategy)
-  - [Implementation Pull Requests](#implementation-pull-requests)
-- [References](#references)
-<!-- /toc -->
-
-## Summary {#summary}
+## Summary
 
 This proposal aims to create a unified Maven Task for executing Maven build, test, and deployment operations in Tekton Pipelines. The Task will integrate best practices from existing Maven Tasks in OpenShift Pipeline and Tekton Hub, while ensuring existing users can migrate to the new Task with zero or minimal cost. The new Task will provide secure default configurations and flexible customization options to meet the needs of different users.
 
-## Motivation {#motivation}
+## Motivation
 
 Currently, there are multiple Maven Task implementations in the Tekton ecosystem (primarily OpenShift Pipeline and Tekton Hub), which leads to the following issues:
 
@@ -53,7 +25,7 @@ Currently, there are multiple Maven Task implementations in the Tekton ecosystem
 
 By providing a unified Maven Task, we can address these issues and provide users with a better experience.
 
-### Goals {#goals}
+### Goals
 
 1. Provide a fully functional Maven Task that supports common Maven usage scenarios
 2. Ensure zero-cost migration from existing OpenShift Pipeline Maven Task
@@ -90,7 +62,7 @@ By providing a unified Maven Task, we can address these issues and provide users
    - Configure custom Maven settings
    - Use private build toolchains
 
-### Requirements {#requirements}
+### Requirements
 
 1. **Functional Requirements**
    - Support all standard Maven lifecycle goals
@@ -113,7 +85,7 @@ By providing a unified Maven Task, we can address these issues and provide users
    - Support main features of Tekton Hub Maven Task
    - Backward compatible with existing Pipeline definitions
 
-## Proposal {#proposal}
+## Proposal
 
 Create a new unified Maven Task with the following characteristics:
 
@@ -254,25 +226,25 @@ spec:
 
 ## Design Evaluation {#design-evaluation}
 
-### Reusability {#reusability}
+### Reusability
 
 - Support all standard Maven usage scenarios
 - Provide flexible configuration options
 - Can be used in different environments
 
-### Simplicity {#simplicity}
+### Simplicity
 
 - Keep configuration interface simple and clear
 - Provide reasonable default values
 - Clear documentation and examples
 
-### Flexibility {#flexibility}
+### Flexibility
 
 - Support custom Maven images
 - Support multiple authentication methods
 - Extensible parameter design
 
-### Conformance {#conformance}
+### Conformance
 
 - Compatible with existing OpenShift Pipeline Tasks
 - Not fully compatible with Tekton Hub existing Tasks, but easy to migrate
@@ -285,7 +257,7 @@ spec:
 - Clear error messages
 - Detailed usage documentation
 
-### Performance {#performance}
+### Performance
 
 - Support local repository caching
 - Optimized build processes
@@ -312,7 +284,7 @@ Default to latest LTS version (referencing Adoptium https://adoptium.net/temurin
 
 - `Maven 3.9.9 - OpenJDK 21`
 
-### Drawbacks {#drawbacks}
+### Drawbacks
 
 1. Increased configuration complexity to support compatibility
 2. Need to maintain multiple authentication methods
@@ -363,7 +335,7 @@ No additional alternatives are proposed in this iteration.
 1. Task implementation and integration test PR
 2. Documentation and examples PR
 
-## References {#references}
+## References
 
 1. [OpenShift Pipeline Maven Task](https://github.com/openshift-pipelines/task-maven)
 2. [Tekton Hub Maven Task](https://github.com/tektoncd/catalog/tree/main/task/maven)

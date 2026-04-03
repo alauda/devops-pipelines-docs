@@ -10,33 +10,15 @@ sourceSHA: 752b6584abe05a2216750beaf05ba5938cdfd2b02f2089f9f8980f071267596f
 
 # TEP-0002: GitLab Events as ClusterTriggerBindings
 
-<!-- toc -->
-
-- [Summary](#summary)
-- [Motivation](#motivation)
-    - [Goals](#goals)
-    - [Non-Goals](#non-goals)
-    - [Use Cases](#use-cases)
-    - [Requirements](#requirements)
-- [Proposal](#proposal)
-    - [Notes and Caveats](#notes-and-caveats)
-- [Design Details](#design-details)
-- [Design Evaluation](#design-evaluation)
-- [Alternatives](#alternatives)
-- [Implementation Plan](#implementation-plan)
-- [References](#references)
-
-<!-- /toc -->
-
-## Summary {#summary}
+## Summary
 
 This proposal aims to provide standardized ClusterTriggerBindings for GitLab events to achieve compatibility with OpenShift Pipelines and simplify migrations between ACP (Alauda Container Platform). These bindings will cover the most commonly used GitLab events, including merge requests, pushes, and comment events.
 
-## Motivation {#motivation}
+## Motivation
 
 Currently, users need to reconfigure their GitLab trigger bindings when migrating between different platforms. By providing standardized ClusterTriggerBindings, we can ensure a consistent experience in OpenShift and ACP environments and reduce configuration work.
 
-### Goals {#goals}
+### Goals
 
 - Provide GitLab event ClusterTriggerBindings compatible with OpenShift Pipelines.
 - Support the most commonly used GitLab event types.
@@ -59,7 +41,7 @@ Currently, users need to reconfigure their GitLab trigger bindings when migratin
     - Teams can use the same trigger configurations in different environments.
     - Reduces configuration errors and inconsistencies.
 
-### Requirements {#requirements}
+### Requirements
 
 - Must support the following GitLab event types:
     - Merge Request events
@@ -238,7 +220,7 @@ spec:
     value: $(body.user.name)
 ```
 
-## Proposal {#proposal}
+## Proposal
 
 Implement five ClusterTriggerBindings:
 
@@ -319,7 +301,7 @@ spec:
 - Minimizes parameter sets to optimize performance.
 - Avoids unnecessary data extraction.
 
-## Alternatives {#alternatives}
+## Alternatives
 
 1. Custom Bindings
     - Allow users to create their own bindings.
@@ -347,7 +329,7 @@ Test integration with GitLab webhook payloads: Validate Bindings with various pa
     - Follow semantic versioning.
     - Maintain backward compatibility.
 
-## References {#references}
+## References
 
 - [GitLab Webhook Documentation](https://docs.gitlab.com/ee/user/project/integrations/webhooks.html)
 - [Tekton Triggers Documentation](https://tekton.dev/docs/triggers/)

@@ -9,54 +9,15 @@ authors:
 
 # TEP-0003: Helm Chart Packaging and OCI Push Pipeline
 
-- [Summary](#summary)
-- [Motivation](#motivation)
-  - [Goals](#goals)
-  - [Non-Goals](#non-goals)
-  - [Use Cases](#use-cases)
-  - [Requirements](#requirements)
-- [Proposal](#proposal)
-  - [Notes and Caveats](#notes-and-caveats)
-- [Design Details](#design-details)
-  - [Pipeline Parameters](#pipeline-parameters)
-  - [Workspaces](#workspaces)
-  - [Results](#results)
-  - [Example PipelineRuns](#example-pipelineruns)
-    - [Example A — Minimal Public to Public](#example-a--minimal-public-to-public)
-    - [Example B — Private Registry Auth via Registry Config](#example-b--private-registry-auth-via-registry-config)
-    - [Example C — Custom CA + Version Override + Overwrite](#example-c--custom-ca--version-override--overwrite)
-- [Design Evaluation](#design-evaluation)
-  - [Reusability](#reusability)
-  - [Simplicity](#simplicity)
-  - [Flexibility](#flexibility)
-  - [Conformance](#conformance)
-  - [User Experience](#user-experience)
-  - [Performance](#performance)
-  - [Reliability](#reliability)
-  - [Security](#security)
-  - [Usability](#usability)
-  - [High Availability](#high-availability)
-  - [Data Migration](#data-migration)
-  - [Risks and Mitigations](#risks-and-mitigations)
-  - [Drawbacks](#drawbacks)
-- [Alternatives](#alternatives)
-- [Implementation Plan](#implementation-plan)
-  - [Test Plan](#test-plan)
-  - [Infrastructure Needed](#infrastructure-needed)
-  - [Upgrade and Migration Strategy](#upgrade-and-migration-strategy)
-  - [Implementation Pull Requests](#implementation-pull-requests)
-- [References](#references)
-<!-- /toc -->
-
-## Summary {#summary}
+## Summary
 
 This TEP proposes a Tekton Pipeline that automates packaging a Helm Chart from a Git repository and pushing the resulting artifact to an OCI registry. The pipeline supports private repository authentication, dependency build, version override, configurable TLS/CA handling, a **common contract for workspaces and results**, structured status, and basic idempotency and retry semantics.
 
-## Motivation {#motivation}
+## Motivation
 
 Organizations often need a repeatable, observable, and secure path to move Helm Charts from source control to an OCI registry. Manually executing `helm dependency build`, `helm package`, and `helm push` is error‑prone, lacks standardized observability, and complicates policy enforcement (RBAC, CA, TLS). A **common contract** for workspaces and results makes this pipeline easy to adopt across teams and UIs.
 
-### Goals {#goals}
+### Goals
 
 - Fetch chart sources from HTTP(S)/SSH Git with `repoUrl`/`revision`.
 - Optionally build chart dependencies (`helm dependency build`).
@@ -79,7 +40,7 @@ Organizations often need a repeatable, observable, and secure path to move Helm 
 - Release workflows that need a temporary `versionOverride` without mutating the Git source.
 - Multi‑tenant namespaces requiring strict RBAC and minimal credential exposure.
 
-### Requirements {#requirements}
+### Requirements
 
 **Functional**
 - Support Git checkout, dependency build, packaging, and OCI push.
@@ -95,7 +56,7 @@ Organizations often need a repeatable, observable, and secure path to move Helm 
 - Minimal RBAC; credential isolation; non‑root, read‑only filesystem; no privilege escalation.
 - TLS verification on by default; CA injection supported; TLS skip only in controlled/sandbox environments.
 
-## Proposal {#proposal}
+## Proposal
 
 The pipeline comprises four primary stages:
 
@@ -126,7 +87,7 @@ The pipeline comprises four primary stages:
 | `dependencyUpdate`      | string | No       | `"true"`  | Run `helm dependency build`.                              |
 | `insecureSkipTLSVerify` | string | No       | `"false"` | Skip TLS verification (non‑prod only).                    |
 
-### Workspaces {#workspaces}
+### Workspaces
 
 | Name              | Required | Purpose                                                                                                                              |
 |-------------------|----------|--------------------------------------------------------------------------------------------------------------------------------------|
@@ -136,7 +97,7 @@ The pipeline comprises four primary stages:
 | `config`          | No       | Optional workspace for custom configs.                                                                                               |
 | `secret`          | No       | Optional workspace for custom secrets.                                                                                               |
 
-### Results {#results}
+### Results
 
 | Name               | Example                                     | Description                                                |
 |--------------------|---------------------------------------------|------------------------------------------------------------|
@@ -261,19 +222,19 @@ spec:
 
 ## Design Evaluation {#design-evaluation}
 
-### Reusability {#reusability}
+### Reusability
 
 Leverages common Tekton tasks/steps for Git, Helm, and OCI. Can be composed with optional supply‑chain tasks (signing, SBOM, scan).
 
-### Simplicity {#simplicity}
+### Simplicity
 
 Single pipeline with a linear flow. Defaults minimize configuration while exposing parameters for advanced use.
 
-### Flexibility {#flexibility}
+### Flexibility
 
 Supports both HTTPS and SSH Git, standard Helm OCI registries, optional dependency build, and optional overwrite. CA injection enables air‑gapped or private PKI.
 
-### Conformance {#conformance}
+### Conformance
 
 No Tekton API changes. Works with standard Kubernetes objects and Helm commands. Surface results via Tekton Results for UIs/dashboards.
 
@@ -281,24 +242,24 @@ No Tekton API changes. Works with standard Kubernetes objects and Helm commands.
 
 UI can read **summary-json** or the discrete `artifact.*` and `status.*` results. Error codes improve triage and on‑call handoffs.
 
-### Performance {#performance}
+### Performance
 
 - End-to-end execution remains bounded and observable; parallelize independent steps (fetch, package, push) where safe.
 - Respect registry/API rate limits; enable short-lived caching to avoid repeated fetches; progressive logs for long pushes.
 
-### Reliability {#reliability}
+### Reliability
 
 - Bounded retries with exponential backoff for transient Git/OCI/network errors; fail fast on permanent errors (e.g., bad credentials).
 - Always publish final results in a `finally` task (`status.code`, `status.message`, `summary-json`) to keep UI signals deterministic.
 - Idempotent packaging path and an explicit `allowOverwrite` parameter avoid accidental duplication and make re-runs safe.
 
-### Security {#security}
+### Security
 
 - Least-privilege RBAC; mount secrets only to steps that need them; run as non-root with a read-only root filesystem.
 - TLS verification is enabled by default (custom CA supported); do not echo credentials in logs.
 - Optional hardening (signing, SBOM, scanning) can be composed as adjacent steps without changing the contract.
 
-### Usability {#usability}
+### Usability
 
 - Stable outputs (`artifact.*`, `status.*`, `summary-json`) for dashboards/CLI; clear, typed error codes to speed up triage.
 - Provide minimal examples for common auth/TLS/overwrite scenarios; parameters and defaults aim for least surprise.
@@ -320,12 +281,12 @@ UI can read **summary-json** or the discrete `artifact.*` and `status.*` results
 - **Chart Invalid** — Validate `Chart.yaml` and fail fast with actionable logs.  
 - **Network Flakiness** — Bounded retries with backoff for transient errors.
 
-### Drawbacks {#drawbacks}
+### Drawbacks
 
 - Helm/OCI tooling must be present in the step images.  
 - Private CAs and air‑gapped registries add operational complexity.
 
-## Alternatives {#alternatives}
+## Alternatives
 
 - Use non‑OCI Helm repositories (index.yaml + object storage) — less aligned with modern OCI workflows.  
 - Run packaging in external CI (e.g., GitHub Actions) — loses in‑cluster policy controls and K8s‑native observability.  
@@ -367,7 +328,7 @@ We version the pipeline as a **product** using semantic versioning (SemVer).
 1. Task implementation and integration test PR
 2. Documentation and examples PR
 
-## References {#references}
+## References
 
 - [Helm OCI documentation](https://helm.sh/docs/topics/registries/)  
 - [Tekton Pipelines documentation](https://tekton.dev/docs/pipelines/pipelines/)

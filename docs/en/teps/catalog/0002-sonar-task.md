@@ -9,43 +9,15 @@ authors:
 
 # TEP-0002: Sonar Task
 
-<!-- toc -->
-- [Summary](#summary)
-- [Motivation](#motivation)
-  - [Goals](#goals)
-  - [Non-Goals](#non-goals)
-  - [Use Cases](#use-cases)
-  - [Requirements](#requirements)
-- [Proposal](#proposal)
-  - [Notes and Caveats](#notes-and-caveats)
-- [Design Details](#design-details)
-- [Design Evaluation](#design-evaluation)
-  - [Reusability](#reusability)
-  - [Simplicity](#simplicity)
-  - [Flexibility](#flexibility)
-  - [Conformance](#conformance)
-  - [User Experience](#user-experience)
-  - [Performance](#performance)
-  - [Risks and Mitigations](#risks-and-mitigations)
-  - [Drawbacks](#drawbacks)
-- [Alternatives](#alternatives)
-- [Implementation Plan](#implementation-plan)
-  - [Test Plan](#test-plan)
-  - [Infrastructure Needed](#infrastructure-needed)
-  - [Upgrade and Migration Strategy](#upgrade-and-migration-strategy)
-  - [Implementation Pull Requests](#implementation-pull-requests)
-- [References](#references)
-<!-- /toc -->
-
-## Summary {#summary}
+## Summary
 
 This proposal aims to create a unified Sonar Task for performing code static analysis, security scanning, and other operations in Tekton Pipelines. The Task is based on best practices from the existing Tekton Hub Sonar Task while ensuring that existing users can migrate to the new Task at zero or minimal cost. The new Task will provide secure default configurations and flexible customization options to meet the needs of different users.
 
-## Motivation {#motivation}
+## Motivation
 
 By providing a unified Sonar Task, we ensure compatibility, security, and flexibility while delivering a better user experience.
 
-### Goals {#goals}
+### Goals
 
 1. Provide a fully functional Sonar Task that supports common Sonar usage scenarios
 2. Ensure no temporary files are left in the workspace after scanning
@@ -74,7 +46,7 @@ By providing a unified Sonar Task, we ensure compatibility, security, and flexib
    - Using images containing specific versions of sonar scanner
    - Configuring custom scan configurations
 
-### Requirements {#requirements}
+### Requirements
 
 1. **Functional Requirements**
    - Support scanning code in multiple languages
@@ -94,7 +66,7 @@ By providing a unified Sonar Task, we ensure compatibility, security, and flexib
    - Support main features of Tekton Hub Sonar Task
    - Backward compatibility with existing Pipeline definitions
 
-## Proposal {#proposal}
+## Proposal
 
 Create a new unified Sonar Task with the following characteristics:
 
@@ -253,25 +225,25 @@ spec:
 
 ## Design Evaluation {#design-evaluation}
 
-### Reusability {#reusability}
+### Reusability
 
 - Supports all standard Sonar usage scenarios
 - Provides flexible configuration options
 - Can be used in different environments
 
-### Simplicity {#simplicity}
+### Simplicity
 
 - Maintains simple and clear configuration interface
 - Provides reasonable default values
 - Clear documentation and examples
 
-### Flexibility {#flexibility}
+### Flexibility
 
 - Supports custom Sonar images
 - Supports multiple authentication methods
 - Extensible parameter design
 
-### Conformance {#conformance}
+### Conformance
 
 - Fully compatible with Tekton Hub
 - Follows Tekton best practices
@@ -283,7 +255,7 @@ spec:
 - Clear error messages
 - Detailed usage documentation
 
-### Performance {#performance}
+### Performance
 
 - Supports local repository caching
 - Optimized build process
@@ -309,7 +281,7 @@ Directly use officially provided images.
 - https://github.com/SonarSource/sonar-scanner-cli-docker/blob/master/Dockerfile
 - https://hub.docker.com/r/sonarsource/sonar-scanner-cli/tags
 
-### Drawbacks {#drawbacks}
+### Drawbacks
 
 1. Increased configuration complexity to support compatibility
 2. Need to maintain multiple authentication methods
@@ -353,7 +325,7 @@ No additional alternatives are proposed in this iteration.
 1. Task implementation and integration test PR
 2. Documentation and examples PR
 
-## References {#references}
+## References
 
 1. [Sonar Analysis Parameters](https://docs.sonarsource.com/sonarqube-server/latest/analyzing-source-code/analysis-parameters)
 2. [Tekton Hub Sonar Task](https://github.com/tektoncd/catalog/tree/main/task/sonarqube-scanner)
