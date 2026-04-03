@@ -1,22 +1,10 @@
 # Buildah Task
 
-- [Summary](#summary)
-- [Motivation](#motivation)
-  - [Goals](#goals)
-  - [Non-Goals](#non-goals)
-  - [Use Cases](#use-cases)
-  - [Requirements](#requirements)
-- [Design Details](#design-details)
-  - [Performance](#performance)
-  - [Test Plan](#test-plan)
-  - [Infrastructure Needed](#infrastructure-needed)
-- [References](#references)
-
-## Summary {#summary}
+## Summary
 
 This proposal aims to create an Image Task for executing container image build operations in Tekton Pipeline.
 
-## Motivation {#motivation}
+## Motivation
 
 Currently, there are multiple image building tools in the community, such as Docker, Buildah, BuildKit, etc., each with different advantages and disadvantages.
 
@@ -42,7 +30,7 @@ fuse-overlayfs kernel requirements:
 
 OverlayFS: Introduced in kernel version 3.18.0, improved by docker 4.0.
 
-### Goals {#goals}
+### Goals
 
 1. Ability to build images through Containerfile
 2. Provide default images for building
@@ -63,7 +51,7 @@ OverlayFS: Introduced in kernel version 3.18.0, improved by docker 4.0.
 - Setting different build formats (oci, docker)
 - Supporting custom build parameters
 
-### Requirements {#requirements}
+### Requirements
 
 - Support Containerfile image building
 - Ability to push to default image registry (http/https)
@@ -244,7 +232,7 @@ spec:
     emptyDir: {}
 ```
 
-### Performance {#performance}
+### Performance
 
 - No daemon required, high performance.
 - When building heterogeneous images, QEMU support is required.
@@ -289,7 +277,7 @@ To ensure security, the vfs storage driver is used by default with SETFCAP permi
 1. CI/CD environment
 2. Registry for publishing images
 
-## References {#references}
+## References
 
 - [Tekton Buildah Task](https://hub.tekton.dev/tekton/task/buildah)
 - [Buildah System Requirements](https://github.com/containers/buildah/blob/main/install.md#system-requirements)

@@ -8,35 +8,7 @@ authors:
   - "@danielfbm"
 ---
 
-
-- [Summary](#summary)
-- [Motivation](#motivation)
-  - [Goals](#goals)
-  - [Non-Goals](#non-goals)
-  - [Use Cases](#use-cases)
-  - [Requirements](#requirements)
-- [Proposal](#proposal)
-  - [Notes and Caveats](#notes-and-caveats)
-- [Design Details](#design-details)
-- [Design Evaluation](#design-evaluation)
-  - [Reusability](#reusability)
-  - [Simplicity](#simplicity)
-  - [Flexibility](#flexibility)
-  - [Conformance](#conformance)
-  - [User Experience](#user-experience)
-  - [Performance](#performance)
-  - [Risks and Mitigations](#risks-and-mitigations)
-  - [Drawbacks](#drawbacks)
-- [Alternatives](#alternatives)
-- [Implementation Plan](#implementation-plan)
-  - [Test Plan](#test-plan)
-  - [Infrastructure Needed](#infrastructure-needed)
-  - [Upgrade and Migration Strategy](#upgrade-and-migration-strategy)
-  - [Implementation Pull Requests](#implementation-pull-requests)
-- [References](#references)
-<!-- /toc -->
-
-## Summary {#summary}
+## Summary
 
 <!--
 This section is very important for generating high-quality user documentation (such as release notes or development roadmaps). This information should be collected before implementation begins to avoid distracting implementers between writing release notes and implementing features.
@@ -48,7 +20,7 @@ In this section and the following sections, please follow the guidance of the [D
 [Documentation Style Guide]: https://github.com/kubernetes/community/blob/master/contributors/guide/style-guide.md
 -->
 
-## Motivation {#motivation}
+## Motivation
 
 <!--
 This section clearly lists the motivation, goals, and non-goals of this TEP. Describe the importance of the changes and their benefits to users. The motivation section may optionally provide links to [Experience Reports][experience reports] to demonstrate broader Tekton community interest in the TEP.
@@ -56,7 +28,7 @@ This section clearly lists the motivation, goals, and non-goals of this TEP. Des
 [Experience Reports]: https://github.com/golang/go/wiki/ExperienceReports
 -->
 
-### Goals {#goals}
+### Goals
 
 <!--
 List the specific goals of the TEP.
@@ -83,7 +55,7 @@ Consider users':
 [role]: https://github.com/tektoncd/community/blob/main/user-profiles.md
 -->
 
-### Requirements {#requirements}
+### Requirements
 
 <!--
 Describe the constraints that the solution must satisfy, such as:
@@ -92,7 +64,7 @@ Describe the constraints that the solution must satisfy, such as:
 - Which user scenarios will be affected and must be accommodated?
 -->
 
-## Proposal {#proposal}
+## Proposal
 
 <!--
 This is where we specifically discuss the proposal content. There should be enough detail for reviewers to accurately understand your proposal, but it should not include API design or implementation details. The "Design Details" section below is for the actual detailed discussion.
@@ -122,7 +94,7 @@ If including workflow diagrams or any related images would be helpful, add them 
 How does this proposal affect Tekton's API conventions, reusability, simplicity, flexibility, and conformance as described in the [Design Principles](https://github.com/tektoncd/community/blob/master/design-principles.md)
 -->
 
-### Reusability {#reusability}
+### Reusability
 
 <!--
 https://github.com/tektoncd/community/blob/main/design-principles.md#reusability
@@ -131,7 +103,7 @@ https://github.com/tektoncd/community/blob/main/design-principles.md#reusability
 - Is the problem being solved an author-time or runtime problem? Is the proposed functionality at the appropriate level (author-time or runtime)?
 -->
 
-### Simplicity {#simplicity}
+### Simplicity
 
 <!--
 https://github.com/tektoncd/community/blob/main/design-principles.md#simplicity
@@ -143,7 +115,7 @@ https://github.com/tektoncd/community/blob/main/design-principles.md#simplicity
 - Are there any implicit behaviors in the proposal? Will users expect these implicit behaviors, or will they be surprised? Do these implicit behaviors have security implications?
 -->
 
-### Flexibility {#flexibility}
+### Flexibility
 
 <!--
 https://github.com/tektoncd/community/blob/main/design-principles.md#flexibility
@@ -155,7 +127,7 @@ https://github.com/tektoncd/community/blob/main/design-principles.md#flexibility
 - Are there opinionated choices in this proposal? If so, are they necessary? Can users extend it with their own choices?
 -->
 
-### Conformance {#conformance}
+### Conformance
 
 <!--
 https://github.com/tektoncd/community/blob/main/design-principles.md#conformance
@@ -175,7 +147,7 @@ Consider the impact on user experience. Depending on the area of change, users m
 Consider including people who also work on CLI and dashboard.
 -->
 
-### Performance {#performance}
+### Performance
 
 <!--
 (Optional)
@@ -193,13 +165,13 @@ What are the risks of this proposal and how do we mitigate them? Think broadly. 
 - How will user experience be reviewed, and by whom?
 -->
 
-### Drawbacks {#drawbacks}
+### Drawbacks
 
 <!--
 Why should this TEP not be implemented?
 -->
 
-## Alternatives {#alternatives}
+## Alternatives
 
 <!--
 What other approaches did you consider and why were they excluded? These don't need to be as detailed as the proposal, but should include enough information to convey the ideas and why they are unacceptable.
@@ -247,7 +219,7 @@ Once the TEP is ready to be marked as implemented, list all merged GitHub pull r
 Note: This section is specifically for merged pull requests for this TEP. It will serve as a quick reference for those looking for the implementation of this TEP.
 -->
 
-## References {#references}
+## References
 
 <!--
 (Optional)

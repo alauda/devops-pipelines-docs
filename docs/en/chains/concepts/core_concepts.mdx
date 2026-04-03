@@ -44,7 +44,7 @@ Image attestation is used for storing and verifying metadata information related
 - [SLSA Provenance](#slsa-provenance)
 - [SBOM](#sbom-software-bill-of-materials)
 - [Vulnerability scan results](#vulnerability-scan-results)
-- [Custom metadata](#custom-metadata-attestation)
+- [Custom metadata](#custom-metadata)
 
 ### SLSA Provenance \{#slsa-provenance}
 
@@ -75,7 +75,7 @@ SBOM can be in various formats, such as:
 - List of discovered vulnerabilities and their severity
 - Remediation recommendations
 
-### Custom metadata \{#custom-metadata-attestation}
+### Custom metadata \{#custom-metadata}
 
 Custom metadata can be added as needed to support specific security requirements.
 
@@ -130,5 +130,3 @@ Storage backends are where Tekton Chains stores the generated provenance and sig
 ## Controller
 
 The Tekton Chains controller is the core component that observes TaskRun and PipelineRun executions, captures relevant information, and generates, signs, and stores provenance. It runs as a Kubernetes deployment in the `tekton-pipelines` namespace.
-
-<a id="custom-metadata-attestation"></a>

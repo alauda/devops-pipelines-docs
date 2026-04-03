@@ -5,52 +5,15 @@ draft: true
 sourceSHA: 4bf0f77ef9006b15e989bddeaa56b9258a037297293f21928d977e5af6be6076
 ---
 
-- [Overview](#overview)
-- [Motivation](#motivation)
-  - [Objectives](#objectives)
-  - [Non-objectives](#non-objectives)
-  - [Use Cases](#use-cases)
-  - [Requirements](#requirements)
-- [Proposal](#proposal)
-  - [Considerations and Warnings](#considerations-and-warnings)
-- [Design Details](#design-details)
-  - [Event Types (ClusterTriggerBinding and TriggerBinding)](#event-types-clustertriggerbinding-and-triggerbinding)
-  - [Interceptors (ClusterInterceptors and Interceptors)](#interceptors-clusterinterceptors-and-interceptors)
-    - [Cel Interceptor](#cel-interceptor)
-  - [Triggers (Trigger)](#triggers-trigger)
-    - [Pipeline Trigger](#pipeline-trigger)
-  - [EventListener](#eventlistener)
-    - [NodePort](#nodeport)
-    - [Ingress + TLS Deployment](#ingress--tls-deployment)
-    - [HTTPS NodePort Deployment](#https-nodeport-deployment)
-    - [Small-scale Configuration Plan](#small-scale-configuration-plan)
-  - [EventListener Save and Retrieval Plan](#eventlistener-save-and-retrieval-plan)
-- [Design Evaluation](#design-evaluation)
-  - [Reusability](#reusability)
-  - [Simplicity](#simplicity)
-  - [Flexibility](#flexibility)
-  - [Consistency](#consistency)
-  - [User Experience](#user-experience)
-  - [Performance](#performance)
-  - [Risks and Mitigations](#risks-and-mitigations)
-  - [Disadvantages](#disadvantages)
-- [Alternatives](#alternatives)
-- [Implementation Plan](#implementation-plan)
-  - [Testing Plan](#testing-plan)
-  - [Required Infrastructure](#required-infrastructure)
-  - [Upgrade and Migration Strategy](#upgrade-and-migration-strategy)
-  - [Implementation Pull Requests](#implementation-pull-requests)
-- [References](#references)
-
-## Overview {#overview}
+## Overview
 
 To help users quickly create Tekton Triggers while reusing existing mechanisms and capabilities.
 
-## Motivation {#motivation}
+## Motivation
 
 The Tekton Trigger API and its capabilities are very flexible, supporting a wide range of scenarios. In the product, we need to guide users on how to quickly create triggers and automatically trigger pipelines through the experience.
 
-### Objectives {#objectives}
+### Objectives
 
 - Provide guidance on how to create triggers through product experience.
 - Assist product developers and platform teams in supporting more event types.
@@ -71,7 +34,7 @@ The experience should consider the most common use cases and deliver a universal
 - `Code Repository Trigger`: Triggered by code repository changes, PR changes, or code Tag triggers.
 - `Artifact Trigger`: Triggered when an artifact changes.
 
-### Requirements {#requirements}
+### Requirements
 
 The following conditions must be met:
 
@@ -82,7 +45,7 @@ The following conditions must be met:
 - Allow users to define custom event filtering criteria.
 - Enable the use of information from events as pipeline parameters.
 
-## Proposal {#proposal}
+## Proposal
 
 By reusing existing Tekton Triggers APIs and providing a simplified and unified experience, we aim to allow users to quickly add required triggers while maintaining a flexible YAML creation entry to satisfy scenarios beyond form experiences.
 
@@ -355,7 +318,7 @@ spec:
                 emptyDir: {}
 ```
 
-### EventListener {#eventlistener}
+### EventListener
 
 Due to the involvement of network and infrastructure configurations, the maintenance of EventListener needs to adapt based on the scale of the planned deployment, taking into account the available infrastructure capabilities as follows to consider different solutions:
 
@@ -365,7 +328,7 @@ Due to the involvement of network and infrastructure configurations, the mainten
 - Self-signed TLS certificate + Ingress + Address/DNS (simple, encrypted, compatibility with tools/webhook initiation needs to be considered)
 - Official TLS certificate + Ingress + DNS (complex configuration, high foundational setup requirements, most secure)
 
-#### NodePort {#nodeport}
+#### NodePort
 
 Deploy the EventListener service using NodePort to accept external requests.
 
@@ -566,19 +529,19 @@ TODO: Design and write.
 
 ## Design Evaluation {#design-evaluation}
 
-### Reusability {#reusability}
+### Reusability
 
 Not applicable.
 
-### Simplicity {#simplicity}
+### Simplicity
 
 The design considers that users can place all necessary configurations in a single resource `Trigger`, eliminating the need to maintain multiple different resources simultaneously.
 
-### Flexibility {#flexibility}
+### Flexibility
 
 The trigger maintenance methods do not restrict users from customizing the required trigger configurations via YAML, maintaining a high level of flexibility.
 
-### Consistency {#consistency}
+### Consistency
 
 This proposal reuses the existing Tekton Triggers API, maintaining consistency.
 
@@ -586,7 +549,7 @@ This proposal reuses the existing Tekton Triggers API, maintaining consistency.
 
 By simplifying and unifying the maintenance of `Triggers` resources, the user experience becomes simpler while retaining the existing concepts.
 
-### Performance {#performance}
+### Performance
 
 Refer to the "Risks and Mitigations" section below.
 
@@ -611,11 +574,11 @@ Interceptor: Operated as a stateless service, scaling out different instances ca
 
 In larger scales, using interceptor services across different namespaces can mitigate the impact between projects.
 
-### Disadvantages {#disadvantages}
+### Disadvantages
 
 TODO
 
-## Alternatives {#alternatives}
+## Alternatives
 
 Individually maintaining each Tekton Triggers API to address specific use cases:
 
@@ -647,7 +610,7 @@ Not applicable.
 
 TODO
 
-## References {#references}
+## References
 
 - [EventListener docs](https://tekton.dev/docs/triggers/eventlisteners)
 
