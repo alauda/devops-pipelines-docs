@@ -158,6 +158,10 @@ Output attributes calculated from parameters and connector information, and thei
 attributes:
 - name: url
   param: git-url                 # Pipeline parameter name (when parameterized)
+  transform:                     # Optional value transform
+    prefix: "https://"           # Add prefix before resolved attribute value
+    suffix: ".git"               # Add suffix after resolved attribute value
+    accessor: "repository"       # Read sub-value (field/index) from structured attribute
   refPath:                       # Where this attribute is used
   - tasks.git-clone.params.url   # PipelineTask parameter that receives this value
 - name: revision
@@ -171,7 +175,32 @@ attributes:
 - **Attribute value** is calculated using the expression defined in `ResourceInterface.spec.attributes[].expression`
 - **Parameterized attributes** create pipeline parameters (specified by `param` field)
 - **Static attributes** use fixed values (specified by `value` field)
+- **transform** optionally adjusts a resolved attribute value before mapping:
+  - `prefix`: adds a prefix string to the attribute value
+  - `suffix`: adds a suffix string to the attribute value
+  - `accessor`: selects a sub-value from structured attributes:
+    - for array attributes, use an index (for example, `"0"`)
+    - for object attributes, use a field name (for example, `"repository"`)
+    - after `accessor` selects a sub-value, the resulting attribute value is converted to `string`
 - **refPath** defines where the attribute value is used in pipeline tasks
+
+**Quick example (`transform`)**
+
+```yaml
+attributes:
+- name: artifacts
+  param: chartRef
+  transform:
+    accessor: "0"
+    prefix: "oci://"
+    suffix: "-prod"
+```
+
+If the resolved `artifacts` value is `["registry.example.com/team/app"]`, this mapping uses the first item and produces `oci://registry.example.com/team/app-prod`.
+
+- Use `accessor` when the attribute is an array/object and you only need one item/field.
+- Use `prefix` when the downstream task expects a fixed protocol or literal prefix (for example, `oci://`).
+- Use `suffix` when the downstream task needs a fixed postfix such as an environment marker (for example, `-prod`).
 
 ### Workspaces
 
