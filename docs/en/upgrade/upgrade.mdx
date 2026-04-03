@@ -21,18 +21,6 @@ Before upgrading the `Alauda DevOps Pipelines` Operator, ensure you:
 - Upload a new version of the Operator, refer to the installation guide for [operator upload instructions
 ](../install.mdx#prerequisites).
 
-### Confirm Target Channel First
-
-Before you approve an upgrade, confirm which channel your `Subscription` uses:
-
-- `stable` (default): Tracks LTS releases only, recommended for production.
-- `latest`: Tracks all releases, including non-LTS.
-- `pipelines-4.10`: Tracks patch updates in the `v4.10` LTS line only.
-
-:::warning
-If you are currently on a non-LTS version in `latest`, switching to `stable` does not downgrade. You might stay on the current version without a new upgrade prompt until a newer LTS is published.
-:::
-
 ## Upgrade Process
 
 ### Using `Marketplace`/`OperatorHub`
@@ -102,7 +90,7 @@ You can also upgrade the `Alauda DevOps Pipelines` Operator using the command li
      $ kubectl get subscriptions.operators.coreos.com -A | grep tektoncd-operator
      
      NAMESPACE               NAME                    PACKAGE                 SOURCE     CHANNEL
-     tekton-operator         tektoncd-operator       tektoncd-operator       platform   stable
+     tekton-operator         tektoncd-operator       tektoncd-operator       platform   latest
      ```
 
 2. **Switch to Target Channel**
@@ -110,7 +98,7 @@ You can also upgrade the `Alauda DevOps Pipelines` Operator using the command li
      ```bash
      $ kubectl patch subscriptions.operators.coreos.com tektoncd-operator --type merge -p '{"spec":{"channel": "<target-channel>"}}' -n tekton-operator
      ```
-     Replace `<target-channel>` with the desired channel (e.g., `stable`, `latest`, `pipelines-4.10`).
+     Replace `<target-channel>` with the desired channel (e.g., `pipelines-4.1`, `latest`).
 
 3. **Wait for UpgradePending State**
    - Monitor the subscription status until it shows `UpgradePending`:

@@ -37,15 +37,15 @@ authors:
 - [References](#references)
 <!-- /toc -->
 
-## Summary {#summary}
+## Summary
 
 This proposal aims to create a unified Sonar Task for performing code static analysis, security scanning, and other operations in Tekton Pipelines. The Task is based on best practices from the existing Tekton Hub Sonar Task while ensuring that existing users can migrate to the new Task at zero or minimal cost. The new Task will provide secure default configurations and flexible customization options to meet the needs of different users.
 
-## Motivation {#motivation}
+## Motivation
 
 By providing a unified Sonar Task, we ensure compatibility, security, and flexibility while delivering a better user experience.
 
-### Goals {#goals}
+### Goals
 
 1. Provide a fully functional Sonar Task that supports common Sonar usage scenarios
 2. Ensure no temporary files are left in the workspace after scanning
@@ -54,12 +54,12 @@ By providing a unified Sonar Task, we ensure compatibility, security, and flexib
 5. Optimize build performance and resource usage
 6. Provide clear documentation and migration guides
 
-### Non-Goals {#non-goals}
+### Non-Goals
 
 1. Replace project-specific Sonar configurations or build logic
 2. Provide complex quality gate strategies
 
-### Use Cases {#use-cases}
+### Use Cases
 
 1. **Scanning different revision code**
    - Main branch
@@ -74,7 +74,7 @@ By providing a unified Sonar Task, we ensure compatibility, security, and flexib
    - Using images containing specific versions of sonar scanner
    - Configuring custom scan configurations
 
-### Requirements {#requirements}
+### Requirements
 
 1. **Functional Requirements**
    - Support scanning code in multiple languages
@@ -94,7 +94,7 @@ By providing a unified Sonar Task, we ensure compatibility, security, and flexib
    - Support main features of Tekton Hub Sonar Task
    - Backward compatibility with existing Pipeline definitions
 
-## Proposal {#proposal}
+## Proposal
 
 Create a new unified Sonar Task with the following characteristics:
 
@@ -110,13 +110,13 @@ Create a new unified Sonar Task with the following characteristics:
    - Secure handling of sensitive information
    - Least privilege execution
 
-### Notes and Caveats {#notes-and-caveats}
+### Notes and Caveats
 
 1. Use UBI base images by default to ensure security
 2. Recommend using workspace approach for handling sensitive information
 3. Local repository caching may increase storage usage
 
-## Design Details {#design-details}
+## Design Details
 
 ### Task Comparison
 
@@ -251,45 +251,45 @@ spec:
         # 3. Clean up temporary files
 ```
 
-## Design Evaluation {#design-evaluation}
+## Design Evaluation
 
-### Reusability {#reusability}
+### Reusability
 
 - Supports all standard Sonar usage scenarios
 - Provides flexible configuration options
 - Can be used in different environments
 
-### Simplicity {#simplicity}
+### Simplicity
 
 - Maintains simple and clear configuration interface
 - Provides reasonable default values
 - Clear documentation and examples
 
-### Flexibility {#flexibility}
+### Flexibility
 
 - Supports custom Sonar images
 - Supports multiple authentication methods
 - Extensible parameter design
 
-### Conformance {#conformance}
+### Conformance
 
 - Fully compatible with Tekton Hub
 - Follows Tekton best practices
 - Unified configuration patterns
 
-### User Experience {#user-experience}
+### User Experience
 
 - Zero-cost migration path
 - Clear error messages
 - Detailed usage documentation
 
-### Performance {#performance}
+### Performance
 
 - Supports local repository caching
 - Optimized build process
 - Resource usage optimization
 
-### Risks and Mitigations {#risks-and-mitigations}
+### Risks and Mitigations
 
 1. **Migration Risks**
    - Provide detailed migration guides
@@ -309,18 +309,14 @@ Directly use officially provided images.
 - https://github.com/SonarSource/sonar-scanner-cli-docker/blob/master/Dockerfile
 - https://hub.docker.com/r/sonarsource/sonar-scanner-cli/tags
 
-### Drawbacks {#drawbacks}
+### Drawbacks
 
 1. Increased configuration complexity to support compatibility
 2. Need to maintain multiple authentication methods
 
-## Alternatives {#alternatives}
+## Implementation Plan
 
-At this stage, there are no better alternatives than a unified Sonar Task that preserves compatibility and improves secure defaults.
-
-## Implementation Plan {#implementation-plan}
-
-### Test Plan {#test-plan}
+### Test Plan
 
 1. **Integration Tests**
    - Provide different revision code scanning capability tests
@@ -338,25 +334,23 @@ At this stage, there are no better alternatives than a unified Sonar Task that p
 2. **Compatibility Tests**
    - Migration tests with Tekton Hub
 
-### Infrastructure Needed {#infrastructure-needed}
+### Infrastructure Needed
 
 1. CI/CD environment
 2. Sonar Server
 
-### Upgrade and Migration Strategy {#upgrade-and-migration-strategy}
+### Upgrade and Migration Strategy
 
 1. **Tekton Hub Users**
    - Update Task references
 
-### Implementation Pull Requests {#implementation-pull-requests}
+### Implementation Pull Requests
 
 1. Task implementation and integration test PR
 2. Documentation and examples PR
 
-## References {#references}
+## References
 
 1. [Sonar Analysis Parameters](https://docs.sonarsource.com/sonarqube-server/latest/analyzing-source-code/analysis-parameters)
 2. [Tekton Hub Sonar Task](https://github.com/tektoncd/catalog/tree/main/task/sonarqube-scanner)
 3. [Sonar Scanner Image](https://hub.docker.com/r/sonarsource/sonar-scanner-cli/tags)
-
-<a id="alternatives"></a>

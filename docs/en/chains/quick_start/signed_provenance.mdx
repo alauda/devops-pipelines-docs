@@ -51,7 +51,7 @@ Tekton Chains helps you secure your software supply chain by automatically gener
 
 ## Step-by-Step Instructions
 
-### Step 1: Generate Signing Keys \{#step-1-generate-signing-keys}
+### Step 1: Generate Signing Keys
 
 :::tip
 For more details, please refer to [Signing Key Configuration](../configure/signing_key_configuration)
@@ -82,7 +82,7 @@ Tekton Chains uses cryptographic keys to sign artifacts. By default, it looks fo
    signing-secrets   Opaque   3      3m
    ```
 
-### Step 2: Set up Authentication \{#step-2-set-up-authentication}
+### Step 2: Set up Authentication
 
 :::tip
 For more details, please refer to [Authentication for Chains](../configure/authentication_for_chains)
@@ -115,7 +115,7 @@ Configure registry credentials for image pushing:
      -p "{\"secrets\": [{\"name\": \"registry-credentials\"}]}" -n $NAMESPACE
    ```
 
-### Step 3: Configure Tekton Chains \{#step-3-configure-tekton-chains}
+### Step 3: Configure Tekton Chains
 
 :::tip
 For more details, please refer to [Chains Configuration](../configure/chains_configuration)
@@ -138,7 +138,7 @@ $ kubectl patch tektonconfigs.operator.tekton.dev config --type=merge -p='{
 }'
 ```
 
-### Step 4: Create a Sample Pipeline \{#step-4-create-a-sample-pipeline}
+### Step 4: Create a Sample Pipeline
 
 This is a Pipeline resource, which is used to build the image and generate the SLSA Provenance attestation.
 
@@ -268,7 +268,7 @@ $ export NAMESPACE=<default>
 $ kubectl apply -n $NAMESPACE -f chains.demo-1.pipeline.yaml
 ```
 
-### Step 5: Run a Sample Pipeline \{#step-5-run-a-sample-pipeline}
+### Step 5: Run a Sample Pipeline
 
 This is a PipelineRun resource, which is used to run the pipeline.
 
@@ -334,7 +334,7 @@ $ kubectl get pipelinerun -n $NAMESPACE -w
 chains-demo-1-<xxxxx>   True        Succeeded   2m         2m
 ```
 
-### Step 6: Wait for the PipelineRun to be signed \{#step-6-wait-for-the-pipelinerun-to-be-signed}
+### Step 6: Wait for the PipelineRun to be signed
 
 Wait for the PipelineRun has `chains.tekton.dev/signed: "true"` annotation.
 
@@ -349,7 +349,7 @@ $ kubectl get pipelinerun -n $NAMESPACE $PIPELINERUN_NAME -o yaml | grep "chains
 
 Once the PipelineRun has `chains.tekton.dev/signed: "true"` annotation, means the image is signed.
 
-### Step 7: Get the image from the PipelineRun \{#step-7-get-the-image-from-the-pipelinerun}
+### Step 7: Get the image from the PipelineRun
 
 ```shell
 # Get the image URI
@@ -369,7 +369,7 @@ $ echo $IMAGE
 
 This image will be used to verify the signature.
 
-### Step 8: Verifying the Image and Attestation \{#step-8-verifying-the-image-and-attestation}
+### Step 8: Verifying the Image and Attestation
 
 1. Get the Signing Public Key
 
@@ -544,4 +544,3 @@ This guide provides a foundation for implementing supply chain security in your 
 
 - [Chains Signed Provenance Tutorial](https://tekton.dev/docs/chains/signed-provenance-tutorial/)
 - [Chains Configuration](../configure/chains_configuration)
-

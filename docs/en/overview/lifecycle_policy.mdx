@@ -8,45 +8,26 @@ weight: 35
 
 Below is the lifecycle schedule for released versions of the `Alauda DevOps Pipelines` operator:
 
-| Alauda DevOps Pipelines Version | Release Date | End of Support | Version Type | Available Channels | Recommended Channel |
-| :----: | :----------: | :--------------: | :----: | :----------------: | :-----------------: |
-| v4.10.x | TBD | TBD | LTS | `stable`, `latest`, `pipelines-4.10` | `stable` |
-| v4.8.x | 2026-03-05 | 2026-07-05 | Non-LTS | `latest`, `pipelines-4.8` | `latest` |
-| v4.7.x | 2026-01-15 | 2026-05-15 | Non-LTS | `latest`, `pipelines-4.7` | `latest` |
-| v4.6.x | 2025-12-17 | 2026-12-17 | LTS | `latest`, `pipelines-4.6` | `latest` |
-| v4.4.x | 2025-10-15 | 2026-02-15 | Non-LTS | `latest`, `pipelines-4.4` | `latest` |
-| v4.3.x | 2025-09-15 | 2026-01-15 | Non-LTS | `latest`, `pipelines-4.3` | `latest` |
-| v4.2.x | 2025-08-15 | 2026-08-15 | LTS | `latest`, `pipelines-4.2` | `latest` |
-| v4.1.x | 2025-07-16 | 2025-11-16 | Non-LTS | `latest`, `pipelines-4.1` | `latest` |
-| v4.0.x | 2025-04-08 | 2026-04-08 | LTS | `latest`, `pipelines-4.0` | `latest` |
+| Alauda DevOps Pipelines Version | Release Date | End of Support | Version Type |
+| :----: | :----------: | :--------------: | :----: |
+| v4.8.x | 2026-03-05 | 2026-07-05 | Non-LTS |
+| v4.7.x | 2026-01-15 | 2026-05-15 | Non-LTS |
+| v4.6.x | 2025-12-17 | 2026-12-17 | LTS |
+| v4.4.x | 2025-10-15 | 2026-02-15 | Non-LTS |
+| v4.3.x | 2025-09-15 | 2026-01-15 | Non-LTS |
+| v4.2.x |  2025-08-15  |   2026-08-15   |     LTS      |
+| v4.1.x | 2025-07-16 | 2025-11-16 | Non-LTS |
+| v4.0.x | 2025-04-08 | 2026-12-08 | LTS |
 
 > For detailed component versions in each version, see the [Compatibility and support matrix](./release_notes.mdx#compatibility-and-support-matrix)
->
-> Version sequence note: `v4.9` is intentionally skipped. The next release after `v4.8` is `v4.10 (LTS)`.
->
-> Channel policy transition note: `stable` as the default channel starts from `v4.10.x`. Historical versions (`v4.0.x` to `v4.8.x`) used `latest` as the default channel.
 
 ## Release Policy
 
-A new minor version of the `Alauda DevOps Pipelines` operator is usually released every month.
+A new minor version of the `Alauda DevOps Pipelines` operator is released every month.
 
 Within every 4-month period, the last minor version will be selected as a Long Term Support (LTS) version. LTS versions are supported for 12 months, while non-LTS versions are supported four months.
 
-In exceptional release cycles, a minor version number can be intentionally skipped (for example, `v4.9`).
-
 During these four months, we will update to the latest or second [LTS](https://github.com/tektoncd/community/blob/main/releases.md#support-policy) version officially released by Tekton.
-
-## Channel Policy
-
-The `Alauda DevOps Pipelines` operator uses the following channel strategy:
-
-- **From `v4.10.x` onward**:
-  - `stable` (default): Contains LTS versions only and is recommended for production.
-  - `latest`: Contains all versions and is recommended for development and testing.
-  - `pipelines-x.y`: Available for LTS versions and receives patch updates in that LTS minor line.
-- **Historical versions (`v4.0.x` to `v4.8.x`)**:
-  - Default channel was `latest`.
-  - `pipelines-x.y` channels were also published for both LTS and non-LTS minor versions.
 
 ## Maintenance Policy
 

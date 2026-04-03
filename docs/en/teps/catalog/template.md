@@ -36,7 +36,7 @@ authors:
 - [References](#references)
 <!-- /toc -->
 
-## Summary {#summary}
+## Summary
 
 <!--
 This section is very important for generating high-quality user documentation (such as release notes or development roadmaps). This information should be collected before implementation begins to avoid distracting implementers between writing release notes and implementing features.
@@ -48,7 +48,7 @@ In this section and the following sections, please follow the guidance of the [D
 [Documentation Style Guide]: https://github.com/kubernetes/community/blob/master/contributors/guide/style-guide.md
 -->
 
-## Motivation {#motivation}
+## Motivation
 
 <!--
 This section clearly lists the motivation, goals, and non-goals of this TEP. Describe the importance of the changes and their benefits to users. The motivation section may optionally provide links to [Experience Reports][experience reports] to demonstrate broader Tekton community interest in the TEP.
@@ -56,7 +56,7 @@ This section clearly lists the motivation, goals, and non-goals of this TEP. Des
 [Experience Reports]: https://github.com/golang/go/wiki/ExperienceReports
 -->
 
-### Goals {#goals}
+### Goals
 
 <!--
 List the specific goals of the TEP.
@@ -64,14 +64,14 @@ List the specific goals of the TEP.
 - How do we know it succeeded?
 -->
 
-### Non-Goals {#non-goals}
+### Non-Goals
 
 <!--
 Listing non-goals helps focus discussion and make progress.
 - What does this TEP not include?
 -->
 
-### Use Cases {#use-cases}
+### Use Cases
 
 <!--
 Describe the specific improvements that particular user groups will see if the motivation in this document leads to fixes or features.
@@ -83,7 +83,7 @@ Consider users':
 [role]: https://github.com/tektoncd/community/blob/main/user-profiles.md
 -->
 
-### Requirements {#requirements}
+### Requirements
 
 <!--
 Describe the constraints that the solution must satisfy, such as:
@@ -92,13 +92,13 @@ Describe the constraints that the solution must satisfy, such as:
 - Which user scenarios will be affected and must be accommodated?
 -->
 
-## Proposal {#proposal}
+## Proposal
 
 <!--
 This is where we specifically discuss the proposal content. There should be enough detail for reviewers to accurately understand your proposal, but it should not include API design or implementation details. The "Design Details" section below is for the actual detailed discussion.
 -->
 
-### Notes and Caveats {#notes-and-caveats}
+### Notes and Caveats
 
 <!--
 (Optional)
@@ -109,7 +109,7 @@ Detail the necessary details here.
 - What are the core concepts and how do they relate?
 -->
 
-## Design Details {#design-details}
+## Design Details
 
 <!--
 This section should contain enough information to make the specific details of your changes easy to understand. This may include API specifications (though not always needed) or even code snippets. If there are any ambiguities about how to implement your proposal, this is the place to discuss them.
@@ -117,12 +117,12 @@ This section should contain enough information to make the specific details of y
 If including workflow diagrams or any related images would be helpful, add them under "/TEPs/images/". The filename is chosen by the TEP author, but the general guideline is to include at least the TEP number, such as "/TEPs/images/NNNN-workflow.jpg".
 -->
 
-## Design Evaluation {#design-evaluation}
+## Design Evaluation
 <!--
 How does this proposal affect Tekton's API conventions, reusability, simplicity, flexibility, and conformance as described in the [Design Principles](https://github.com/tektoncd/community/blob/master/design-principles.md)
 -->
 
-### Reusability {#reusability}
+### Reusability
 
 <!--
 https://github.com/tektoncd/community/blob/main/design-principles.md#reusability
@@ -131,7 +131,7 @@ https://github.com/tektoncd/community/blob/main/design-principles.md#reusability
 - Is the problem being solved an author-time or runtime problem? Is the proposed functionality at the appropriate level (author-time or runtime)?
 -->
 
-### Simplicity {#simplicity}
+### Simplicity
 
 <!--
 https://github.com/tektoncd/community/blob/main/design-principles.md#simplicity
@@ -143,7 +143,7 @@ https://github.com/tektoncd/community/blob/main/design-principles.md#simplicity
 - Are there any implicit behaviors in the proposal? Will users expect these implicit behaviors, or will they be surprised? Do these implicit behaviors have security implications?
 -->
 
-### Flexibility {#flexibility}
+### Flexibility
 
 <!--
 https://github.com/tektoncd/community/blob/main/design-principles.md#flexibility
@@ -155,7 +155,7 @@ https://github.com/tektoncd/community/blob/main/design-principles.md#flexibility
 - Are there opinionated choices in this proposal? If so, are they necessary? Can users extend it with their own choices?
 -->
 
-### Conformance {#conformance}
+### Conformance
 
 <!--
 https://github.com/tektoncd/community/blob/main/design-principles.md#conformance
@@ -165,7 +165,7 @@ https://github.com/tektoncd/community/blob/main/design-principles.md#conformance
 - If this proposal results in API changes, what updates are needed to the [API Specification](https://github.com/tektoncd/pipeline/blob/main/docs/api-spec.md)?
 -->
 
-### User Experience {#user-experience}
+### User Experience
 
 <!--
 (Optional)
@@ -175,7 +175,7 @@ Consider the impact on user experience. Depending on the area of change, users m
 Consider including people who also work on CLI and dashboard.
 -->
 
-### Performance {#performance}
+### Performance
 
 <!--
 (Optional)
@@ -185,7 +185,7 @@ Consider the use cases affected by this change and their performance requirement
 - What impact does it have on the resource consumption of Tekton controllers and TaskRuns and PipelineRuns?
 -->
 
-### Risks and Mitigations {#risks-and-mitigations}
+### Risks and Mitigations
 
 <!--
 What are the risks of this proposal and how do we mitigate them? Think broadly. For example, consider security and how this will affect the larger Tekton ecosystem. Consider including people working outside of working groups or subprojects.
@@ -193,25 +193,25 @@ What are the risks of this proposal and how do we mitigate them? Think broadly. 
 - How will user experience be reviewed, and by whom?
 -->
 
-### Drawbacks {#drawbacks}
+### Drawbacks
 
 <!--
 Why should this TEP not be implemented?
 -->
 
-## Alternatives {#alternatives}
+## Alternatives
 
 <!--
 What other approaches did you consider and why were they excluded? These don't need to be as detailed as the proposal, but should include enough information to convey the ideas and why they are unacceptable.
 -->
 
-## Implementation Plan {#implementation-plan}
+## Implementation Plan
 
 <!--
 What are the implementation phases or milestones? Take an incremental approach to make reviewing and merging implementation pull requests easier.
 -->
 
-### Test Plan {#test-plan}
+### Test Plan
 
 <!--
 When developing a test plan for this enhancement, consider the following:
@@ -223,7 +223,7 @@ No need to list all test cases, just outline the general strategy. Any content t
 All code should have adequate testing (with eventual coverage expectations).
 -->
 
-### Infrastructure Needed {#infrastructure-needed}
+### Infrastructure Needed
 
 <!--
 (Optional)
@@ -231,7 +231,7 @@ All code should have adequate testing (with eventual coverage expectations).
 Use this section if you need resources from the project or working group. Examples include new subprojects, requested repositories, GitHub details. Listing these allows the working group to immediately begin the process for these resources.
 -->
 
-### Upgrade and Migration Strategy {#upgrade-and-migration-strategy}
+### Upgrade and Migration Strategy
 
 <!--
 (Optional)
@@ -239,7 +239,7 @@ Use this section if you need resources from the project or working group. Exampl
 Use this section to detail whether this feature requires an upgrade or migration strategy. This is particularly useful when we modify behavior or add features that may replace and deprecate current functionality.
 -->
 
-### Implementation Pull Requests {#implementation-pull-requests}
+### Implementation Pull Requests
 
 <!--
 Once the TEP is ready to be marked as implemented, list all merged GitHub pull requests.
@@ -247,11 +247,10 @@ Once the TEP is ready to be marked as implemented, list all merged GitHub pull r
 Note: This section is specifically for merged pull requests for this TEP. It will serve as a quick reference for those looking for the implementation of this TEP.
 -->
 
-## References {#references}
+## References
 
 <!--
 (Optional)
 
 Use this section to add links to GitHub issues, other TEPs, design documents in Tekton shared drives, examples, etc. This is very useful for reviewing any other relevant links for more detailed information.
 -->
-

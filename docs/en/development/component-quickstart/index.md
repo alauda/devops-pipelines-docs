@@ -293,7 +293,7 @@ The component registration is now managed through the `components.yaml` file in 
 
 More information can be found in [Operator Integration Guide](../component-upgrade-guide/operator-integration.md)
 
-### 4. Branch Management {#4-branch-management}
+### 4. Branch Management
 
 #### 4.1 Branch Strategy
 
@@ -444,4 +444,3 @@ git push origin v4.1.0
 2. **Clear Development Progress**: Alpha tags clearly indicate development milestones
 3. **Stable Release Marking**: Release tags only appear after thorough validation
 4. **Artifact Reusability**: Prevents unnecessary rebuilds of identical commits
-

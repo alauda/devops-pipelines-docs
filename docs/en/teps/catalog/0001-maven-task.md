@@ -38,11 +38,11 @@ authors:
 - [References](#references)
 <!-- /toc -->
 
-## Summary {#summary}
+## Summary
 
 This proposal aims to create a unified Maven Task for executing Maven build, test, and deployment operations in Tekton Pipelines. The Task will integrate best practices from existing Maven Tasks in OpenShift Pipeline and Tekton Hub, while ensuring existing users can migrate to the new Task with zero or minimal cost. The new Task will provide secure default configurations and flexible customization options to meet the needs of different users.
 
-## Motivation {#motivation}
+## Motivation
 
 Currently, there are multiple Maven Task implementations in the Tekton ecosystem (primarily OpenShift Pipeline and Tekton Hub), which leads to the following issues:
 
@@ -53,7 +53,7 @@ Currently, there are multiple Maven Task implementations in the Tekton ecosystem
 
 By providing a unified Maven Task, we can address these issues and provide users with a better experience.
 
-### Goals {#goals}
+### Goals
 
 1. Provide a fully functional Maven Task that supports common Maven usage scenarios
 2. Ensure zero-cost migration from existing OpenShift Pipeline Maven Task
@@ -62,13 +62,13 @@ By providing a unified Maven Task, we can address these issues and provide users
 5. Optimize build performance and resource usage
 6. Provide clear documentation and migration guides
 
-### Non-Goals {#non-goals}
+### Non-Goals
 
 1. Replace project-specific Maven configurations or build logic
 2. Provide complex build optimization strategies
 3. Implement build functionality unrelated to Maven
 
-### Use Cases {#use-cases}
+### Use Cases
 
 1. **Java Application Building**
    - Compile source code
@@ -90,7 +90,7 @@ By providing a unified Maven Task, we can address these issues and provide users
    - Configure custom Maven settings
    - Use private build toolchains
 
-### Requirements {#requirements}
+### Requirements
 
 1. **Functional Requirements**
    - Support all standard Maven lifecycle goals
@@ -113,7 +113,7 @@ By providing a unified Maven Task, we can address these issues and provide users
    - Support main features of Tekton Hub Maven Task
    - Backward compatible with existing Pipeline definitions
 
-## Proposal {#proposal}
+## Proposal
 
 Create a new unified Maven Task with the following characteristics:
 
@@ -132,13 +132,13 @@ Create a new unified Maven Task with the following characteristics:
    - Secure handling of sensitive information
    - Least privilege execution
 
-### Notes and Caveats {#notes-and-caveats}
+### Notes and Caveats
 
 1. Default to UBI base images to ensure security
 2. Recommend using workspace approach for handling sensitive information
 3. Local repository caching may increase storage usage
 
-## Design Details {#design-details}
+## Design Details
 
 ### Task Comparison
 
@@ -252,46 +252,46 @@ spec:
         # 3. Extract and store results
 ```
 
-## Design Evaluation {#design-evaluation}
+## Design Evaluation
 
-### Reusability {#reusability}
+### Reusability
 
 - Support all standard Maven usage scenarios
 - Provide flexible configuration options
 - Can be used in different environments
 
-### Simplicity {#simplicity}
+### Simplicity
 
 - Keep configuration interface simple and clear
 - Provide reasonable default values
 - Clear documentation and examples
 
-### Flexibility {#flexibility}
+### Flexibility
 
 - Support custom Maven images
 - Support multiple authentication methods
 - Extensible parameter design
 
-### Conformance {#conformance}
+### Conformance
 
 - Compatible with existing OpenShift Pipeline Tasks
 - Not fully compatible with Tekton Hub existing Tasks, but easy to migrate
 - Follow Tekton best practices
 - Unified configuration patterns
 
-### User Experience {#user-experience}
+### User Experience
 
 - Zero-cost migration path
 - Clear error messages
 - Detailed usage documentation
 
-### Performance {#performance}
+### Performance
 
 - Support local repository caching
 - Optimized build processes
 - Resource usage optimization
 
-### Risks and Mitigations {#risks-and-mitigations}
+### Risks and Mitigations
 
 1. **Migration Risks**
    - Provide detailed migration guides
@@ -312,19 +312,15 @@ Default to latest LTS version (referencing Adoptium https://adoptium.net/temurin
 
 - `Maven 3.9.9 - OpenJDK 21`
 
-### Drawbacks {#drawbacks}
+### Drawbacks
 
 1. Increased configuration complexity to support compatibility
 2. Need to maintain multiple authentication methods
 3. May require more storage space
 
-## Alternatives {#alternatives}
+## Implementation Plan
 
-At this stage, there are no better alternatives than a unified Maven Task that keeps compatibility while improving security defaults and usability.
-
-## Implementation Plan {#implementation-plan}
-
-### Test Plan {#test-plan}
+### Test Plan
 
 1. **Integration Tests**
    - Provide Maven program validation task functionality, including:
@@ -342,12 +338,12 @@ At this stage, there are no better alternatives than a unified Maven Task that k
    - OpenShift Pipeline migration tests
    - Version compatibility tests
 
-### Infrastructure Needed {#infrastructure-needed}
+### Infrastructure Needed
 
 1. CI/CD environment
 2. Test Maven repositories
 
-### Upgrade and Migration Strategy {#upgrade-and-migration-strategy}
+### Upgrade and Migration Strategy
 
 1. **OpenShift Pipeline Users**
    - Directly replace Task references
@@ -358,17 +354,15 @@ At this stage, there are no better alternatives than a unified Maven Task that k
    - Update Task references
    - Adjust authentication configurations
 
-### Implementation Pull Requests {#implementation-pull-requests}
+### Implementation Pull Requests
 
 1. Task implementation and integration test PR
 2. Documentation and examples PR
 
-## References {#references}
+## References
 
 1. [OpenShift Pipeline Maven Task](https://github.com/openshift-pipelines/task-maven)
 2. [Tekton Hub Maven Task](https://github.com/tektoncd/catalog/tree/main/task/maven)
 3. [Maven Best Practices](https://maven.apache.org/guides/mini/guide-multiple-repositories.html)
 4. [ChainGuard maven](https://images.chainguard.dev/directory/images/maven/overview)
 5. [Adoptium maven](https://adoptium.net/temurin/releases/)
-
-<a id="alternatives"></a>

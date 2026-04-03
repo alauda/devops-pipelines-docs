@@ -666,7 +666,7 @@ This approval type will be implemented as part of the custom approval framework 
 
 For detailed architecture design, controller responsibilities, and execution patterns, see the [Design Details](#design-details) section below.
 
-## Design Details {#design-details}
+## Design Details
 
 ### Multi-Controller Architecture
 
@@ -1935,4 +1935,3 @@ status:
 - [Automatiko Approval Task](https://github.com/automatiko-io/automatiko-approval-task)
 - [Manual Tekton Approval Task](https://github.com/MoOyeg/manual-tekton-approval-task)
 - [TEP-0060: Remote Resource Resolution](https://github.com/tektoncd/community/blob/main/teps/0060-remote-resource-resolution.md)
-

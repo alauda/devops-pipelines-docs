@@ -352,7 +352,7 @@ Don't forget to revert the temporary `--reject` modification in `base.mk` after 
 git checkout origin/main base.mk
 ```
 
-#### 4.2 Update Kustomize Configuration {#42-update-kustomize-configuration}
+#### 4.2 Update Kustomize Configuration
 
 Review and update the `kustomization.yaml` files in the `config` directory:
 
@@ -717,4 +717,3 @@ Use this checklist to ensure all steps are completed:
 - [Operator Integration Guide](./operator-integration.md) - How to integrate components into the operator
 - [Branch Management Strategy](../component-quickstart/index.md#4-branch-management) - Understanding branch management
 - [CI/CD Pipeline](../e2e/index.md) - Understanding the build pipeline
-

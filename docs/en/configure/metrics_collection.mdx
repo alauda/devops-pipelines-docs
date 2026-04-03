@@ -26,7 +26,7 @@ It also covers:
 - How to deploy `ServiceMonitor` resources for scraping
 - How to verify that metrics collection is working
 
-## Prerequisites \{#prerequisites}
+## Prerequisites
 
 - Tekton control-plane components are installed and running (at minimum, the components you plan to scrape: Pipelines, Triggers, Results, and/or Chains).
 - `kubectl` is configured against the target cluster, and your account can create `ServiceMonitor` resources in the monitoring namespace.
@@ -295,7 +295,7 @@ The `run_storage_latency_seconds` histogram uses the following bucket boundaries
 
 #### Watcher config-observability
 
-The Results Watcher has its own `config-observability` ConfigMap (named via the `CONFIG_OBSERVABILITY_NAME` environment variable, typically `tekton-results-config-observability`). This ConfigMap is managed by the Tekton Operator and should be configured via the `TektonConfig` resource's `spec.result.options.configMaps` field. See [Adjusting Optional Configuration Items for Subcomponents](./customize_options.mdx) for details.
+The Results Watcher has its own `config-observability` ConfigMap (named via the `CONFIG_OBSERVABILITY_NAME` environment variable, typically `tekton-results-config-observability`). This ConfigMap is managed by the Tekton Operator and should be configured via the `TektonConfig` resource's `spec.results.options.configMaps` field. See [Adjusting Optional Configuration Items for Subcomponents](./customize_options.mdx) for details.
 
 > **Hot reload behavior**: Results Watcher also watches this ConfigMap and applies most key changes without Pod restarts. A restart is only needed when Deployment-level settings (such as env vars/args) are changed.
 
@@ -1549,4 +1549,3 @@ spec:
 - `TaskRun Signatures Created (last 5m)`, `PipelineRun Signatures Created (last 5m)`, `Payloads Stored (last 5m)`, and `Marked Signed (last 5m)` use `increase(...[5m])` and represent increments in the last five minutes.
 - When there is no new signing or storage activity, these lines drop to `0`; this does not imply a component fault.
 - `Payloads Stored` and `Marked Signed` represent different processing stages, so their values are not expected to always match.
-

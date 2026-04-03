@@ -153,7 +153,7 @@ You should see three pods in `Running` state:
 - `pipelines-as-code-watcher-*`
 - `pipelines-as-code-webhook-*`
 
-### Configure Access \{#configure-access}
+### Configure Access
 
 PAC component needs to be exposed so that webhook events from Git providers can reach it. The PAC controller URL is used when configuring webhooks in your Git provider.
 
@@ -347,7 +347,7 @@ Example output:
 
 Access PAC at `http://<node-ip>:<node-port>`.
 
-### How to Get PAC Controller URL \{#how-to-get-pac-controller-url}
+### How to Get PAC Controller URL
 
 After exposing the PAC controller, you can get the URL using the following methods:
 
@@ -582,7 +582,7 @@ Restore from the backup:
     kubectl apply -f pac-backup.yaml
     ```
 
-### Common Configuration Updates \{#common-configuration-updates}
+### Common Configuration Updates
 
 #### Change Application Name
 
@@ -635,7 +635,7 @@ Example output:
         remote-tasks: "false"
     ```
 
-#### Configure Custom Console Links \{#configure-custom-console-links}
+#### Configure Custom Console Links
 
 To integrate PAC with your custom console, configure custom console links. This allows pipeline status links in Git providers (GitLab, GitHub, etc.) to point to your custom console.
 
@@ -973,3 +973,4 @@ If some resources are not automatically removed:
 - [Configure Repository](../how_to/configure_gitlab_repo.mdx)
 - [Maintain Pipeline Code](../how_to/maintain_pipeline_code.mdx)
 - [Trigger Pipelines](../how_to/trigger_pipeline.mdx)
+

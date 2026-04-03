@@ -16,7 +16,7 @@ Authentication must be set up to take advantage of the following features in Cha
 * Pushing signatures to an OCI registry after signing an image
 * Using Fulcio to get Signing Certificates when utilizing Keyless signing
 
-## OCI Registry Authentication \{#oci-registry-authentication}
+## OCI Registry Authentication
 
 To push to an OCI registry, the Chains controller will look for credentials in two places:
 
@@ -94,7 +94,7 @@ spec:
     - name: registry-credentials
 ```
 
-#### Using ServiceAccount \{#using-serviceaccount}
+#### Using ServiceAccount
 
 Give the service account access to the secret:
 
@@ -137,4 +137,3 @@ signers.x509.fulcio.address: <"http://fulcio.fulcio-system.svc">
 
 - [Tekton Chains Authentication](https://tekton.dev/docs/chains/authentication/)
 - [Tekton Chains Configuration](https://tekton.dev/docs/chains/config/)
-

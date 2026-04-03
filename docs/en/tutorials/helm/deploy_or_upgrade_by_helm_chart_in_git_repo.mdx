@@ -1,0 +1,235 @@
+---
+weight: 53
+i18n:
+  title:
+    en: Deploy/Upgrade from Helm Charts in Git Repo
+    zh: 使用 Git 仓库中的 Helm Chart 部署/升级
+title: Deploy/Upgrade from Helm Charts in Git Repo
+---
+
+# Deploy/Upgrade from Helm Charts in Git Repo
+
+This guide shows a practical CI/CD flow where your Helm charts live under a `charts/` directory in your Git repo.
+
+We'll use Pipeline to:
+
+1. Clone the repository with the `git-clone` Task
+2. Deploy/upgrade a target chart with Helm (`helm upgrade --install`)
+
+You'll Build a reusable Pipeline named `helm-deploy-from-git-repo` that:
+
+1. Pulls your repo
+2. Runs `helm dependency build` (so subcharts are fetched)
+3. Runs `helm upgrade --install` for a chart at `charts/<name>` (or any subpath you choose)
+4. Supports `--wait`, `--timeout`, `--atomic`, extra args, multiple values files, and `--set` kv pairs
+
+## Prerequisites
+
+* A Kubernetes cluster (you can use minikube for local testing).
+* Tekton Pipelines installed on your cluster.
+* A Helm 3.8+ container image (Helm v3 with OCI support).
+* A Git repository that contains a valid Helm chart (directory with `Chart.yaml`, `templates/`, `values.yaml`).
+* Git access to the repository:
+    * Public repo: nothing special.
+    * Private repo: create a Git credential Secret (SSH or basic-auth).
+* Cluster access for Helm (choose one):
+    * Mount a Kubeconfig Secret,
+    * Run the Task under a ServiceAccount with sufficient RBAC.
+
+## Step-by-Step Instructions
+
+### Step 1: Create Cluster Access Credential
+
+You need a cluster access credential for Helm.
+
+You can refer to the [Prepare Cluster Access Credential](../prepare/prepare_cluster_access_credential.mdx).
+
+### Step 2: Prepare helm image
+
+You need a Helm 3.8+ container image (Helm v3 with OCI support) to run the `helm` command.
+
+You can refer to the [Discover Tool Image](../prepare/discover_tool_image.mdx).
+
+When searching by label, specify the image as `helm`, for example: `-l operator.tekton.dev/tool-image=helm`.
+
+### Step 3: Define the Pipeline
+
+This Pipeline uses `git-clone` to fetch your repo, then calls `helm` to install or upgrade your chart.
+
+You can use `--wait` to blocks until Kubernetes reports the release's resources are ready (or until the operation times out).
+Pair it with `--timeout` to control how long Helm will wait.
+
+It's common to combine with `--atomic`, which rolls back automatically if the wait fails or times out—so you don't leave a half-upgraded release.
+
+**Please replace `<helm-image>` with your Helm image.**
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: helm-deploy-from-git-repo
+spec:
+  description: Clone repo, package Helm chart, and push to an OCI registry.
+  params:
+    - name: repo_url
+      type: string
+      description: Git URL of your repository
+    - name: revision
+      type: string
+      description: Git revision (branch, tag, or SHA)
+      default: main
+    - name: chart_dir
+      type: string
+      description: Path to the Helm chart in the repo
+      default: "."
+    - name: release_name
+      type: string
+      description: Helm release name
+    - name: namespace
+      type: string
+      description: Target namespace
+      default: default
+    - name: extra_args
+      type: string
+      description: Extra helm args (e.g., "--atomic --timeout 5m --set key=val -f values.yaml")
+      default: ""
+  workspaces:
+    - name: source
+    - name: basic-auth
+      optional: true
+    - name: kubeconfig
+      optional: true
+  tasks:
+    - name: git-clone
+      taskRef:
+        resolver: hub
+        params:
+          - name: catalog
+            value: catalog
+          - name: kind
+            value: task
+          - name: name
+            value: git-clone
+          - name: version
+            value: "0.9"
+      workspaces:
+        - name: output
+          workspace: source
+        - name: basic-auth
+          workspace: basic-auth
+      params:
+        - name: url
+          value: $(params.repo_url)
+        - name: revision
+          value: $(params.revision)
+    - name: helm
+      runAfter:
+        - "git-clone"
+      taskRef:
+        resolver: hub
+        params:
+          - name: catalog
+            value: catalog
+          - name: kind
+            value: task
+          - name: name
+            value: run-script
+          - name: version
+            value: "0.1"
+      workspaces:
+        - name: source
+          workspace: source
+        - name: secret
+          workspace: kubeconfig
+      params:
+        - name: image
+          ## Replace with your Helm image
+          value: <helm-image>
+        - name: script
+          value: |
+            set -e
+
+            if [ "$(workspaces.secret.bound)" = "true" ]; then
+              echo "Using kubeconfig in $(workspaces.secret.path)"
+              export KUBECONFIG=$(workspaces.secret.path)/kubeconfig
+            fi
+
+            echo "Build chart dependencies (if any)…"
+            helm dependency build "$(params.chart_dir)"
+
+            echo "Upgrading/Installing release..."
+            echo "  Release:   $(params.release_name)"
+            echo "  Namespace: $(params.namespace)"
+            echo "  Chart:     $(params.chart_dir)"
+
+            # Direct install from OCI (no need to helm pull first)
+            helm upgrade --install "$(params.release_name)" "$(params.chart_dir)" \
+              --namespace "$(params.namespace)" --create-namespace \
+              $(params.extra_args)
+
+            echo "Done."
+```
+
+### Step 4: Run It with a PipelineRun
+
+* Cluster access for Helm (choose one):
+    * Mount a Kubeconfig Secret,
+    * Run the Task under a ServiceAccount with sufficient RBAC.
+
+Please choose one of cluster access credentials.
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: helm-deploy-from-git-repo-
+spec:
+  workspaces:
+    - name: source
+      volumeClaimTemplate:
+        spec:
+          ## Specify StorageClassName (as needed)
+          # storageClassName: <storage-class-name>
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 1Gi
+    - name: basic-auth
+      secret:
+        secretName: basic-auth
+
+    ## If you choose to use the kubeconfig Secret
+    # - name: kubeconfig
+    #   secret:
+    #     secretName: <kubeconfig-secret-name>
+
+  params:
+    - name: repo_url
+      value: https://github.com/your-org/your-repo.git
+    - name: revision
+      value: main
+    - name: chart_dir
+      value: .
+    - name: release_name
+      value: myapp
+    - name: namespace
+      value: my-namespace
+  pipelineRef:
+    name: helm-deploy-from-git-repo
+
+  ## If you choose to use the ServiceAccount
+  # taskRunTemplate:
+  #   serviceAccountName: <service-account-name>
+```
+
+## Troubleshooting
+
+- **`helm: command not found`**: Ensure your `image` actually contains the Helm binary.
+- **`failed to create resource: (…RBAC…) forbidden`**: The kubeconfig/ServiceAccount lacks permissions. Grant the necessary roles to create/update the resources the chart manages.
+
+## Next Steps
+
+- [Specifying remote tasks using hub resolvers](../../pipelines/how_to/specifying_remote_tasks_using_hub_resolvers.mdx)
+- [Package & Push a Helm Chart to an OCI Registry](./package_and_push_helm_chart.mdx)
+- [Deploy/Upgrade from an OCI-hosted Helm Chart](./deploy_or_upgrade_by_helm_chart_in_registry.mdx)

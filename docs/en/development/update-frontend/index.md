@@ -75,9 +75,3 @@ The specific steps are as follows:
     ![](./assets/pr-build-image.png)
 
     The artifact here is: `v0.0.1-alpha.53-250110072255`, where the latter part is a timestamp.
-
-## Related Scenario: Custom Operator Bundle Self-Testing
-
-If you also need to validate local `.ko` changes or a custom operator image together with frontend updates, use:
-
-- [Build a Custom Bundle for Self-Testing](../custom-bundle-self-test/index.md)

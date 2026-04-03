@@ -1,0 +1,44 @@
+---
+weight: 50
+---
+
+# Discover Tool Image
+
+This guide shows you how to discover tool images that help you run your Tekton `Tasks` and `Pipelines`.
+
+If you don't find the image you need, you can always build your own image and use it to run your `Tasks` and `Pipelines`.
+If you want to add custom tool images to `Task` image param selector for UI, you can refer to [Add Custom Task Images to Selector](../../pipelines/how_to/add-custom-task-images-to-selector).
+
+## Prerequisites
+
+- kubectl installed and configured to access the cluster.
+- Permissions to read `ConfigMaps`.
+
+## Step-by-Step Instructions
+
+### Step 1: List available tool images
+
+Replace the namespace and label with the values you found.
+
+There are some default `ConfigMaps` in the `kube-public` namespace. You can use the label with `operator.tekton.dev/tool-image` to list all available tool images.
+
+```shell
+kubectl -n <namespace> get configmap -l <label-selector> -o custom-columns=CONFIGMAP:.metadata.name,NAME:.data.name,IMAGE:.data.image
+
+# example
+kubectl -n kube-public get configmap -l operator.tekton.dev/tool-image=helm -o custom-columns=CONFIGMAP:.metadata.name,NAME:.data.name,IMAGE:.data.image
+# CONFIGMAP                        NAME                 IMAGE
+# catalog-tool-image-helm-3.18     Helm v3.18           registry.alauda.cn:60070/devops/tektoncd/hub/helm:v3.18
+# catalog-tool-image-helm-latest   Helm Latest(v3.18)   registry.alauda.cn:60070/devops/tektoncd/hub/helm:latest
+```
+
+### Step 2: Choose the image
+
+- Pick the row you need.
+- Use the `IMAGE` column directly in your `Task` or `Pipeline`.
+
+## Troubleshooting
+
+- **Empty output or errors**:
+    - Ensure you can read `ConfigMaps` in namespaces.
+    - Confirm you used the namespace and label selector.

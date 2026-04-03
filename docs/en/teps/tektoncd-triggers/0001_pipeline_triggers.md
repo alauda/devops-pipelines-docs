@@ -42,25 +42,25 @@ sourceSHA: 4bf0f77ef9006b15e989bddeaa56b9258a037297293f21928d977e5af6be6076
   - [Implementation Pull Requests](#implementation-pull-requests)
 - [References](#references)
 
-## Overview {#overview}
+## Overview
 
 To help users quickly create Tekton Triggers while reusing existing mechanisms and capabilities.
 
-## Motivation {#motivation}
+## Motivation
 
 The Tekton Trigger API and its capabilities are very flexible, supporting a wide range of scenarios. In the product, we need to guide users on how to quickly create triggers and automatically trigger pipelines through the experience.
 
-### Objectives {#objectives}
+### Objectives
 
 - Provide guidance on how to create triggers through product experience.
 - Assist product developers and platform teams in supporting more event types.
 
-### Non-objectives {#non-objectives}
+### Non-objectives
 
 - Automating the operational deployment of triggers.
 - Addressing all UI experience packaging related to triggers.
 
-### Use Cases {#use-cases}
+### Use Cases
 
 Typically, the individuals creating pipeline triggers are either pipeline users or developers, so the core issues to resolve involve the following roles:
 
@@ -71,7 +71,7 @@ The experience should consider the most common use cases and deliver a universal
 - `Code Repository Trigger`: Triggered by code repository changes, PR changes, or code Tag triggers.
 - `Artifact Trigger`: Triggered when an artifact changes.
 
-### Requirements {#requirements}
+### Requirements
 
 The following conditions must be met:
 
@@ -82,13 +82,13 @@ The following conditions must be met:
 - Allow users to define custom event filtering criteria.
 - Enable the use of information from events as pipeline parameters.
 
-## Proposal {#proposal}
+## Proposal
 
 By reusing existing Tekton Triggers APIs and providing a simplified and unified experience, we aim to allow users to quickly add required triggers while maintaining a flexible YAML creation entry to satisfy scenarios beyond form experiences.
 
 EventListener (Webhook event entry) will be the responsibility of the operational or platform teams for deployment and maintenance, while the product will provide various deployment configuration examples to ensure operational success.
 
-### Considerations and Warnings {#considerations-and-warnings}
+### Considerations and Warnings
 
 The approach taken considers developers as primary maintainers of triggers, with foundational webhook settings configured by the platform team or operations team. This may introduce the following potential issues:
 
@@ -97,9 +97,9 @@ The approach taken considers developers as primary maintainers of triggers, with
 
 The proposal will attempt to resolve these issues.
 
-## Design Details {#design-details}
+## Design Details
 
-### Event Types (ClusterTriggerBinding and TriggerBinding) {#event-types-clustertriggerbinding-and-triggerbinding}
+### Event Types (ClusterTriggerBinding and TriggerBinding)
 
 Tool types and icon issues are addressed by setting the following fields:
 
@@ -150,7 +150,7 @@ spec:
     value: $(body.pull_request.user.type)
 ```
 
-### Interceptors (ClusterInterceptors and Interceptors) {#interceptors-clusterinterceptors-and-interceptors}
+### Interceptors (ClusterInterceptors and Interceptors)
 
 ClusterInterceptors and Interceptors in Tekton Triggers are components designed to handle and filter incoming events. They process events before reaching the trigger.
 
@@ -177,7 +177,7 @@ Tekton Triggers come with the following default `ClusterInterceptors`:
 
 Note: The above are the default ClusterInterceptors provided in Tekton Triggers v0.26.x. Each interceptor is designed to handle Webhook events from specific sources, providing event validation and data extraction capabilities.
 
-#### Cel Interceptor {#cel-interceptor}
+#### Cel Interceptor
 
 In Tekton Triggers, the CEL (Common Expression Language) interceptor is a powerful generic interceptor that allows users to filter and transform event data using CEL expressions. The CEL interceptor supports the following parameters:
 
@@ -205,7 +205,7 @@ spec:
 [...]
 ```
 
-### Triggers (Trigger) {#triggers-trigger}
+### Triggers (Trigger)
 
 Configuring triggers is a routine task for developers to automate the triggering of pipelines.
 
@@ -218,7 +218,7 @@ The Trigger resource is divided into the following fields:
 - `template`: Declare a reference to a TriggerTemplate or an embedded definition.
 - `serviceAccountName`: (optional) Provide the specific ServiceAccount used by the EventListener to create target resources.
 
-#### Pipeline Trigger {#pipeline-trigger}
+#### Pipeline Trigger
 
 Using the Trigger resource.
 
@@ -355,7 +355,7 @@ spec:
                 emptyDir: {}
 ```
 
-### EventListener {#eventlistener}
+### EventListener
 
 Due to the involvement of network and infrastructure configurations, the maintenance of EventListener needs to adapt based on the scale of the planned deployment, taking into account the available infrastructure capabilities as follows to consider different solutions:
 
@@ -365,7 +365,7 @@ Due to the involvement of network and infrastructure configurations, the mainten
 - Self-signed TLS certificate + Ingress + Address/DNS (simple, encrypted, compatibility with tools/webhook initiation needs to be considered)
 - Official TLS certificate + Ingress + DNS (complex configuration, high foundational setup requirements, most secure)
 
-#### NodePort {#nodeport}
+#### NodePort
 
 Deploy the EventListener service using NodePort to accept external requests.
 
@@ -392,7 +392,7 @@ spec:
             tolerations: [] # Optional tolerations
 ```
 
-#### Ingress + TLS Deployment {#ingress--tls-deployment}
+#### Ingress + TLS Deployment
 
 Use Ingress to resolve the usage of self-signed certificates or public certificates while deploying the EventListener service using NodePort. [Documentation](https://tekton.dev/vault/triggers-v0.26.x-lts/eventlisteners/#exposing-an-eventlistener-using-a-kubernetes-ingress-object)
 
@@ -484,7 +484,7 @@ metadata:
     nginx.ingress.kubernetes.io/rewrite-target: /
 ```
 
-#### HTTPS NodePort Deployment {#https-nodeport-deployment}
+#### HTTPS NodePort Deployment
 
 Deploy the EventListener service using an official or self-signed certificate. [Documentation](https://github.com/tektoncd/triggers/blob/release-v0.26.x/examples/v1beta1/eventlistener-tls-connection/README.md)
 
@@ -527,7 +527,7 @@ spec:
 
 - Small Scale: A small number of pipelines and triggers, 100 namespaces * 10 pipelines * 2 triggers.
 
-#### Small-scale Configuration Plan {#small-scale-configuration-plan}
+#### Small-scale Configuration Plan
 
 TODO: To be tested and verified.
 
@@ -558,39 +558,39 @@ spec:
             [...] # Other configurations
 ```
 
-### EventListener Save and Retrieval Plan {#eventlistener-save-and-retrieval-plan}
+### EventListener Save and Retrieval Plan
 
 After deploying the EventListener, the access address needs to be manually saved.
 
 TODO: Design and write.
 
-## Design Evaluation {#design-evaluation}
+## Design Evaluation
 
-### Reusability {#reusability}
+### Reusability
 
 Not applicable.
 
-### Simplicity {#simplicity}
+### Simplicity
 
 The design considers that users can place all necessary configurations in a single resource `Trigger`, eliminating the need to maintain multiple different resources simultaneously.
 
-### Flexibility {#flexibility}
+### Flexibility
 
 The trigger maintenance methods do not restrict users from customizing the required trigger configurations via YAML, maintaining a high level of flexibility.
 
-### Consistency {#consistency}
+### Consistency
 
 This proposal reuses the existing Tekton Triggers API, maintaining consistency.
 
-### User Experience {#user-experience}
+### User Experience
 
 By simplifying and unifying the maintenance of `Triggers` resources, the user experience becomes simpler while retaining the existing concepts.
 
-### Performance {#performance}
+### Performance
 
 Refer to the "Risks and Mitigations" section below.
 
-### Risks and Mitigations {#risks-and-mitigations}
+### Risks and Mitigations
 
 **Risks:**
 
@@ -611,27 +611,27 @@ Interceptor: Operated as a stateless service, scaling out different instances ca
 
 In larger scales, using interceptor services across different namespaces can mitigate the impact between projects.
 
-### Disadvantages {#disadvantages}
+### Disadvantages
 
 TODO
 
-## Alternatives {#alternatives}
+## Alternatives
 
 Individually maintaining each Tekton Triggers API to address specific use cases:
 
 - Configure EventListeners in namespaces as needed, similar to OCP, where each trigger maintains its own EventListener + TriggerTemplate.
 - Split each trigger into Trigger, TriggerTemplate, and related bindings.
 
-## Implementation Plan {#implementation-plan}
+## Implementation Plan
 
-### Testing Plan {#testing-plan}
+### Testing Plan
 
 Consideration should be given to:
 
 - Testing functionality in small-scale usage scenarios.
 - Identifying the limits of the above solutions through non-functional testing.
 
-### Required Infrastructure {#required-infrastructure}
+### Required Infrastructure
 
 When using Kubernetes clusters, one of the following infrastructure configurations is required:
 
@@ -639,15 +639,15 @@ When using Kubernetes clusters, one of the following infrastructure configuratio
 - Use self-signed certificates and HTTPS Ingress: By using cert-manager or manually generating TLS certificates to provide domain names or ingress instance addresses for receiving events/webhooks. Note: There are risks in tool-side configurations; not all tools/platforms support ignoring or skipping TLS verification.
 - Use official certificates and HTTPS Ingress (recommended): By configuring valid TLS certificates, Ingress service, and corresponding DNS resolution on the platform to securely accept webhooks.
 
-### Upgrade and Migration Strategy {#upgrade-and-migration-strategy}
+### Upgrade and Migration Strategy
 
 Not applicable.
 
-### Implementation Pull Requests {#implementation-pull-requests}
+### Implementation Pull Requests
 
 TODO
 
-## References {#references}
+## References
 
 - [EventListener docs](https://tekton.dev/docs/triggers/eventlisteners)
 
@@ -761,4 +761,3 @@ spec:
             name: source
 
 ```
-

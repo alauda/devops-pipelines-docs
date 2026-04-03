@@ -130,7 +130,7 @@ kubectl get pods -n tekton-pipelines -l app.kubernetes.io/name=tekton-results-ap
 This Quick Start covers basic configuration only. For production environments with SSL, advanced security, or custom CA certificates, see the [Advanced Configuration](#advanced-configuration) section below.
 :::
 
-## Advanced Configuration \{#advanced-configuration}
+## Advanced Configuration
 
 ### SSL Configuration
 
@@ -161,7 +161,7 @@ The difference between verify-ca and verify-full depends on the policy of the ro
 **Important:** When using SSL modes `require`, `verify-ca`, or `verify-full`, you must provide the CA certificate that signed the database server certificate. Without proper CA certificate configuration, the Tekton Results components will fail to start. See the [Configuring Custom CA Certificates](#configuring-custom-ca-certificates) section below for detailed configuration steps.
 :::
 
-### Configuring Custom CA Certificates \{#configuring-custom-ca-certificates}
+### Configuring Custom CA Certificates
 
 When using SSL modes that require certificate validation (`require`, `verify-ca`, `verify-full`), you need to provide the CA certificate that signed the database server certificate. The most common approach is to store the CA certificate in a ConfigMap and mount it to the Tekton Results pods.
 
@@ -298,7 +298,7 @@ kubectl logs -n tekton-pipelines -l app.kubernetes.io/name=tekton-results-api
 kubectl get secret tekton-results-postgres -n tekton-pipelines
 ```
 
-### Using PostgreSQL from Data Services \{#using-postgresql-from-data-services}
+### Using PostgreSQL from Data Services
 
 `Data Services` supports deploying PostgreSQL instances that can be used for Tekton Results. When creating a PostgreSQL instance, please consider the following important requirements:
 
@@ -319,4 +319,3 @@ If you need to set `sslmode`, please set `db_sslmode` in the `TektonConfig` `spe
 
 For more PostgreSQL deployment parameters and requirements, please refer to <ExternalSiteLink name="postgresql" href="/installation.html" children="PostgreSQL Deployment Documentation" />.
 :::
-

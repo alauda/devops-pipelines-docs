@@ -12,11 +12,11 @@
   - [Infrastructure Needed](#infrastructure-needed)
 - [References](#references)
 
-## Summary {#summary}
+## Summary
 
 This proposal aims to create an Image Task for executing container image build operations in Tekton Pipeline.
 
-## Motivation {#motivation}
+## Motivation
 
 Currently, there are multiple image building tools in the community, such as Docker, Buildah, BuildKit, etc., each with different advantages and disadvantages.
 
@@ -42,18 +42,18 @@ fuse-overlayfs kernel requirements:
 
 OverlayFS: Introduced in kernel version 3.18.0, improved by docker 4.0.
 
-### Goals {#goals}
+### Goals
 
 1. Ability to build images through Containerfile
 2. Provide default images for building
 3. Provide building documentation and use cases (Docker migration to Buildah, OCP build migration to Buildah)
 
-### Non-Goals {#non-goals}
+### Non-Goals
 
 - Multi-architecture builds
 - Default build caching
 
-### Use Cases {#use-cases}
+### Use Cases
 
 - Building images
 - Pushing images (skip push)
@@ -63,13 +63,13 @@ OverlayFS: Introduced in kernel version 3.18.0, improved by docker 4.0.
 - Setting different build formats (oci, docker)
 - Supporting custom build parameters
 
-### Requirements {#requirements}
+### Requirements
 
 - Support Containerfile image building
 - Ability to push to default image registry (http/https)
 - Ability to push to private image registry
 
-## Design Details {#design-details}
+## Design Details
 
 Comparison of differences between OCP and Tekton task
 
@@ -244,7 +244,7 @@ spec:
     emptyDir: {}
 ```
 
-### Performance {#performance}
+### Performance
 
 - No daemon required, high performance.
 - When building heterogeneous images, QEMU support is required.
@@ -271,7 +271,7 @@ If support for running on 3.10.0-1160.el7.x86_64 is needed, the existing task's 
 
 To ensure security, the vfs storage driver is used by default with SETFCAP permissions.
 
-### Test Plan {#test-plan}
+### Test Plan
 
 1. Integration Tests
 
@@ -284,12 +284,12 @@ To ensure security, the vfs storage driver is used by default with SETFCAP permi
 - Supporting custom build parameters
 - Testing if built images run as expected
 
-### Infrastructure Needed {#infrastructure-needed}
+### Infrastructure Needed
 
 1. CI/CD environment
 2. Registry for publishing images
 
-## References {#references}
+## References
 
 - [Tekton Buildah Task](https://hub.tekton.dev/tekton/task/buildah)
 - [Buildah System Requirements](https://github.com/containers/buildah/blob/main/install.md#system-requirements)
@@ -300,4 +300,3 @@ To ensure security, the vfs storage driver is used by default with SETFCAP permi
 - [Buildah Build Documentation](https://github.com/containers/buildah/blob/main/docs/buildah-build.1.md)
 - [Alauda Version Baseline](https://confluence.alauda.cn/pages/viewpage.action?pageId=264110543#v4.0.0%E7%89%88%E6%9C%AC%E5%9F%BA%E7%BA%BF-%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E5%8F%8ACPU%E5%9E%8B%E5%8F%B7)
 - [Ningsi Buildah Issues](https://confluence.alauda.cn/pages/viewpage.action?pageId=130576555)
-

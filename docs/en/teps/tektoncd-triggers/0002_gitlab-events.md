@@ -28,28 +28,28 @@ sourceSHA: 752b6584abe05a2216750beaf05ba5938cdfd2b02f2089f9f8980f071267596f
 
 <!-- /toc -->
 
-## Summary {#summary}
+## Summary
 
 This proposal aims to provide standardized ClusterTriggerBindings for GitLab events to achieve compatibility with OpenShift Pipelines and simplify migrations between ACP (Alauda Container Platform). These bindings will cover the most commonly used GitLab events, including merge requests, pushes, and comment events.
 
-## Motivation {#motivation}
+## Motivation
 
 Currently, users need to reconfigure their GitLab trigger bindings when migrating between different platforms. By providing standardized ClusterTriggerBindings, we can ensure a consistent experience in OpenShift and ACP environments and reduce configuration work.
 
-### Goals {#goals}
+### Goals
 
 - Provide GitLab event ClusterTriggerBindings compatible with OpenShift Pipelines.
 - Support the most commonly used GitLab event types.
 - Simplify the migration process between OpenShift and ACP.
 - Ensure consistency and predictability in bindings.
 
-### Non-Goals {#non-goals}
+### Non-Goals
 
 - Support all possible GitLab webhook events.
 - Provide custom bindings for specific use cases.
 - Modify the existing GitLab webhook format.
 
-### Use Cases {#use-cases}
+### Use Cases
 
 1. Platform migration
     - Users can seamlessly migrate their CI/CD pipelines between OpenShift and ACP.
@@ -59,7 +59,7 @@ Currently, users need to reconfigure their GitLab trigger bindings when migratin
     - Teams can use the same trigger configurations in different environments.
     - Reduces configuration errors and inconsistencies.
 
-### Requirements {#requirements}
+### Requirements
 
 - Must support the following GitLab event types:
     - Merge Request events
@@ -238,7 +238,7 @@ spec:
     value: $(body.user.name)
 ```
 
-## Proposal {#proposal}
+## Proposal
 
 Implement five ClusterTriggerBindings:
 
@@ -249,13 +249,13 @@ Implement five ClusterTriggerBindings:
 5. `gitlab-review-comment-on-commit`: Handles commit comments.
 6. `gitlab-review-comment-on-snippet`: Handles snippet comments.
 
-### Notes and Caveats {#notes-and-caveats}
+### Notes and Caveats
 
 - The binding names should remain consistent with OpenShift Pipelines to ensure compatibility.
 - Some events may contain large amounts of data; parameters should be used cautiously to avoid performance issues.
 - Users can still create custom bindings to extend functionalities.
 
-## Design Details {#design-details}
+## Design Details
 
 The design philosophy:
 
@@ -295,7 +295,7 @@ spec:
       value: $(body.ref)
 ```
 
-### Design Evaluation {#design-evaluation}
+### Design Evaluation
 
 #### Reusability
 
@@ -319,7 +319,7 @@ spec:
 - Minimizes parameter sets to optimize performance.
 - Avoids unnecessary data extraction.
 
-## Alternatives {#alternatives}
+## Alternatives
 
 1. Custom Bindings
     - Allow users to create their own bindings.
@@ -329,7 +329,7 @@ spec:
     - Create a more generic binding format.
     - Cons may include insufficient specificity and increased configuration needs.
 
-## Implementation Plan {#implementation-plan}
+## Implementation Plan
 
 ### Test Plan
 
@@ -347,10 +347,9 @@ Test integration with GitLab webhook payloads: Validate Bindings with various pa
     - Follow semantic versioning.
     - Maintain backward compatibility.
 
-## References {#references}
+## References
 
 - [GitLab Webhook Documentation](https://docs.gitlab.com/ee/user/project/integrations/webhooks.html)
 - [Tekton Triggers Documentation](https://tekton.dev/docs/triggers/)
 - [OpenShift Pipelines Documentation](https://docs.openshift.com/container-platform/latest/cicd/pipelines/understanding-openshift-pipelines.html)
 - [OCP GitLab Events](https://github.com/openshift-pipelines/operator/blob/main/upstream/cmd/openshift/operator/kodata/tekton-addon/addons/01-clustertriggerbindings/gitlab.yaml)
-

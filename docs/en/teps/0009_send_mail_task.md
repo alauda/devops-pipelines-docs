@@ -61,7 +61,7 @@ Core params
 
 ![](./assets/send-mail-task.drawio.png)
 
-### Mutating Webhook: Intercept TaskRun Creation {#mutating-webhook-intercept-taskrun-creation}
+### Mutating Webhook: Intercept TaskRun Creation
 
 Add a Mutating Admission Webhook.
 
@@ -126,7 +126,7 @@ Common variables available in templates:
 
 Tekton has many other [built-in variables](https://tekton.dev/docs/pipelines/variables/) that can be used in mail templates.
 
-#### Extended Variables {#extended-variables}
+#### Extended Variables
 
 Although Tekton provides many built-in variables, mail templates still need additional common variables. For template usage, see [Default Mail Template](#default-mail-template), for example `{{.detailsURL}}` in `body.tpl`.
 
@@ -208,7 +208,7 @@ Assume the cluster already has many pipelines using the default template. If use
 Therefore, we will set the `operator.tekton.dev/resource-policy: keep` annotation on the default template so the resource is no longer managed by TektonInstallerSet. This prevents user changes from being overwritten.
 If we need to adjust the template in later iterations, we should bump the template version and mark it with the `tekton.alaudadevops.io/template-version` annotation.
 
-#### Default Mail Template {#default-mail-template}
+#### Default Mail Template
 
 User-configurable variables:
 
@@ -337,7 +337,7 @@ data:
   content-type.tpl: "{{ .values.contentType }}"
 ```
 
-### Template Rendering {#template-rendering}
+### Template Rendering
 
 After tektoncd-enhancement receives the webhook request:
 
@@ -623,4 +623,3 @@ The UI does not support this yet; consider adding support.
 * Provide `Preview` capability.
 * Support `onError: continue` for Tasks.
 * Provide auto-fill for when conditions.
-

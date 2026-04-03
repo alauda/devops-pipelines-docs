@@ -121,7 +121,7 @@ Reference: [Tekton Pipelines metrics documentation](https://tekton.dev/docs/pipe
 | `running_taskruns_throttled_by_node`                        | Running `TaskRuns` throttled by node resource constraints                     | Periodic (default ~30s, counted from informer cache)                  | Gauge                         | `namespace=<pipelinerun-namespace>`                                                                                                                                                                         |
 | `client_latency_[bucket, sum, count]`                       | `Kubernetes` API request latency                                              | Event-driven (recorded per API request)                               | Histogram                     | (standard client labels)                                                                                                                                                                                    |
 
-### Tekton Triggers controller metrics {#tekton-triggers-controller-metrics}
+### Tekton Triggers controller metrics
 
 Reference: [Tekton Triggers metrics documentation](https://tekton.dev/docs/triggers/metrics/).
 
@@ -255,7 +255,7 @@ This section describes a set of dashboards that can be built primarily from `Tek
 | (Optional) Resource pressure: running `TaskRuns` throttled by quota/node       |                                         Yes | Use `running_taskruns_throttled_by_quota` / `running_taskruns_throttled_by_node`.                                                                                                    |
 | (Optional) Controller `Kubernetes` API latency (client_latency histogram)      |                                         Yes | Use histogram to compute avg / P90 / P95.                                                                                                                                            |
 
-### Customize graphs {#customize-graphs}
+### Customize graphs
 
 | Graph                                                                                   | Can be built from `Tekton` default metrics? | Notes                                                                                                                     |
 |-----------------------------------------------------------------------------------------|--------------------------------------------:|---------------------------------------------------------------------------------------------------------------------------|
@@ -267,7 +267,7 @@ This section describes a set of dashboards that can be built primarily from `Tek
 | `PipelineRun` status breakdown (success/failed/etc.)                                    |                                         Yes | Use `pipelinerun_total` aggregated by `status`.                                                                           |
 | Top N by duration for `Pipelines` and `Tasks`                                           |                                         Yes | Enable histogram durations and group by `pipeline` / `task`, compute avg or P90/P95, then sort.                           |
 
-#### Metrics to add (gaps) {#metrics-to-add-gaps}
+#### Metrics to add (gaps)
 
 | Metric                      | Type    | Tags                           | Description                                                                                                                                 |
 |-----------------------------|---------|--------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
@@ -285,7 +285,7 @@ A common approach is to use `kube-state-metrics` to expose `kube_namespace_label
 
 Therefore, to enable grouping by environment type, `Tekton` metrics should include a `namespace` label so that `PromQL` joins can be applied.
 
-### Extended graph scenarios {#extended-graph-scenarios}
+### Extended graph scenarios
 
 The graphs in the examples below are mainly to discuss scenarios we may encounter later and possible implementation approaches; they can be implemented later as needed.
 
@@ -325,7 +325,7 @@ No new metrics are required; this can be implemented via existing metrics and da
 > For histogram metrics, `*_count` is the cumulative sample count, which is equivalent to “completed `TaskRun` count” in this scenario.
 > `taskrun_total` cannot be used here because it does not include the `task` label, so it cannot be filtered by `Task`.
 
-#### Trivy vulnerability counts (High / Medium / Low) {#trivy-vulnerability-counts-high--medium--low}
+#### Trivy vulnerability counts (High / Medium / Low)
 
 This requires new metrics; `Tekton` built-in metrics cannot read vulnerability information from `TaskRun` results.
 
@@ -343,7 +343,7 @@ This requires new metrics; `Tekton` built-in metrics cannot read vulnerability i
 
 `sum(increase(trivy_vulnerabilities_total{severity="high"}[1h]))`
 
-#### Failure rate by Task type {#failure-rate-by-task-type}
+#### Failure rate by Task type
 
 Goal: compute failure rate grouped by `Task` labels (e.g., `task.tekton.dev/type`).
 
@@ -365,7 +365,7 @@ We want a flexible mechanism to implement metrics via configuration.
 
 In `Tekton`, many metrics are derived from `CR` `spec` / `status`. This is a generic pattern applicable beyond `Tekton` as well.
 
-### Community approach: `kube-state-metrics` `Custom Resource State Metrics` {#community-approach-kube-state-metrics-custom-resource-state-metrics}
+### Community approach: `kube-state-metrics` `Custom Resource State Metrics`
 
 `kube-state-metrics` provides [`Custom Resource State Metrics`](https://github.com/kubernetes/kube-state-metrics/blob/main/docs/metrics/extend/customresourcestate-metrics.md), which allows defining metrics from `CR` fields via configuration.
 
@@ -434,7 +434,7 @@ However, it requires updating `kube-state-metrics` configuration and granting it
 
 `AIT` currently has no plan to generalize this into a built-in platform feature; we can revisit if demand grows.
 
-### `Tekton` enhancement approach (optional): configurable additional labels {#tekton-enhancement-approach-optional-configurable-additional-labels}
+### `Tekton` enhancement approach (optional): configurable additional labels
 
 `Tekton`'s built-in metrics already cover common resources (`PipelineRun`, `TaskRun`, `Pipeline`, `Task`, etc.). For some extended scenarios, adding labels to existing metrics can satisfy requirements while minimizing new time series creation.
 
@@ -509,4 +509,3 @@ Long-term plan (implement as needed later):
 
 - Publishing pipeline for any enhancement components (if implemented).
 - Versioned dashboard resources shipped with the product.
-

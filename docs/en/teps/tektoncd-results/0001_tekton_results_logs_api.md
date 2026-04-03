@@ -283,7 +283,7 @@ spec:
 - **Limitations**: High cost, uncertain timeline, delayed delivery
 - **Use case**: Long-term planning, low current log volumes
 
-### Alternative: Ceph S3 Lifecycle Policies {#alternative-ceph-s3-lifecycle-policies}
+### Alternative: Ceph S3 Lifecycle Policies
 
 **Mechanism**: [Ceph S3 bucket lifecycle rules](https://docs.redhat.com/en/documentation/red_hat_ceph_storage/7/html/developer_guide/ceph-object-gateway-and-the-s3-api#s3-bucket-lifecycle_dev) auto-expire objects after N days
 
@@ -611,3 +611,5 @@ Production `ACP` deployments: Platform/`SRE` team owns day-2 ops (on-call, capac
 
 ## Operational Runbooks
 Separate deliverables: `LokiStack` deployment, `DB` backup/restore, disaster recovery, troubleshooting guides
+
+
