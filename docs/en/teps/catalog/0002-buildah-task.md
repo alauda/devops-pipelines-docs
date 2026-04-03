@@ -1,17 +1,5 @@
 # Buildah Task
 
-- [Summary](#summary)
-- [Motivation](#motivation)
-  - [Goals](#goals)
-  - [Non-Goals](#non-goals)
-  - [Use Cases](#use-cases)
-  - [Requirements](#requirements)
-- [Design Details](#design-details)
-  - [Performance](#performance)
-  - [Test Plan](#test-plan)
-  - [Infrastructure Needed](#infrastructure-needed)
-- [References](#references)
-
 ## Summary
 
 This proposal aims to create an Image Task for executing container image build operations in Tekton Pipeline.
@@ -48,12 +36,12 @@ OverlayFS: Introduced in kernel version 3.18.0, improved by docker 4.0.
 2. Provide default images for building
 3. Provide building documentation and use cases (Docker migration to Buildah, OCP build migration to Buildah)
 
-### Non-Goals
+### Non-Goals {#non-goals}
 
 - Multi-architecture builds
 - Default build caching
 
-### Use Cases
+### Use Cases {#use-cases}
 
 - Building images
 - Pushing images (skip push)
@@ -69,7 +57,7 @@ OverlayFS: Introduced in kernel version 3.18.0, improved by docker 4.0.
 - Ability to push to default image registry (http/https)
 - Ability to push to private image registry
 
-## Design Details
+## Design Details {#design-details}
 
 Comparison of differences between OCP and Tekton task
 
@@ -271,7 +259,7 @@ If support for running on 3.10.0-1160.el7.x86_64 is needed, the existing task's 
 
 To ensure security, the vfs storage driver is used by default with SETFCAP permissions.
 
-### Test Plan
+### Test Plan {#test-plan}
 
 1. Integration Tests
 
@@ -284,7 +272,7 @@ To ensure security, the vfs storage driver is used by default with SETFCAP permi
 - Supporting custom build parameters
 - Testing if built images run as expected
 
-### Infrastructure Needed
+### Infrastructure Needed {#infrastructure-needed}
 
 1. CI/CD environment
 2. Registry for publishing images

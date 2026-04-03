@@ -10,24 +10,6 @@ sourceSHA: 752b6584abe05a2216750beaf05ba5938cdfd2b02f2089f9f8980f071267596f
 
 # TEP-0002: GitLab Events as ClusterTriggerBindings
 
-<!-- toc -->
-
-- [Summary](#summary)
-- [Motivation](#motivation)
-    - [Goals](#goals)
-    - [Non-Goals](#non-goals)
-    - [Use Cases](#use-cases)
-    - [Requirements](#requirements)
-- [Proposal](#proposal)
-    - [Notes and Caveats](#notes-and-caveats)
-- [Design Details](#design-details)
-- [Design Evaluation](#design-evaluation)
-- [Alternatives](#alternatives)
-- [Implementation Plan](#implementation-plan)
-- [References](#references)
-
-<!-- /toc -->
-
 ## Summary
 
 This proposal aims to provide standardized ClusterTriggerBindings for GitLab events to achieve compatibility with OpenShift Pipelines and simplify migrations between ACP (Alauda Container Platform). These bindings will cover the most commonly used GitLab events, including merge requests, pushes, and comment events.
@@ -43,13 +25,13 @@ Currently, users need to reconfigure their GitLab trigger bindings when migratin
 - Simplify the migration process between OpenShift and ACP.
 - Ensure consistency and predictability in bindings.
 
-### Non-Goals
+### Non-Goals {#non-goals}
 
 - Support all possible GitLab webhook events.
 - Provide custom bindings for specific use cases.
 - Modify the existing GitLab webhook format.
 
-### Use Cases
+### Use Cases {#use-cases}
 
 1. Platform migration
     - Users can seamlessly migrate their CI/CD pipelines between OpenShift and ACP.
@@ -249,13 +231,13 @@ Implement five ClusterTriggerBindings:
 5. `gitlab-review-comment-on-commit`: Handles commit comments.
 6. `gitlab-review-comment-on-snippet`: Handles snippet comments.
 
-### Notes and Caveats
+### Notes and Caveats {#notes-and-caveats}
 
 - The binding names should remain consistent with OpenShift Pipelines to ensure compatibility.
 - Some events may contain large amounts of data; parameters should be used cautiously to avoid performance issues.
 - Users can still create custom bindings to extend functionalities.
 
-## Design Details
+## Design Details {#design-details}
 
 The design philosophy:
 
@@ -295,7 +277,7 @@ spec:
       value: $(body.ref)
 ```
 
-### Design Evaluation
+### Design Evaluation {#design-evaluation}
 
 #### Reusability
 
@@ -329,7 +311,7 @@ spec:
     - Create a more generic binding format.
     - Cons may include insufficient specificity and increased configuration needs.
 
-## Implementation Plan
+## Implementation Plan {#implementation-plan}
 
 ### Test Plan
 

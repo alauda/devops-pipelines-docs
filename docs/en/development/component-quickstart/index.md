@@ -293,7 +293,7 @@ The component registration is now managed through the `components.yaml` file in 
 
 More information can be found in [Operator Integration Guide](../component-upgrade-guide/operator-integration.md)
 
-### 4. Branch Management
+### 4. Branch Management {#4-branch-management}
 
 #### 4.1 Branch Strategy
 

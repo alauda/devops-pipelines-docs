@@ -103,7 +103,7 @@ EventListener supports multiple security configurations:
 2. **Interceptor Validation**: Use CEL interceptors for event validation.
 3. **TLS**: Supports configuring HTTPS certificates.
 
-### Permission Guidelines
+### Permission Guidelines \{#permission-guidelines}
 
 #### Default ServiceAccount vs Custom ServiceAccount
 
@@ -309,7 +309,7 @@ Depending on the priority of the environment and the available network resources
 - **Manual Control**: If you prefer manual control over Ingress resources, create them manually as shown in the examples below
 :::
 
-### NodePort Configuration Example
+### NodePort Configuration Example \{#nodeport-configuration-example}
 
 NodePort is suitable for development, testing, or environments where you don't have a LoadBalancer or Ingress controller configured. This method exposes the EventListener service on a high port (30000-32767) on each node in the cluster.
 

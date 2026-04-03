@@ -10,34 +10,6 @@ authors:
 
 # TEP-0001: Maven Task
 
-<!-- toc -->
-- [Summary](#summary)
-- [Motivation](#motivation)
-  - [Goals](#goals)
-  - [Non-Goals](#non-goals)
-  - [Use Cases](#use-cases)
-  - [Requirements](#requirements)
-- [Proposal](#proposal)
-  - [Notes and Caveats](#notes-and-caveats)
-- [Design Details](#design-details)
-- [Design Evaluation](#design-evaluation)
-  - [Reusability](#reusability)
-  - [Simplicity](#simplicity)
-  - [Flexibility](#flexibility)
-  - [Conformance](#conformance)
-  - [User Experience](#user-experience)
-  - [Performance](#performance)
-  - [Risks and Mitigations](#risks-and-mitigations)
-  - [Drawbacks](#drawbacks)
-- [Alternatives](#alternatives)
-- [Implementation Plan](#implementation-plan)
-  - [Test Plan](#test-plan)
-  - [Infrastructure Needed](#infrastructure-needed)
-  - [Upgrade and Migration Strategy](#upgrade-and-migration-strategy)
-  - [Implementation Pull Requests](#implementation-pull-requests)
-- [References](#references)
-<!-- /toc -->
-
 ## Summary
 
 This proposal aims to create a unified Maven Task for executing Maven build, test, and deployment operations in Tekton Pipelines. The Task will integrate best practices from existing Maven Tasks in OpenShift Pipeline and Tekton Hub, while ensuring existing users can migrate to the new Task with zero or minimal cost. The new Task will provide secure default configurations and flexible customization options to meet the needs of different users.
@@ -62,13 +34,13 @@ By providing a unified Maven Task, we can address these issues and provide users
 5. Optimize build performance and resource usage
 6. Provide clear documentation and migration guides
 
-### Non-Goals
+### Non-Goals {#non-goals}
 
 1. Replace project-specific Maven configurations or build logic
 2. Provide complex build optimization strategies
 3. Implement build functionality unrelated to Maven
 
-### Use Cases
+### Use Cases {#use-cases}
 
 1. **Java Application Building**
    - Compile source code
@@ -132,13 +104,13 @@ Create a new unified Maven Task with the following characteristics:
    - Secure handling of sensitive information
    - Least privilege execution
 
-### Notes and Caveats
+### Notes and Caveats {#notes-and-caveats}
 
 1. Default to UBI base images to ensure security
 2. Recommend using workspace approach for handling sensitive information
 3. Local repository caching may increase storage usage
 
-## Design Details
+## Design Details {#design-details}
 
 ### Task Comparison
 
@@ -252,7 +224,7 @@ spec:
         # 3. Extract and store results
 ```
 
-## Design Evaluation
+## Design Evaluation {#design-evaluation}
 
 ### Reusability
 
@@ -279,7 +251,7 @@ spec:
 - Follow Tekton best practices
 - Unified configuration patterns
 
-### User Experience
+### User Experience {#user-experience}
 
 - Zero-cost migration path
 - Clear error messages
@@ -291,7 +263,7 @@ spec:
 - Optimized build processes
 - Resource usage optimization
 
-### Risks and Mitigations
+### Risks and Mitigations {#risks-and-mitigations}
 
 1. **Migration Risks**
    - Provide detailed migration guides
@@ -318,9 +290,9 @@ Default to latest LTS version (referencing Adoptium https://adoptium.net/temurin
 2. Need to maintain multiple authentication methods
 3. May require more storage space
 
-## Implementation Plan
+## Implementation Plan {#implementation-plan}
 
-### Test Plan
+### Test Plan {#test-plan}
 
 1. **Integration Tests**
    - Provide Maven program validation task functionality, including:
@@ -338,12 +310,12 @@ Default to latest LTS version (referencing Adoptium https://adoptium.net/temurin
    - OpenShift Pipeline migration tests
    - Version compatibility tests
 
-### Infrastructure Needed
+### Infrastructure Needed {#infrastructure-needed}
 
 1. CI/CD environment
 2. Test Maven repositories
 
-### Upgrade and Migration Strategy
+### Upgrade and Migration Strategy {#upgrade-and-migration-strategy}
 
 1. **OpenShift Pipeline Users**
    - Directly replace Task references
@@ -354,7 +326,7 @@ Default to latest LTS version (referencing Adoptium https://adoptium.net/temurin
    - Update Task references
    - Adjust authentication configurations
 
-### Implementation Pull Requests
+### Implementation Pull Requests {#implementation-pull-requests}
 
 1. Task implementation and integration test PR
 2. Documentation and examples PR

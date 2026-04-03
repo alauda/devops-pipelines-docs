@@ -9,34 +9,6 @@ authors:
 
 # TEP-0002: Sonar Task
 
-<!-- toc -->
-- [Summary](#summary)
-- [Motivation](#motivation)
-  - [Goals](#goals)
-  - [Non-Goals](#non-goals)
-  - [Use Cases](#use-cases)
-  - [Requirements](#requirements)
-- [Proposal](#proposal)
-  - [Notes and Caveats](#notes-and-caveats)
-- [Design Details](#design-details)
-- [Design Evaluation](#design-evaluation)
-  - [Reusability](#reusability)
-  - [Simplicity](#simplicity)
-  - [Flexibility](#flexibility)
-  - [Conformance](#conformance)
-  - [User Experience](#user-experience)
-  - [Performance](#performance)
-  - [Risks and Mitigations](#risks-and-mitigations)
-  - [Drawbacks](#drawbacks)
-- [Alternatives](#alternatives)
-- [Implementation Plan](#implementation-plan)
-  - [Test Plan](#test-plan)
-  - [Infrastructure Needed](#infrastructure-needed)
-  - [Upgrade and Migration Strategy](#upgrade-and-migration-strategy)
-  - [Implementation Pull Requests](#implementation-pull-requests)
-- [References](#references)
-<!-- /toc -->
-
 ## Summary
 
 This proposal aims to create a unified Sonar Task for performing code static analysis, security scanning, and other operations in Tekton Pipelines. The Task is based on best practices from the existing Tekton Hub Sonar Task while ensuring that existing users can migrate to the new Task at zero or minimal cost. The new Task will provide secure default configurations and flexible customization options to meet the needs of different users.
@@ -54,12 +26,12 @@ By providing a unified Sonar Task, we ensure compatibility, security, and flexib
 5. Optimize build performance and resource usage
 6. Provide clear documentation and migration guides
 
-### Non-Goals
+### Non-Goals {#non-goals}
 
 1. Replace project-specific Sonar configurations or build logic
 2. Provide complex quality gate strategies
 
-### Use Cases
+### Use Cases {#use-cases}
 
 1. **Scanning different revision code**
    - Main branch
@@ -110,13 +82,13 @@ Create a new unified Sonar Task with the following characteristics:
    - Secure handling of sensitive information
    - Least privilege execution
 
-### Notes and Caveats
+### Notes and Caveats {#notes-and-caveats}
 
 1. Use UBI base images by default to ensure security
 2. Recommend using workspace approach for handling sensitive information
 3. Local repository caching may increase storage usage
 
-## Design Details
+## Design Details {#design-details}
 
 ### Task Comparison
 
@@ -251,7 +223,7 @@ spec:
         # 3. Clean up temporary files
 ```
 
-## Design Evaluation
+## Design Evaluation {#design-evaluation}
 
 ### Reusability
 
@@ -277,7 +249,7 @@ spec:
 - Follows Tekton best practices
 - Unified configuration patterns
 
-### User Experience
+### User Experience {#user-experience}
 
 - Zero-cost migration path
 - Clear error messages
@@ -289,7 +261,7 @@ spec:
 - Optimized build process
 - Resource usage optimization
 
-### Risks and Mitigations
+### Risks and Mitigations {#risks-and-mitigations}
 
 1. **Migration Risks**
    - Provide detailed migration guides
@@ -314,9 +286,9 @@ Directly use officially provided images.
 1. Increased configuration complexity to support compatibility
 2. Need to maintain multiple authentication methods
 
-## Implementation Plan
+## Implementation Plan {#implementation-plan}
 
-### Test Plan
+### Test Plan {#test-plan}
 
 1. **Integration Tests**
    - Provide different revision code scanning capability tests
@@ -334,17 +306,17 @@ Directly use officially provided images.
 2. **Compatibility Tests**
    - Migration tests with Tekton Hub
 
-### Infrastructure Needed
+### Infrastructure Needed {#infrastructure-needed}
 
 1. CI/CD environment
 2. Sonar Server
 
-### Upgrade and Migration Strategy
+### Upgrade and Migration Strategy {#upgrade-and-migration-strategy}
 
 1. **Tekton Hub Users**
    - Update Task references
 
-### Implementation Pull Requests
+### Implementation Pull Requests {#implementation-pull-requests}
 
 1. Task implementation and integration test PR
 2. Documentation and examples PR

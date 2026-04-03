@@ -5,43 +5,6 @@ draft: true
 sourceSHA: 4bf0f77ef9006b15e989bddeaa56b9258a037297293f21928d977e5af6be6076
 ---
 
-- [Overview](#overview)
-- [Motivation](#motivation)
-  - [Objectives](#objectives)
-  - [Non-objectives](#non-objectives)
-  - [Use Cases](#use-cases)
-  - [Requirements](#requirements)
-- [Proposal](#proposal)
-  - [Considerations and Warnings](#considerations-and-warnings)
-- [Design Details](#design-details)
-  - [Event Types (ClusterTriggerBinding and TriggerBinding)](#event-types-clustertriggerbinding-and-triggerbinding)
-  - [Interceptors (ClusterInterceptors and Interceptors)](#interceptors-clusterinterceptors-and-interceptors)
-    - [Cel Interceptor](#cel-interceptor)
-  - [Triggers (Trigger)](#triggers-trigger)
-    - [Pipeline Trigger](#pipeline-trigger)
-  - [EventListener](#eventlistener)
-    - [NodePort](#nodeport)
-    - [Ingress + TLS Deployment](#ingress--tls-deployment)
-    - [HTTPS NodePort Deployment](#https-nodeport-deployment)
-    - [Small-scale Configuration Plan](#small-scale-configuration-plan)
-  - [EventListener Save and Retrieval Plan](#eventlistener-save-and-retrieval-plan)
-- [Design Evaluation](#design-evaluation)
-  - [Reusability](#reusability)
-  - [Simplicity](#simplicity)
-  - [Flexibility](#flexibility)
-  - [Consistency](#consistency)
-  - [User Experience](#user-experience)
-  - [Performance](#performance)
-  - [Risks and Mitigations](#risks-and-mitigations)
-  - [Disadvantages](#disadvantages)
-- [Alternatives](#alternatives)
-- [Implementation Plan](#implementation-plan)
-  - [Testing Plan](#testing-plan)
-  - [Required Infrastructure](#required-infrastructure)
-  - [Upgrade and Migration Strategy](#upgrade-and-migration-strategy)
-  - [Implementation Pull Requests](#implementation-pull-requests)
-- [References](#references)
-
 ## Overview
 
 To help users quickly create Tekton Triggers while reusing existing mechanisms and capabilities.
@@ -55,12 +18,12 @@ The Tekton Trigger API and its capabilities are very flexible, supporting a wide
 - Provide guidance on how to create triggers through product experience.
 - Assist product developers and platform teams in supporting more event types.
 
-### Non-objectives
+### Non-objectives {#non-objectives}
 
 - Automating the operational deployment of triggers.
 - Addressing all UI experience packaging related to triggers.
 
-### Use Cases
+### Use Cases {#use-cases}
 
 Typically, the individuals creating pipeline triggers are either pipeline users or developers, so the core issues to resolve involve the following roles:
 
@@ -88,7 +51,7 @@ By reusing existing Tekton Triggers APIs and providing a simplified and unified 
 
 EventListener (Webhook event entry) will be the responsibility of the operational or platform teams for deployment and maintenance, while the product will provide various deployment configuration examples to ensure operational success.
 
-### Considerations and Warnings
+### Considerations and Warnings {#considerations-and-warnings}
 
 The approach taken considers developers as primary maintainers of triggers, with foundational webhook settings configured by the platform team or operations team. This may introduce the following potential issues:
 
@@ -97,9 +60,9 @@ The approach taken considers developers as primary maintainers of triggers, with
 
 The proposal will attempt to resolve these issues.
 
-## Design Details
+## Design Details {#design-details}
 
-### Event Types (ClusterTriggerBinding and TriggerBinding)
+### Event Types (ClusterTriggerBinding and TriggerBinding) {#event-types-clustertriggerbinding-and-triggerbinding}
 
 Tool types and icon issues are addressed by setting the following fields:
 
@@ -150,7 +113,7 @@ spec:
     value: $(body.pull_request.user.type)
 ```
 
-### Interceptors (ClusterInterceptors and Interceptors)
+### Interceptors (ClusterInterceptors and Interceptors) {#interceptors-clusterinterceptors-and-interceptors}
 
 ClusterInterceptors and Interceptors in Tekton Triggers are components designed to handle and filter incoming events. They process events before reaching the trigger.
 
@@ -177,7 +140,7 @@ Tekton Triggers come with the following default `ClusterInterceptors`:
 
 Note: The above are the default ClusterInterceptors provided in Tekton Triggers v0.26.x. Each interceptor is designed to handle Webhook events from specific sources, providing event validation and data extraction capabilities.
 
-#### Cel Interceptor
+#### Cel Interceptor {#cel-interceptor}
 
 In Tekton Triggers, the CEL (Common Expression Language) interceptor is a powerful generic interceptor that allows users to filter and transform event data using CEL expressions. The CEL interceptor supports the following parameters:
 
@@ -205,7 +168,7 @@ spec:
 [...]
 ```
 
-### Triggers (Trigger)
+### Triggers (Trigger) {#triggers-trigger}
 
 Configuring triggers is a routine task for developers to automate the triggering of pipelines.
 
@@ -218,7 +181,7 @@ The Trigger resource is divided into the following fields:
 - `template`: Declare a reference to a TriggerTemplate or an embedded definition.
 - `serviceAccountName`: (optional) Provide the specific ServiceAccount used by the EventListener to create target resources.
 
-#### Pipeline Trigger
+#### Pipeline Trigger {#pipeline-trigger}
 
 Using the Trigger resource.
 
@@ -392,7 +355,7 @@ spec:
             tolerations: [] # Optional tolerations
 ```
 
-#### Ingress + TLS Deployment
+#### Ingress + TLS Deployment {#ingress--tls-deployment}
 
 Use Ingress to resolve the usage of self-signed certificates or public certificates while deploying the EventListener service using NodePort. [Documentation](https://tekton.dev/vault/triggers-v0.26.x-lts/eventlisteners/#exposing-an-eventlistener-using-a-kubernetes-ingress-object)
 
@@ -484,7 +447,7 @@ metadata:
     nginx.ingress.kubernetes.io/rewrite-target: /
 ```
 
-#### HTTPS NodePort Deployment
+#### HTTPS NodePort Deployment {#https-nodeport-deployment}
 
 Deploy the EventListener service using an official or self-signed certificate. [Documentation](https://github.com/tektoncd/triggers/blob/release-v0.26.x/examples/v1beta1/eventlistener-tls-connection/README.md)
 
@@ -527,7 +490,7 @@ spec:
 
 - Small Scale: A small number of pipelines and triggers, 100 namespaces * 10 pipelines * 2 triggers.
 
-#### Small-scale Configuration Plan
+#### Small-scale Configuration Plan {#small-scale-configuration-plan}
 
 TODO: To be tested and verified.
 
@@ -558,13 +521,13 @@ spec:
             [...] # Other configurations
 ```
 
-### EventListener Save and Retrieval Plan
+### EventListener Save and Retrieval Plan {#eventlistener-save-and-retrieval-plan}
 
 After deploying the EventListener, the access address needs to be manually saved.
 
 TODO: Design and write.
 
-## Design Evaluation
+## Design Evaluation {#design-evaluation}
 
 ### Reusability
 
@@ -582,7 +545,7 @@ The trigger maintenance methods do not restrict users from customizing the requi
 
 This proposal reuses the existing Tekton Triggers API, maintaining consistency.
 
-### User Experience
+### User Experience {#user-experience}
 
 By simplifying and unifying the maintenance of `Triggers` resources, the user experience becomes simpler while retaining the existing concepts.
 
@@ -590,7 +553,7 @@ By simplifying and unifying the maintenance of `Triggers` resources, the user ex
 
 Refer to the "Risks and Mitigations" section below.
 
-### Risks and Mitigations
+### Risks and Mitigations {#risks-and-mitigations}
 
 **Risks:**
 
@@ -622,16 +585,16 @@ Individually maintaining each Tekton Triggers API to address specific use cases:
 - Configure EventListeners in namespaces as needed, similar to OCP, where each trigger maintains its own EventListener + TriggerTemplate.
 - Split each trigger into Trigger, TriggerTemplate, and related bindings.
 
-## Implementation Plan
+## Implementation Plan {#implementation-plan}
 
-### Testing Plan
+### Testing Plan {#testing-plan}
 
 Consideration should be given to:
 
 - Testing functionality in small-scale usage scenarios.
 - Identifying the limits of the above solutions through non-functional testing.
 
-### Required Infrastructure
+### Required Infrastructure {#required-infrastructure}
 
 When using Kubernetes clusters, one of the following infrastructure configurations is required:
 
@@ -639,11 +602,11 @@ When using Kubernetes clusters, one of the following infrastructure configuratio
 - Use self-signed certificates and HTTPS Ingress: By using cert-manager or manually generating TLS certificates to provide domain names or ingress instance addresses for receiving events/webhooks. Note: There are risks in tool-side configurations; not all tools/platforms support ignoring or skipping TLS verification.
 - Use official certificates and HTTPS Ingress (recommended): By configuring valid TLS certificates, Ingress service, and corresponding DNS resolution on the platform to securely accept webhooks.
 
-### Upgrade and Migration Strategy
+### Upgrade and Migration Strategy {#upgrade-and-migration-strategy}
 
 Not applicable.
 
-### Implementation Pull Requests
+### Implementation Pull Requests {#implementation-pull-requests}
 
 TODO
 
