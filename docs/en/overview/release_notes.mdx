@@ -10,7 +10,7 @@ title: Release Notes
 # Release Notes
 
 ::: tip
-The maintenance period for version **v4.8.x** is from 5 Mar, 2026 to 5 Jul, 2026.
+The maintenance period for version **v4.10.x** is from 15 Apr, 2026 to 15 Apr, 2027.
 :::
 
 :::note
@@ -22,17 +22,17 @@ Release sequencing update: `v4.9` is intentionally skipped. The next release aft
 The following table shows the compatibility and support matrix between the `Alauda DevOps Pipelines` operator and ACP versions.
 
 | Alauda DevOps Pipelines Version | Component Version | | | | | | | | | ACP Version |
-|:------:|:------:|:------:|:------:|:------:|:------:|:------:|:------:|--------|--------|--------|
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **Operator** | **Pipelines** | **Triggers** | **CLI** | **Chains** | **Hub** | **Results** | **Pipelines as Code** | **Manual Approval Gate** | **Pruner** | |
-| 4.10.x (LTS) | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| 4.10.x (LTS) | 1.6.x | 0.34.x | 0.43.x | 0.26.x | 1.23.x | 0.17.x | 0.39.x | 0.7.x | 0.3.x | 4.0, 4.1, 4.2, 4.3 |
 | 4.8.x | 1.6.x | 0.34.x | 0.43.x | 0.26.x | 1.23.x | 0.17.x | 0.39.x | 0.7.x | 0.3.x | 4.0, 4.1, 4.2 |
 | 4.7.x | 1.6.x | 0.34.x | 0.43.x | 0.26.x | 1.23.x | 0.17.x | 0.39.x | 0.7.x | 0.3.x | 4.0, 4.1, 4.2 |
 | 4.6.x (LTS) | 1.0.x | 0.32.x | 0.41.x | 0.25.x | 1.22.x | 0.15.x |  |  |  | 4.0, 4.1, 4.2 |
 | 4.4.x | 1.0.x | 0.32.x | 0.41.x | 0.25.x | 1.22.x | 0.15.x |  |  |  | 4.0, 4.1 |
 | 4.3.x | 1.0.x | 0.32.x | 0.41.x | 0.25.x | 1.22.x | 0.15.x |  |  |  | 4.0, 4.1 |
-| 4.2.x (LTS) | 1.0.x | 0.32.x | 0.41.x | 0.25.x | 1.22.x | 0.15.x |  |  |  | 4.0, 4.1 |
+| 4.2.x (LTS) | 1.0.x | 0.32.x | 0.41.x | 0.25.x | 1.22.x | 0.15.x |  |  |  | 4.0, 4.1, 4.2 |
 | 4.1.x | 0.65.x | 0.30.x | 0.39.x | 0.23.x | 1.19.x | 0.14.x |  |  |  | 4.0, 4.1 |
-| 4.0.x (LTS) | 0.65.x | 0.30.x | 0.39.x | 0.23.x | 1.19.x | 0.13.x |  |  |  | 4.0, 4.1 |
+| 4.0.x (LTS) | 0.65.x | 0.30.x | 0.39.x | 0.23.x | 1.19.x | 0.13.x |  |  |  | 4.0, 4.1, 4.2, 4.3 |
 
 ## Channel mapping
 
@@ -47,11 +47,85 @@ For details about channel behavior and upgrade targeting, see [Upgrade Path](../
 
 ### New and Optimized Features
 
-TBD
+**Pipelines**
+
+- The `Maven` Task v0.6 is now available. This release updates the default certificate file name for the `CERT_PATH` parameter from `ca.cert` to `ca.crt`. Version v0.5 remains supported, and migration is optional. See the example below for migration guidance.
+
+  **v0.5 → v0.6**
+
+  ```yaml
+  # Before (v0.5)
+    ...
+    taskRef:
+      ...
+        - name: version
+          value: "0.5"
+    ...
+    params:
+      - name: CERT_PATH
+        value: $(workspaces.cert.path)/ca.cert
+  ```
+
+  ```yaml
+  # After (v0.6)
+    ...
+    taskRef:
+      ...
+        - name: version
+          value: "0.6"
+    ...
+    params:
+      - name: CERT_PATH
+        value: $(workspaces.cert.path)/ca.crt
+  ```
+
+- The `SonarQube Scanner` Task v0.6 is now available. This release updates the default certificate file name for the `CERT_PATH` parameter from `ca.cert` to `ca.crt`. Version v0.5 remains supported, and migration is optional. See the example below for migration guidance.
+
+  **v0.5 → v0.6**
+
+  ```yaml
+  # Before (v0.5)
+    ...
+    taskRef:
+      ...
+        - name: version
+          value: "0.5"
+    ...
+    params:
+      - name: CERT_PATH
+        value: $(workspaces.sonar-certificate.path)/ca.cert
+  ```
+
+  ```yaml
+  # After (v0.6)
+    ...
+    taskRef:
+      ...
+        - name: version
+          value: "0.6"
+    ...
+    params:
+      - name: CERT_PATH
+        value: $(workspaces.sonar-certificate.path)/ca.crt
+  ```
+- With this update, a new `Helm Upgrade` Task is added to support pulling a specific chart version from an OCI repository and deploying or updating Helm applications directly from a Git source directory.
+- With this update, a new `Helm Chart Build Push` Task is added to package Helm charts from a directory and push them to an OCI registry by using Helm and ORAS.
+- With this update, a new `Golang` Task is added to support Golang build, test, lint, dependency caching, and test result collection.
+- With this update, a new `Node.js` Task is added to support npm/yarn build, test, lint, and npm registry publishing.
+- With this update, a new `.NET` Task is added to support command execution, optional caching, and NuGet configuration.
+- With this update, a new `Merge Image` Task is added to merge images built for different CPU architectures into a single image.
+- With this update, a new `Workload Apply` Task is added to support Kubernetes workload updates, image updates, custom patch YAML, and configurable deployment and rollback timeouts.
+- With this update, a new `Send Mail` Task is added to support email notifications based on built-in templates or custom content. [Learn More](../pipelines/how_to/configure-custom-mail-template.mdx).
+- With this update, when rerunning a PipelineRun, the system prioritizes generating the new name based on the original PipelineRun name or its naming rule.
+- With this update, graphical pipeline editing supports card-level error indication and blocking validation before submission.
+
+**Triggers**
+
+- With this update, Trigger orchestration in the UI supports TriggerBinding and ClusterTriggerBinding preview, helping users inspect available parameters before referencing them.
 
 ### Breaking Changes
 
-TBD
+No breaking changes in this release.
 
 ### Fixed Issues
 
@@ -60,33 +134,3 @@ TBD
 ### Known Issues
 
 {/* release-notes-for-bugs?template=unfixed&project=DEVOPS&version=v4.10.0 */}
-
-## v4.8.0
-
-### New and Optimized Features
-
-**Pipeline**
-
-- Pipeline management introduces the **GitOps Repo Update** pipeline template. This pipeline updates files in a GitOps repository, commits and pushes changes using `git-cli`, and optionally creates a Merge Request(Merge Request creation currently supports GitLab only).
-- A new **Helm Chart Build Push** `Task` is added. You can package a Helm chart from a specified directory and push it to an OCI registry using Helm or ORAS.
-- When orchestrating pipelines through the UI, variable referencing with `$` now supports a broader [set of Tekton variables](https://tekton.dev/vault/pipelines-v1.6.x-lts/variables/).
-- When orchestrating pipelines through the UI, if a `PipelineTask` fails, the remaining `PipelineTasks` will be skipped and the `PipelineRun` will be marked as failed. You can now configure [onError](https://tekton.dev/docs/pipelines/pipelines/#using-the-onerror-field) for tasks to allow the pipeline to continue executing subsequent tasks even if a task fails.
-- With this update, you can collect and display Tekton component metrics by referring to the [Metrics Collection for Tekton Components](../configure/metrics_collection.mdx).
-  
-
-**Results**
-
-  - With this update, pipeline log archiving now supports configuring **S3** as the backend storage and enables log querying. [Learn more](../results/configure/s3_storage_configuration.mdx).
-
-### Breaking Changes
-
-No breaking changes in this release.
-
-### Fixed Issues
-
-{/* release-notes-for-bugs?template=fixed&project=DEVOPS&version=v4.8.0 */}
-
-### Known Issues
-
-{/* release-notes-for-bugs?template=unfixed&project=DEVOPS&version=v4.8.0 */}
-
