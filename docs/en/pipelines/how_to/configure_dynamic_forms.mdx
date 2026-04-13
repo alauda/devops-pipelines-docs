@@ -56,7 +56,7 @@ metadata:
   name: simple-task
   annotations:
     style.tekton.dev/descriptors: |
-      - path: params.gitUrl
+      - path: params.gitURL
         x-descriptors:
           - urn:alm:descriptor:label:zh:GitRepo
           - urn:alm:descriptor:com.tectonic.ui:text
@@ -64,13 +64,13 @@ metadata:
           - urn:alm:descriptor:com.tectonic.ui:validation:required
 spec:
   params:
-    - name: gitUrl
+    - name: gitURL
       type: string
   steps:
     - name: clone
       image: alpine/git
       script: |
-        git clone $(params.gitUrl)
+        git clone $(params.gitURL)
 ```
 
 ## Form Basic Configuration

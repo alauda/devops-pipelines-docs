@@ -26,6 +26,7 @@ This page helps you quickly choose the right tool image for your pipeline steps.
 | | Java build, test, and package | [`maven`](#maven) | Maven + JDK 21 |
 | | .NET build, test, and publish | [`dotnet`](#dotnet) | .NET SDK LTS image for application compilation |
 | | Python scripts and tests | [`python`](#python) | Python + pip |
+| | Node.js build and test | [`nodejs`](#nodejs) | Node.js LTS runtime |
 | **Image & Artifact** | OCI image build and push | [`buildah`](#buildah) | Rootless build, no Docker daemon required |
 | | Multi-arch manifest merge (`merge-image` Task), copy, retag, and registry sync | [`crane`](#crane) | Uses `crane index append` to compose and publish manifest lists without a build stage |
 | | Helm chart package and publish | [`helm`](#helm) | Includes oras, kubectl, yq |
@@ -69,6 +70,8 @@ This page helps you quickly choose the right tool image for your pipeline steps.
 | sonar-scanner | [`sonarqube-scanner`](#sonarqube-scanner) |
 | sonar (CLI) | [`sonarqube-cli`](#sonarqube-cli) |
 | msmtp | [`msmtp`](#msmtp) |
+| Node.js | [`nodejs`](#nodejs) |
+| npm | [`nodejs`](#nodejs) |
 | Go | [`golang`](#golang) |
 | JDK | [`maven`](#maven) [`sonarqube-scanner`](#sonarqube-scanner) |
 | Maven | [`maven`](#maven) |
@@ -176,6 +179,17 @@ This page helps you quickly choose the right tool image for your pipeline steps.
 | Best For | .NET restore/build/test/publish workflows |
 | Not Recommended | OCI image build/push workflows (use `buildah`) |
 
+#### nodejs \{#nodejs}
+
+| Field | Content |
+| --- | --- |
+| Registry | `registry.alauda.cn:60070/devops/tektoncd/hub/nodejs` |
+| Tag | `latest`<br/>`v24`<br/>`v24.14` |
+| Main Tools | Node.js 24 |
+| Bundled Tools | npm |
+| Best For | Node.js project build, test, and packaging workflows |
+| Not Recommended | Go/Java/Python build workflows |
+
 ### Image & Artifact
 
 #### buildah \{#buildah}
@@ -184,7 +198,7 @@ This page helps you quickly choose the right tool image for your pipeline steps.
 | --- | --- |
 | Registry | `registry.alauda.cn:60070/devops/tektoncd/hub/buildah` |
 | Tag | `latest`<br/>`v1.33` |
-| Main Tools | buildah 1.42 (image tag v1.33 is the image version; tool version is 1.42) |
+| Main Tools | buildah 1.43 (image tag v1.33 is the image version; tool version is 1.43) |
 | Bundled Tools | rootless build support |
 | Best For | OCI image build and push |
 | Not Recommended | Vulnerability scanning, signing, or SBOM generation only |
@@ -229,8 +243,8 @@ This page helps you quickly choose the right tool image for your pipeline steps.
 | Field | Content |
 | --- | --- |
 | Registry | `registry.alauda.cn:60070/devops/tektoncd/hub/syft` |
-| Tag | `latest`<br/>`v1.23` |
-| Main Tools | syft 1.28 (image tag v1.23 is the image version; tool version is 1.28) |
+| Tag | `latest`<br/>`v1.42` |
+| Main Tools | syft 1.42 (image tag v1.42 matches the syft binary version) |
 | Bundled Tools | cosign 2.6 |
 | Best For | SBOM generation, supply chain material output |
 | Not Recommended | Signing only (use `cosign`) or vulnerability scanning only (use `trivy`) |
@@ -321,4 +335,3 @@ This page helps you quickly choose the right tool image for your pipeline steps.
 > - All images run as UID 65532 (non-root user).
 > - `latest` usually points to the newest fixed tag but may introduce major version changes. Use fixed tags if stability is a priority.
 > - Tool versions are at the `major.minor` level; patch versions are upgraded automatically with image updates.
-

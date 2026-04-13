@@ -1,0 +1,241 @@
+---
+title: Run Local Integration Tests
+weight: 30
+---
+
+# Run Local Integration Tests
+
+This guide covers the default local development workflow for running the TektonCD Operator integration test suite directly from the source tree.
+
+Use this document when you want to run tests from the local repository with:
+
+```bash
+cd testing
+make test
+```
+
+Use [Run TektonCD Operator E2E Tests](./run_e2e.mdx) only when you specifically want the container-image-based workflow.
+
+## Scope
+
+This workflow is for contributors working in the `tektoncd-operator` repository itself. It matches the behavior implemented in [testing/Makefile] and [testing/main_test.go].
+
+Key differences from the catalog playbook:
+
+- You still need a valid `KUBECONFIG`
+- You do not need to run a separate `prepare` helper before regular local verification
+- You need a local test config file before execution
+- You should use `TAGS` to narrow the test scope
+- The standard entrypoint is `cd testing && make test`
+
+## Prerequisites
+
+- Access to a Kubernetes cluster that already has the required external dependencies available for the scenarios you plan to run
+- A valid kubeconfig with enough permissions for the tested scenarios
+- Go toolchain available locally
+- Optional: `allure` for reading the generated test report
+
+## Step 1: Export Kubeconfig
+
+Before every local run, export the kubeconfig you want the suite to use:
+
+```bash
+export KUBECONFIG=/path/to/your/kubeconfig.yaml
+```
+
+Verify the context before running tests:
+
+```bash
+kubectl config current-context
+kubectl get nodes
+```
+
+## Step 2: Prepare Local Test Config
+
+The test suite reads external toolchain and registry settings from a config file.
+
+The default location is:
+
+```text
+testing/config.yaml
+```
+
+You can either:
+
+- Place your local config at `testing/config.yaml`
+- Or keep it elsewhere and export `TESTING_CONFIG=/path/to/config.yaml`
+
+Example:
+
+```bash
+export TESTING_CONFIG=/path/to/local-testing-config.yaml
+```
+
+The Makefile defaults to `./config.yaml` only when `TESTING_CONFIG` is not set.
+
+Important rules:
+
+- Do not commit credentials, tokens, kubeconfig files, or private toolchain settings
+- Treat feature files as the source of truth for which config keys are actually required
+- Different tags may require different sections under `registry` and `toolchains`
+
+## Step 3: Choose the Test Scope with TAGS
+
+The suite supports running the whole default bucket or a smaller subset.
+
+Common patterns:
+
+- One scenario tag
+- One feature-level tag
+- A comma-separated OR list of several scenario tags
+
+Examples:
+
+```bash
+export TAGS='@tektoncd-pipeline-gitops-repo-update-005'
+```
+
+```bash
+export TAGS='@tektoncd-pipeline-gitops-repo-update'
+```
+
+```bash
+export TAGS='@tektoncd-pipeline-gitops-repo-update-004,@tektoncd-pipeline-gitops-repo-update-005'
+```
+
+Notes:
+
+- `make test` applies your `TAGS` on top of the common exclusions defined in the Makefile
+- By default, regular runs exclude `@automatable`, `@manual`, `@ui`, `@upgrade`, and `@prepare`
+- `make test` automatically handles both parallel and serial scenarios
+
+## Step 4: Run Tests
+
+The default local command is:
+
+```bash
+cd testing
+make test
+```
+
+Recommended single-case workflow:
+
+```bash
+export KUBECONFIG=/path/to/your/kubeconfig.yaml
+export TAGS='@tektoncd-pipeline-gitops-repo-update-005'
+cd testing
+make test
+```
+
+If your config file is not stored at the default location:
+
+```bash
+export KUBECONFIG=/path/to/your/kubeconfig.yaml
+export TESTING_CONFIG=/path/to/local-testing-config.yaml
+export TAGS='@tektoncd-pipeline-gitops-repo-update-005'
+cd testing
+make test
+```
+
+For lower-noise debugging, you can temporarily force single-thread execution:
+
+```bash
+export GODOG_ARGS='--godog.concurrency=1 --godog.format=allure'
+cd testing
+make test
+```
+
+If you need more attachments in the local Allure report:
+
+```bash
+export BDD_COLLECT_ARGS=
+cd testing
+make test
+```
+
+## No Prepare Step for Regular Local Runs
+
+Do not copy the catalog repository workflow directly here.
+
+For normal local verification in this repository:
+
+- Do not run `common-integration-prepare.sh`
+- Do not run `make prepare-resources` unless you are explicitly validating resources labeled for prepare behavior
+- Start from kubeconfig, local config, tag selection, and `cd testing && make test`
+
+## Useful Commands
+
+Run only the parallel bucket:
+
+```bash
+cd testing
+make test-parallel
+```
+
+Run only the serial bucket:
+
+```bash
+cd testing
+make test-serial
+```
+
+Show the generated Allure report:
+
+```bash
+cd testing
+make report
+```
+
+## How to Pick the Right Tag
+
+Start from the feature file that covers your change and locate:
+
+- The feature-level tag near the top of the file
+- The scenario tag above the exact case you want to run
+
+Example feature file:
+
+[pipeline.gitops-repo-update.feature]
+
+Typical workflow:
+
+1. Find the affected feature file in `testing/features`
+2. Run one scenario tag first
+3. Run the feature-level tag after the scenario passes
+4. Expand to the broader bucket only after the focused rerun is stable
+
+## Troubleshooting
+
+### Config placeholders render as `<no value>`
+
+- Your config file is missing one or more required keys
+- Check the exact placeholder path used by the feature file or referenced testdata
+
+### A step like `执行 "...脚本成功"` fails early
+
+- Treat it as environment or external dependency failure first
+- Verify the matching toolchain settings in your local config
+
+### `No scenarios` appears in the output
+
+- Your `TAGS` expression does not match any scenario
+- Start with one exact scenario tag instead of a complex expression
+
+### The wrong config file is being used
+
+- Verify `TESTING_CONFIG`
+- If unset, the suite uses `testing/config.yaml`
+
+### Tests are too noisy while debugging
+
+- Set `GODOG_ARGS='--godog.concurrency=1 --godog.format=allure'`
+- Narrow `TAGS` to one scenario
+
+## Recommended Team Workflow
+
+1. Export the target `KUBECONFIG`
+2. Prepare a local test config file
+3. Select one precise `TAGS` value
+4. Run `cd testing && make test`
+5. Inspect the first failing step before changing code
+6. Widen the scope only after the focused case passes
