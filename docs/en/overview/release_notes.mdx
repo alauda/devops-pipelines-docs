@@ -34,6 +34,15 @@ The following table shows the compatibility and support matrix between the `Alau
 | 4.1.x | 0.65.x | 0.30.x | 0.39.x | 0.23.x | 1.19.x | 0.14.x |  |  |  | 4.0, 4.1 |
 | 4.0.x (LTS) | 0.65.x | 0.30.x | 0.39.x | 0.23.x | 1.19.x | 0.13.x |  |  |  | 4.0, 4.1, 4.2, 4.3 |
 
+The following table shows the recommended version mapping between `Alauda DevOps Pipelines` and `Alauda DevOps Connectors`.
+
+| Alauda DevOps Pipelines Version | Recommended Alauda DevOps Connectors Version |
+| :--- | :--- |
+| 4.10.x (LTS) | >= 1.10 |
+| 4.8.x | >= 1.7 |
+| 4.7.x | >= 1.7 |
+| 4.6.x (LTS) | >= 1.6 |
+
 ## Channel mapping
 
 | Version Type | Channel Mapping | Default |
@@ -49,65 +58,31 @@ For details about channel behavior and upgrade targeting, see [Upgrade Path](../
 
 **Pipelines**
 
-- The `Maven` Task v0.6 is now available. This release updates the default certificate file name for the `CERT_PATH` parameter from `ca.cert` to `ca.crt`. Version v0.5 remains supported, and migration is optional. See the example below for migration guidance.
+- With this update, catalog Task and Pipeline versions are upgraded. In these versions, tool image defaults are pinned to fixed tags, and some deprecated parameter fields are removed. Previous versions remain available and can continue to be used, but users are recommended to migrate to the new versions as early as possible. For detailed change descriptions, refer to the Task and Pipeline READMEs.
 
-  **v0.5 → v0.6**
+  **Task Version Upgrades**
 
-  ```yaml
-  # Before (v0.5)
-    ...
-    taskRef:
-      ...
-        - name: version
-          value: "0.5"
-    ...
-    params:
-      - name: CERT_PATH
-        value: $(workspaces.cert.path)/ca.cert
-  ```
+  | Task | Version Upgrade Path |
+  | :--- | :--- |
+  | `Buildah` | `v0.9 -> v0.10` |
+  | `Helm Chart Build Push` | `v0.1 -> v0.2` |
+  | `Cosign` | `v0.1 -> v0.2` |
+  | `Git CLI` | `v0.4 -> v0.5` |
+  | `Git Clone` | `v0.9 -> v0.10` |
+  | `Merge Image` | `new -> v0.2` |
+  | `Pytest` | `v0.2 -> v0.3` |
+  | `Python` | `v0.1 -> v0.2` |
+  | `Syft` | `v0.1 -> v0.2` |
+  | `Trivy Scanner` | `v0.4 -> v0.5` |
+  | `Maven` | `v0.5 -> v0.6` |
+  | `SonarQube Scanner` | `v0.5 -> v0.6` |
 
-  ```yaml
-  # After (v0.6)
-    ...
-    taskRef:
-      ...
-        - name: version
-          value: "0.6"
-    ...
-    params:
-      - name: CERT_PATH
-        value: $(workspaces.cert.path)/ca.crt
-  ```
+  **Pipeline Version Upgrades**
 
-- The `SonarQube Scanner` Task v0.6 is now available. This release updates the default certificate file name for the `CERT_PATH` parameter from `ca.cert` to `ca.crt`. Version v0.5 remains supported, and migration is optional. See the example below for migration guidance.
-
-  **v0.5 → v0.6**
-
-  ```yaml
-  # Before (v0.5)
-    ...
-    taskRef:
-      ...
-        - name: version
-          value: "0.5"
-    ...
-    params:
-      - name: CERT_PATH
-        value: $(workspaces.sonar-certificate.path)/ca.cert
-  ```
-
-  ```yaml
-  # After (v0.6)
-    ...
-    taskRef:
-      ...
-        - name: version
-          value: "0.6"
-    ...
-    params:
-      - name: CERT_PATH
-        value: $(workspaces.sonar-certificate.path)/ca.crt
-  ```
+  | Pipeline | Version Upgrade Path |
+  | :--- | :--- |
+  | `Java Image Build Scan Deploy` | `v0.1 -> v0.2` |
+  | `Python Image Build Scan Deploy` | `v0.1 -> v0.2` |
 - With this update, a new `Helm Upgrade` Task is added to support pulling a specific chart version from an OCI repository and deploying or updating Helm applications directly from a Git source directory.
 - With this update, a new `Helm Chart Build Push` Task is added to package Helm charts from a directory and push them to an OCI registry by using Helm and ORAS.
 - With this update, a new `Golang` Task is added to support Golang build, test, lint, dependency caching, and test result collection.
