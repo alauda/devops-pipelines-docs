@@ -311,7 +311,7 @@ spec:
 
 ### TaskRunSpecs
 
-TaskRunSpecs allow customizing individual TaskRun configurations within a PipelineRun by specifying a list of `PipelineTaskRunSpec` which enables setting `ServiceAccountName`, Pod template, and `Metadata` for each task.
+TaskRunSpecs allow customizing individual TaskRun configurations within a PipelineRun by specifying a list of `PipelineTaskRunSpec` which enables setting `ServiceAccountName`, Pod template, `computeResources`, and `Metadata` for each task.
 
 #### Use Cases
 
@@ -338,6 +338,7 @@ Each TaskRunSpec supports the following fields:
 - **pipelineTaskName**: The name of the Pipeline task to apply the configuration to
 - **serviceAccountName**: The ServiceAccount to use for this specific Task
 - **podTemplate**: Pod template configuration specific to this Task
+- **computeResources**: Compute resource requirements (requests and limits) for this Task, overriding the defaults defined in the Task spec
 - **metadata**: Metadata configuration for the TaskRun
 
 #### Configuration Examples
@@ -508,6 +509,44 @@ spec:
     - name: image-name
       value: my-registry/my-app:latest
 ```
+
+**Example 5: Overriding computeResources for Specific Tasks**
+
+Use `taskRunSpecs[].computeResources` to assign different CPU/memory quotas to individual Tasks,
+overriding any defaults defined in the Task spec:
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: pipeline-run-with-compute-resources
+spec:
+  pipelineRef:
+    name: build-test-deploy
+  taskRunSpecs:
+    - pipelineTaskName: build
+      # Allocate more resources for the resource-intensive build step
+      computeResources:
+        requests:
+          cpu: "1"
+          memory: "2Gi"
+        limits:
+          cpu: "2"
+          memory: "4Gi"
+    - pipelineTaskName: test
+      # Use lighter resources for the test step
+      computeResources:
+        requests:
+          cpu: "500m"
+          memory: "512Mi"
+        limits:
+          cpu: "1"
+          memory: "1Gi"
+```
+
+:::note
+`computeResources` in `taskRunSpecs` is a Beta feature and requires `enable-api-fields: beta` (or `alpha`) in the Tekton feature flags ConfigMap. On the platform's default installation, `enable-api-fields` is already set to `beta`, so this feature works out of the box — you only need to adjust the flag if it has been manually set to `stable`.
+:::
 
 ### Workspaces
 
