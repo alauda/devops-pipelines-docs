@@ -18,7 +18,7 @@ authors:
 - Archived logs only (not live streaming)
 - Tekton Pipelines workloads only
 
-# Motivation
+## Motivation
 
 ## Background
 Console obtains logs from live `Pods` and platform `Elasticsearch`; lacks consistent, scalable archive for historical troubleshooting.
@@ -46,7 +46,7 @@ Platform admins, DevOps engineers, product/backend/frontend engineers
 - General-purpose logging for all workloads (scope: `Tekton Pipelines` only)
 - Detailed `LokiStack`/`Loki` deployment instructions
 
-# Requirements
+## Requirements
 
 ## Functional
 
@@ -73,7 +73,7 @@ Platform admins, DevOps engineers, product/backend/frontend engineers
 - Full-featured log analytics/search UI (handled by external systems)
 - Provider-specific lifecycle controllers for storage backends
 
-# Proposal
+## Proposal
 
 ## Architecture Overview
 
@@ -301,11 +301,7 @@ spec:
 
 **Recommendation**: Strategy 2 (patch-based) for production; S3 lifecycle as defense-in-depth
 
-
-
-
-
-# Design Details
+## Design Details
 
 ## Log Query API Design
 
@@ -576,16 +572,14 @@ Reasons NOT to implement this TEP:
 
 Production `ACP` deployments: Platform/`SRE` team owns day-2 ops (on-call, capacity planning, upgrades) for `Results` stack (`API`/watcher/`DB`/log backends). Application teams own Pipeline definitions and retention policies.
 
-
-
-# References
+## References
 
 - [`TEP`-0021: `Tekton Results` API](https://github.com/tektoncd/community/blob/main/teps/0021-results-api.md)
 - [`Tekton Results` Documentation](https://github.com/tektoncd/results/blob/main/docs/README.md)
 - [`Tekton Results` OpenAPI](https://github.com/tektoncd/results/blob/v0.17.2/docs/api/openapi.yaml)
 - [Retention Enhancement Proposal](https://github.com/tektoncd/community/pull/1158)
 
-# Future Considerations
+## Future Considerations
 
 ## `LokiStack` Integration (Low Priority)
 
