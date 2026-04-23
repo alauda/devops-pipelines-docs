@@ -8,6 +8,10 @@ weight: 40
 The maintenance period for version **v4.6.x** is from 17 Dec, 2025 to 17 Dec, 2026.
 :::
 
+:::note
+Starting with `v4.6.3`, the default subscription channel for this bundle changes from `latest` to `stable`. Both channels carry the same `v4.6.z` patch stream on the 4.6 LTS line, so existing Subscriptions on `channel: latest` continue to work with no action required. To opt out of the new default explicitly, keep `channel: latest` in your Subscription YAML.
+:::
+
 ## Compatibility and support matrix \{#compatibility-and-support-matrix}
 
 The following table shows the compatibility and support matrix between the `Alauda DevOps Pipelines` operator and ACP versions.
@@ -21,6 +25,34 @@ The following table shows the compatibility and support matrix between the `Alau
 | 4.2.x (LTS) | 1.0.x | 0.32.x | 0.41.x | 0.25.x | 1.22.x | 0.15.x | 4.0, 4.1, 4.2 |
 | 4.1.x | 0.65.x | 0.30.x | 0.39.x | 0.23.x | 1.19.x | 0.14.x | 4.0, 4.1 |
 | 4.0.x (LTS) | 0.65.x | 0.30.x | 0.39.x | 0.23.x | 1.19.x | 0.13.x | 4.0, 4.1, 4.2 |
+
+## Channel mapping
+
+| Channel | Contents | Default |
+| :------ | :------- | :------ |
+| `stable` | `v4.6.z` LTS patch releases | Yes, from `v4.6.3` |
+| `latest` | Every `v4.6.z` release | Previous default (prior to `v4.6.3`) |
+| `pipelines-4.6` | `v4.6.z` LTS patch releases | No |
+
+See also [Lifecycle Policy](./lifecycle_policy.mdx#channel-policy) and [Install](../install.mdx) for Subscription examples.
+
+## v4.6.3
+
+### New and Optimized Features
+
+- Subscription channel layout aligned with the LTS channel policy. The bundle is now published to `stable`, `latest`, and `pipelines-4.6`, with `stable` as the new default. Existing Subscriptions on `latest` are not impacted; explicitly keep `channel: latest` if you want to pin to the previous default.
+
+### Breaking Changes
+
+No breaking changes in this release.
+
+### Fixed Issues
+
+{/* release-notes-for-bugs?template=fixed&project=DEVOPS&version=v4.6.3 */}
+
+### Known Issues
+
+{/* release-notes-for-bugs?template=unfixed&project=DEVOPS&version=v4.6.3 */}
 
 ## v4.6.2
 
