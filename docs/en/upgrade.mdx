@@ -19,6 +19,18 @@ Before upgrading the Tekton Operator, ensure you:
 - Check if your existing Tekton component configurations are compatible with the new version
 - Check the Tekton components is ready state
 
+### Confirm Target Channel First
+
+Before you approve an upgrade, confirm which channel your `Subscription` uses:
+
+- `stable` (default from `v4.0.17`): Tracks `v4.0.z` LTS patch releases. Recommended for production.
+- `latest`: Tracks every `v4.0.z` release. Equivalent to `stable` on the 4.0 LTS line, and was the default prior to `v4.0.17`.
+- `pipelines-4.0`: Tracks `v4.0.z` patch updates only — same content as `stable`.
+
+:::note
+All three channels carry the same `v4.0.z` patch stream on the release-4.0 line. The channel choice mostly affects which channel name appears in your Subscription; upgrade behavior is the same across all three.
+:::
+
 ## Upgrade Process
 
 ### Using Marketplace/OperatorHub

@@ -87,6 +87,12 @@ The Alauda DevOps Pipelines Operator provides the option to select which compone
 
 You can install the Alauda DevOps Pipelines Operator from the OperatorHub using the Command Line Interface (CLI).
 
+**Channel quick reference**
+
+- `stable` (default, from `v4.0.17` onward): Installs the latest LTS version. Recommended for production environments.
+- `latest`: Installs every available `v4.0.z` release. If you previously relied on the `latest` default, you can keep this value in your Subscription.
+- `pipelines-4.0`: Locks upgrades to `v4.0.z` patch releases only.
+
 **Steps**
 
 - Create a `Subscription` object YAML file to subscribe a namespace to the Alauda DevOps Pipelines Operator, for example, `sub.yaml`:
@@ -100,14 +106,14 @@ metadata:
   name: tektoncd-operator
   namespace: tekton-operator
 spec:
-  channel: latest # [!code callout]
+  channel: stable # [!code callout]
   name: tektoncd-operator # [!code callout]
   source: platform # [!code callout]
   sourceNamespace: cpaas-system # [!code callout]
 ```
 
 <Callouts>
-  1. The channel name you want to subscribe to. The `latest` channel allows for the installation of the latest stable version of the Alauda DevOps Pipelines Operator.
+  1. The channel name you want to subscribe to. From `v4.0.17` onward, `stable` is the default and installs the latest LTS version. Use `latest` to keep the pre-`v4.0.17` behavior (every `v4.0.z` release), or `pipelines-4.0` to stay on `v4.0.z` patch updates only.
   2. The name of the Operator to subscribe to.
   3. The name of the `CatalogSource` object providing the Operator.
   4. The namespace of the `CatalogSource` object. This may vary depending on your cluster configuration.

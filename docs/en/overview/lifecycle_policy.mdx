@@ -8,9 +8,9 @@ weight: 30
 
 Below is the lifecycle schedule for released versions of the `Alauda DevOps Pipelines` operator:
 
-| Alauda DevOps Pipelines Version | Tekton Component Versions | Release Date | End of Support  |
-| :----: | ------------------------ | :----------: | :--------------: |
-| v4.0.z | Pipelines: v0.65.z<br />Chains: v0.23.z<br />Pipelines-as-Code: v0.32.z<br />Results: v0.13.z<br />Triggers: v0.30.z<br />Tekton Hub: v1.19.z | 2025-04-08 | 2026-12-08 |
+| Alauda DevOps Pipelines Version | Tekton Component Versions | Release Date | End of Support | Available Channels | Recommended Channel |
+| :----: | ------------------------ | :----------: | :--------------: | :----------------: | :-----------------: |
+| v4.0.z | Pipelines: v0.65.z<br />Chains: v0.23.z<br />Pipelines-as-Code: v0.32.z<br />Results: v0.13.z<br />Triggers: v0.30.z<br />Tekton Hub: v1.19.z | 2025-04-08 | 2026-12-08 | `stable`, `latest`, `pipelines-4.0` | `stable` |
 
 ## Release Policy
 
@@ -19,6 +19,18 @@ A new minor version of the `Alauda DevOps Pipelines` operator is released every 
 Within every 4-month period, the last minor version will be selected as a Long Term Support (LTS) version. LTS versions are supported for 12 months, while non-LTS versions are supported four months.
 
 During these four months, we will update to the latest or second [LTS](https://github.com/tektoncd/community/blob/main/releases.md#support-policy) version officially released by Tekton.
+
+## Channel Policy \{#channel-policy}
+
+The `Alauda DevOps Pipelines` operator on the `v4.0.z` LTS line publishes the following subscription channels:
+
+- `stable` (default from `v4.0.17` onward): Receives `v4.0.z` LTS patch updates only. Recommended for production.
+- `latest`: Receives every published `v4.0.z` release. This was the default channel prior to `v4.0.17`; keep your Subscription on `latest` if you want to preserve the previous behavior.
+- `pipelines-4.0`: Equivalent to `stable` on this release line — pinned to `v4.0.z` patch updates.
+
+:::note
+Prior to `v4.0.17`, the `v4.0.z` bundle was published with `latest` as the default channel. Existing subscriptions on `latest` continue to work; no action is required unless you want to switch to `stable`.
+:::
 
 ## Maintenance Policy
 
