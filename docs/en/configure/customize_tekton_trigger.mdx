@@ -1,0 +1,156 @@
+---
+title: Configuring Resource Quotas for Trigger Components
+weight: 21
+---
+
+# Configuring Resource Quotas for Trigger Components
+
+## Overview
+
+Configure resource quotas related to the [`Trigger`](../apis/kubernetes_apis/operator/tektontriggers.mdx) component.
+
+## Use Cases
+
+- Adjust the resource quotas for Trigger control plane components
+- Tune replica count and CPU/memory settings for Trigger Deployments based on cluster load
+
+## Prerequisites
+
+- The Tekton Operator component must be installed
+- TektonConfig resources must have been automatically created in the environment
+- The document on [Adjusting Optional Configuration Items for Subcomponents](./customize_options.mdx) should be read
+
+## Resource Configuration Guidelines
+
+Before configuring resource quotas:
+
+- Assess your cluster's available resources and capacity
+- Consider your webhook traffic pattern and peak event load
+- Start with conservative values and adjust based on monitoring data
+- Test configurations in non-production environments first
+
+## Steps
+
+<Steps>
+### Step 1
+
+Edit the `TektonConfig` resource.
+
+```bash
+$ kubectl edit tektonconfigs.operator.tekton.dev config
+```
+
+### Step 2
+
+:::warning
+Modifying the configuration may trigger a rolling update of the component `Pods`, which could lead to temporary service unavailability. Please execute this at an appropriate time.
+:::
+
+Example of modifying the `spec.trigger.options.deployments` configuration:
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  trigger:
+    options:
+      disabled: false
+      deployments:
+        tekton-triggers-controller:
+          spec:
+            replicas: <REPLICA_COUNT>  # e.g., 1
+            template:
+              spec:
+                containers:
+                  - name: tekton-triggers-controller
+                    resources:
+                      requests:
+                        cpu: <CPU_REQUEST>        # e.g., "200m"
+                        memory: <MEMORY_REQUEST>  # e.g., "256Mi"
+                      limits:
+                        cpu: <CPU_LIMIT>          # e.g., "500m"
+                        memory: <MEMORY_LIMIT>    # e.g., "512Mi"
+
+        tekton-triggers-core-interceptors:
+          spec:
+            replicas: <REPLICA_COUNT>  # e.g., 1
+            template:
+              spec:
+                containers:
+                  - name: tekton-triggers-core-interceptors
+                    resources:
+                      requests:
+                        cpu: <CPU_REQUEST>        # e.g., "200m"
+                        memory: <MEMORY_REQUEST>  # e.g., "256Mi"
+                      limits:
+                        cpu: <CPU_LIMIT>          # e.g., "500m"
+                        memory: <MEMORY_LIMIT>    # e.g., "512Mi"
+
+        tekton-triggers-webhook:
+          spec:
+            replicas: <REPLICA_COUNT>  # e.g., 1
+            template:
+              spec:
+                containers:
+                  - name: webhook
+                    resources:
+                      requests:
+                        cpu: <CPU_REQUEST>        # e.g., "200m"
+                        memory: <MEMORY_REQUEST>  # e.g., "256Mi"
+                      limits:
+                        cpu: <CPU_LIMIT>          # e.g., "500m"
+                        memory: <MEMORY_LIMIT>    # e.g., "512Mi"
+```
+
+### Step 3
+
+Submit the configuration and wait for the Pods to update.
+
+```bash
+$ kubectl get pods -n tekton-pipelines -w
+
+NAME                                                READY   STATUS    RESTARTS   AGE
+tekton-triggers-controller-67f69dbb5d-zk5x2         1/1     Running   0          2m16s
+tekton-triggers-core-interceptors-d6495f95f-vk49r   1/1     Running   0          2m16s
+tekton-triggers-webhook-55758bbcd9-2qvzs            1/1     Running   0          2m16s
+```
+</Steps>
+
+## Operation Result
+
+You can see that the resource quota configurations for Trigger related components are effective.
+
+```bash
+$ kubectl get deployments.apps -n tekton-pipelines tekton-triggers-controller tekton-triggers-core-interceptors tekton-triggers-webhook -o yaml | grep 'resources:' -A 6
+
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 200m
+              memory: 256Mi
+--
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 200m
+              memory: 256Mi
+--
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 200m
+              memory: 256Mi
+```
+
+## References
+
+- [Official Documentation: Tekton Config](https://tekton.dev/vault/operator-v0.74.x-lts/tektonconfig/)
+- [Related Code](https://github.com/tektoncd/operator/blob/release-v0.74.x/pkg/reconciler/common/transformer_additional_options.go)
