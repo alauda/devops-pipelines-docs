@@ -35,6 +35,11 @@ For rendering workflow, built-in variables, and `renderTemplateValues` details, 
 
 Create a `ConfigMap` and set parameters as follows:
 
+Recommended namespace:
+
+- Place template `ConfigMap` in `kube-public` whenever possible. `kube-public` is a commonly used shared namespace, which makes it easier for `TaskRun` resources from different namespaces to reuse the same template.
+- If you store the template in another namespace, explicitly set `renderTemplateNamespace` to that namespace in your Task/Pipeline parameters. For details, see [Supported Template Parameters for Tasks](./supported-template-parameters).
+
 Required parameters:
 
 - Label `tekton.alaudadevops.io/template-type: mail`:
@@ -166,6 +171,12 @@ Yes. You can combine built-in variables (for example, `.context.pipelineRun.name
 ### What happens if `renderTemplateName` is not set?
 
 Template rendering is skipped. You need to provide `subject` and `body` params manually.
+
+### Which namespace should I use for template `ConfigMap`?
+
+Use `kube-public` whenever possible. It is a common shared namespace, making it easier for `TaskRun` resources across different namespaces to reuse the same template.
+
+If the template `ConfigMap` is stored in another namespace, set `renderTemplateNamespace` explicitly to that namespace. For parameter details, see [Supported Template Parameters for Tasks](./supported-template-parameters).
 
 ### What should I check first when rendering does not work?
 
