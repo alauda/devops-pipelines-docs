@@ -12,6 +12,8 @@ The dynamic form configuration feature allows you to declaratively configure a f
 - Rich component support: Provides various form components such as text boxes, selectors, switches, YAML editors, etc.
 - Field validation: Built-in validation rules to ensure user input meets requirements.
 - Dynamic data fetching: Supports dynamically loading option data through APIs.
+- Field links: Adds product or external links to specific fields.
+- Metadata-only configuration: Adds labels, descriptions, tooltips, disabled state, preview, or links without overriding the field's default component.
 
 ## Use Cases
 
@@ -68,7 +70,23 @@ spec:
         git clone $(params.gitURL)
 ```
 
-## Form Basic Configuration
+## Capability Selection Guide
+
+Use the following table to choose the smallest descriptor set that matches your requirement.
+
+| Requirement | Recommended Configuration | Explicit Component Descriptor |
+| ----------- | ------------------------- | ----------------------------- |
+| Change field label, description, or tooltip only | [Basic metadata descriptors](#basic-metadata) | Not required |
+| Keep the default input behavior but add field metadata or links | [Metadata-only configuration](#metadata-only-configuration-without-a-component) | Not required |
+| Render a specific input control, such as text, textarea, select, switch, or YAML editor | [Component type descriptors](#component-types) | Required |
+| Provide fixed or expression-based defaults | [Default value descriptors](#parameter-default-values) | Usually required |
+| Validate user input | [Validation descriptors](#form-validation) | Required |
+| Load select options from an API | [Select component with dynamic options](#api-dynamic-options-configuration) | Required |
+| Preview referenced resource content | [Preview descriptors](#preview-component) | Not required; can combine with one |
+| Add a field link to product guidance or an external URL | [Link descriptors](#link-configuration) | Not required; can combine with one |
+| Split one parameter into multiple sub-inputs | [Combine component](#combine-component) | Required |
+
+## Basic Metadata \{#basic-metadata}
 
 ### Form Label
 
@@ -109,7 +127,49 @@ spec:
 - urn:alm:descriptor:com.tectonic.ui:disabled
 ```
 
-## Supported Field Types
+### Metadata-only Configuration Without a Component \{#metadata-only-configuration-without-a-component}
+
+You can configure field metadata and enhancements without declaring a form component such as `text`, `select`, or `widgets:select`.
+
+In this mode, the UI keeps the parameter entry's default rendering component and only applies the supported descriptor enhancements. This is useful when you want to improve the display text or add help links without changing the parameter's input behavior.
+
+```yaml
+- path: params.mailSubject
+  x-descriptors:
+    - urn:alm:descriptor:label:en:Mail Subject
+    - urn:alm:descriptor:label:zh:Mail Subject
+    - urn:alm:descriptor:description:en:Used to render the notification title.
+    - urn:alm:descriptor:description:zh:Used to render the notification title.
+    - urn:alm:descriptor:tooltip:en:Rendered at runtime.
+    - urn:alm:descriptor:tooltip:zh:Rendered at runtime.
+```
+
+Supported descriptors in metadata-only mode:
+
+- `urn:alm:descriptor:label:*`
+- `urn:alm:descriptor:description:*`
+- `urn:alm:descriptor:tooltip:*`
+- `urn:alm:descriptor:com.tectonic.ui:disabled`
+- `urn:alm:descriptor:enhance:preview:*` and `urn:alm:descriptor:preview:*`
+- `urn:alm:descriptor:enhance:docLink:*` and `urn:alm:descriptor:docLink:*`
+
+The following descriptors require an explicit component capability and do not apply in metadata-only mode:
+
+- `urn:alm:descriptor:placeholder:*`
+- `urn:alm:descriptor:com.tectonic.ui:validation:*`
+- `urn:alm:descriptor:expression:props.default*`
+- `urn:alm:descriptor:expression:props.options:*`
+- `urn:alm:descriptor:widgets:*`
+
+If you need placeholders, validation, dynamic options, default values, or a specific widget behavior, declare the corresponding component explicitly.
+
+To make a metadata-only field read-only, add the disabled descriptor:
+
+```yaml
+- urn:alm:descriptor:com.tectonic.ui:disabled
+```
+
+## Component Types \{#component-types}
 
 ### Text Input
 
@@ -190,7 +250,7 @@ spec:
 - urn:alm:descriptor:props:select:clearable
 ```
 
-#### API Dynamic Options Configuration
+#### API Dynamic Options Configuration \{#api-dynamic-options-configuration}
 
 When form controls need to dynamically load available options based on the current environment (such as available namespaces, secrets, etc.), you can use **API dynamic configuration** to retrieve dropdown options from backend interfaces in real-time.
 
@@ -282,7 +342,9 @@ When user types "test" in the dropdown, the actual request will be:
 ${context.params.map(p => p.name).join(',')}
 ```
 
-## Parameter Default Values
+## Enhancements
+
+### Parameter Default Values \{#parameter-default-values}
 
 **Fixed Default Value**
 
@@ -312,6 +374,7 @@ Available variables:
   - urn:alm:descriptor:expression:props.default:${context.namespace}
   # Complex conditions
   - urn:alm:descriptor:expression:props.default.exp:option.metadata.name.includes('test') && option.status.conditions.some(c => c.status==='True')
+  ```
 
 
 :::info
@@ -320,17 +383,17 @@ For conditional syntax rules in complex scenarios, please refer to [JavaScript s
 
 :::
 
-## Form Validation
+### Form Validation \{#form-validation}
 
 Supports configuring various validation rules, multiple rules can be applied simultaneously.
 
-### Required Validation
+#### Required Validation
 
 ```yaml
 - urn:alm:descriptor:com.tectonic.ui:validation:required
 ```
 
-### Length Validation
+#### Length Validation
 
 ```yaml
 # Minimum length
@@ -339,7 +402,7 @@ Supports configuring various validation rules, multiple rules can be applied sim
 - urn:alm:descriptor:com.tectonic.ui:validation:maxLength:64
 ```
 
-### Numeric Range Validation
+#### Numeric Range Validation
 
 ```yaml
 # Minimum value (applicable to numeric types)
@@ -348,7 +411,7 @@ Supports configuring various validation rules, multiple rules can be applied sim
 - urn:alm:descriptor:com.tectonic.ui:validation:maximum:100
 ```
 
-### Regular Expression Validation
+#### Regular Expression Validation
 
 ```yaml
 # Positive integer
@@ -370,11 +433,113 @@ Supports configuring various validation rules, multiple rules can be applied sim
     - urn:alm:descriptor:com.tectonic.ui:validation:maxLength:32
 ```
 
-## Advanced Features
+### Preview Component \{#preview-component}
+
+The **Preview Component** allows users to preview the YAML content of a selected resource directly from the form. This is particularly useful in scenarios where users need to verify resource configurations before using them in Pipelines, such as checking ConfigMap content, validating Secret data, or reviewing Task/Pipeline YAML definitions.
+
+For example, when a user selects a ConfigMap from a dropdown to use as a volume mount or environment variable source in a Task, they can preview the ConfigMap's data directly in the form to ensure the correct resource is selected.
+
+**Configuration**
+
+```yaml
+# Enable preview - show button when parameter has value
+- urn:alm:descriptor:enhance:preview:context.params.<param-name>
+
+# API endpoint to fetch resource content
+- urn:alm:descriptor:preview:resource:api:<api-url>
+
+# JSONPath or JS expression to extract content from response
+- urn:alm:descriptor:preview:resource:path:<jsonpath>
+- urn:alm:descriptor:preview:resource:path.exp:<js-expression>
+```
+
+**Example**: Configure a dropdown to select a ConfigMap, with a preview button to view its YAML content.
+
+```yaml
+- path: params.configmap
+  x-descriptors:
+    # Form label
+    - urn:alm:descriptor:label:en:ConfigMap
+    - urn:alm:descriptor:label:zh:ConfigMap
+
+    # Dropdown to select ConfigMap from current namespace
+    - urn:alm:descriptor:com.tectonic.ui:select
+    - urn:alm:descriptor:expression:props.options:api:/kubernetes/${context.cluster}/api/v1/namespaces/${context.namespace}/configmaps
+    - urn:alm:descriptor:expression:props.options:path:items
+    - urn:alm:descriptor:expression:props.options:label:path:metadata.name
+    - urn:alm:descriptor:expression:props.options:value:path:metadata.name
+    - urn:alm:descriptor:com.tectonic.ui:validation:required
+
+    # Preview feature
+    - urn:alm:descriptor:enhance:preview:context.params.configmap
+    - urn:alm:descriptor:preview:resource:api:/kubernetes/${context.cluster}/api/v1/namespaces/${context.namespace}/configmaps?fieldSelector=metadata.name%3D${context.params.configmap}
+    - urn:alm:descriptor:preview:resource:path:items[0]
+```
+
+**How it works in the UI:**
+1. User selects a ConfigMap from the dropdown (e.g., `my-config`).
+2. A preview button appears next to the dropdown.
+3. Clicking the preview button fetches the selected ConfigMap from the Kubernetes API.
+4. The raw YAML content is displayed in a preview panel with syntax highlighting.
+
+### Link Configuration \{#link-configuration}
+
+The **Link Configuration** adds a clickable link to a specific field. Use it when users need quick access to related guidance, a product document, an external reference page, or another system URL while filling in a parameter.
+
+Links can be used together with a form component, or in metadata-only mode when you only want to add help text and a link without changing the field's default input component.
+
+**Configuration**
+
+```yaml
+# Enable an internal product link
+- urn:alm:descriptor:enhance:docLink:productDoc
+
+# Product link path. Product documentation pages are a common use case.
+- urn:alm:descriptor:docLink:link:alauda-devops-pipelines/pipelines/how_to/configure_dynamic_forms.html
+
+# Optional link tooltip label. The UI uses a built-in default when omitted.
+- urn:alm:descriptor:docLink:label:en:Open guide
+- urn:alm:descriptor:docLink:label:zh:Open guide
+```
+
+For a full URL link, use the `external` link type and provide a full `http` or `https` URL:
+
+```yaml
+- urn:alm:descriptor:enhance:docLink:external
+- urn:alm:descriptor:docLink:link:https://example.com/docs
+- urn:alm:descriptor:docLink:label:en:External reference
+- urn:alm:descriptor:docLink:label:zh:External reference
+```
+
+**Example**: Add a link to a parameter guide for a Git repository URL field.
+
+```yaml
+- path: params.gitURL
+  x-descriptors:
+    - urn:alm:descriptor:label:en:Git Repository URL
+    - urn:alm:descriptor:label:zh:Git Repository URL
+    - urn:alm:descriptor:description:en:Enter the source repository URL.
+    - urn:alm:descriptor:description:zh:Enter the source repository URL.
+    - urn:alm:descriptor:com.tectonic.ui:text
+    - urn:alm:descriptor:enhance:docLink:productDoc
+    - urn:alm:descriptor:docLink:link:alauda-devops-pipelines/pipelines/how_to/configure_dynamic_forms.html
+    - urn:alm:descriptor:docLink:label:en:Open parameter guide
+    - urn:alm:descriptor:docLink:label:zh:Open parameter guide
+```
+
+**Configuration Rules**
+
+- Use only one link type for a field: `productDoc` or `external`.
+- `productDoc` uses a product link path, for example `alauda-devops-pipelines/pipelines/how_to/configure_dynamic_forms.html`.
+- `external` only accepts full `http` or `https` URLs.
+- If the link is invalid or the type does not match the link value, the UI does not render the link.
+
+
+## Advanced Widgets
 
 In complex CI/CD scenarios, the following advanced form components can help you handle more sophisticated configuration requirements.
 
-### Combine Component
+### Combine Component \{#combine-component}
 
 In complex CI/CD scenarios, you may encounter situations where a single array parameter needs to collect data from multiple different sources (different APIs). For example, a `workloads` parameter might need to include both "Deployments" and "StatefulSets", which require fetching data from entirely different Kubernetes APIs.
 
@@ -469,56 +634,64 @@ To achieve this, you can use the **Combine Component (`widgets:combine`)**. It a
         - sts:db-1
     ```
 
-### Preview Component
+## Full Examples
 
-The **Preview Component** allows users to preview the YAML content of a selected resource directly from the form. This is particularly useful in scenarios where users need to verify resource configurations before using them in Pipelines, such as checking ConfigMap content, validating Secret data, or reviewing Task/Pipeline YAML definitions.
+### Configure Metadata-only Dynamic Forms in Task
 
-For example, when a user selects a ConfigMap from a dropdown to use as a volume mount or environment variable source in a Task, they can preview the ConfigMap's data directly in the form to ensure the correct resource is selected.
+Example: Add labels, descriptions, tooltips, and a field link without declaring a form component.
 
-**Configuration**
-
-```yaml
-# Enable preview - show button when parameter has value
-- urn:alm:descriptor:enhance:preview:context.params.<param-name>
-
-# API endpoint to fetch resource content
-- urn:alm:descriptor:preview:resource:api:<api-url>
-
-# JSONPath or JS expression to extract content from response
-- urn:alm:descriptor:preview:resource:path:<jsonpath>
-- urn:alm:descriptor:preview:resource:path.exp:<js-expression>
-```
-
-**Example**: Configure a dropdown to select a ConfigMap, with a preview button to view its YAML content.
+Effect: The UI keeps the default input behavior for each parameter and applies only the configured metadata and link.
 
 ```yaml
-- path: params.configmap
-  x-descriptors:
-    # Form label
-    - urn:alm:descriptor:label:en:ConfigMap
-    - urn:alm:descriptor:label:zh:ConfigMap
-
-    # Dropdown to select ConfigMap from current namespace
-    - urn:alm:descriptor:com.tectonic.ui:select
-    - urn:alm:descriptor:expression:props.options:api:/kubernetes/${context.cluster}/api/v1/namespaces/${context.namespace}/configmaps
-    - urn:alm:descriptor:expression:props.options:path:items
-    - urn:alm:descriptor:expression:props.options:label:path:metadata.name
-    - urn:alm:descriptor:expression:props.options:value:path:metadata.name
-    - urn:alm:descriptor:com.tectonic.ui:validation:required
-
-    # Preview feature
-    - urn:alm:descriptor:enhance:preview:context.params.configmap
-    - urn:alm:descriptor:preview:resource:api:/kubernetes/${context.cluster}/api/v1/namespaces/${context.namespace}/configmaps?fieldSelector=metadata.name%3D${context.params.configmap}
-    - urn:alm:descriptor:preview:resource:path:items[0]
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: metadata-only-demo-task
+  namespace: <your namespace>
+  annotations:
+    style.tekton.dev/descriptors: |
+      - path: params.mailSubject
+        x-descriptors:
+          - urn:alm:descriptor:label:en:Mail Subject
+          - urn:alm:descriptor:label:zh:Mail Subject
+          - urn:alm:descriptor:description:en:Used to render the notification title.
+          - urn:alm:descriptor:description:zh:Used to render the notification title.
+          - urn:alm:descriptor:tooltip:en:Rendered at runtime.
+          - urn:alm:descriptor:tooltip:zh:Rendered at runtime.
+      - path: params.runtimeNote
+        x-descriptors:
+          - urn:alm:descriptor:label:en:Runtime Note
+          - urn:alm:descriptor:label:zh:Runtime Note
+          - urn:alm:descriptor:description:en:No component descriptor is configured for this parameter.
+          - urn:alm:descriptor:description:zh:No component descriptor is configured for this parameter.
+          - urn:alm:descriptor:tooltip:en:The UI should keep the parameter entry's default rendering component.
+          - urn:alm:descriptor:tooltip:zh:The UI should keep the parameter entry's default rendering component.
+          - urn:alm:descriptor:enhance:docLink:productDoc
+          - urn:alm:descriptor:docLink:link:alauda-devops-pipelines/pipelines/how_to/configure_dynamic_forms.html
+          - urn:alm:descriptor:docLink:label:en:Open form guide
+          - urn:alm:descriptor:docLink:label:zh:Open form guide
+spec:
+  params:
+    - name: mailSubject
+      type: string
+      default: Metadata-only subject
+    - name: runtimeNote
+      type: string
+      default: This parameter has no explicit form component descriptor.
+  steps:
+    - name: print-values
+      image: ubuntu
+      env:
+        - name: MAIL_SUBJECT
+          value: $(params.mailSubject)
+        - name: RUNTIME_NOTE
+          value: $(params.runtimeNote)
+      script: |
+        #!/usr/bin/env sh
+        set -eu
+        echo "mailSubject=${MAIL_SUBJECT}"
+        echo "runtimeNote=${RUNTIME_NOTE}"
 ```
-
-**How it works in the UI:**
-1. User selects a ConfigMap from the dropdown (e.g., `my-config`).
-2. A preview button appears next to the dropdown.
-3. Clicking the preview button fetches the selected ConfigMap from the Kubernetes API.
-4. The raw YAML content is displayed in a preview panel with syntax highlighting.
-
-## Usage Examples
 
 ### Configure Dynamic Forms in Task
 
@@ -605,3 +778,5 @@ spec:
 - **Dynamic options not loading**: Confirm the API path is correct, check if the current user has permission to access the specified API resource, verify `path`, `label` and `value` configurations point to fields that exist in the returned data
 - **Default value not taking effect**: Confirm fixed default value uses `expression:props.default:value` format, expression default value uses `===` instead of `=`, check if variables (option, index, length, context) in the expression are spelled correctly
 - **Context variables not resolved**: Verify variable names are correct (e.g., `context.namespace` not `context.namespaces`), confirm variables are used in descriptors that support expressions, check if JavaScript expression syntax has errors
+- **Link not displayed**: Confirm `enhance:docLink` uses either `productDoc` or `external`, verify `docLink:link` is present, and ensure external links use full `http` or `https` URLs
+- **Field is displayed but cannot be edited**: Check whether `urn:alm:descriptor:com.tectonic.ui:disabled` is configured for the field
