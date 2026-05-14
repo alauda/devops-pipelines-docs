@@ -3,7 +3,7 @@
   version: "4.3"
 - name: postgresql
   base: /postgresql
-  version: "4.2"
+  version: "4.3"
 - name: connectors
   base: /alauda-devops-connectors
-  version: "1.9"
+  version: "1.10"

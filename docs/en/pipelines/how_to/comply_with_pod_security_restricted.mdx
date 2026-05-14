@@ -201,6 +201,10 @@ For a more automated approach, you can use policy enforcement tools like `Kyvern
 
 For more info please refer to <ExternalSiteLink name="acp" href="/security/security_and_compliance/compliance/howto/security_context_enforcement.html" children="Scenario 4: Specified Namespace Security Context Enforcement" />.
 
+:::info Buildah limitation
+This `Kyverno`-based approach does not make the built-in `buildah` `Task` compatible with the `restricted` standard. For the `buildah` limitation, see [Built-in Tasks and the Restricted Standard](#built-in-tasks-and-the-restricted-standard) below.
+:::
+
 This approach eliminates the need to manually configure security context for each `Task`, simplifying compliance management.
 
 For detailed guidance on configuring `Kyverno` policies for this purpose, refer to:
@@ -209,9 +213,11 @@ For detailed guidance on configuring `Kyverno` policies for this purpose, refer 
 
 ## Troubleshooting
 
-### Built-in Tasks and the Restricted Standard
+### Built-in Tasks and the Restricted Standard \{#built-in-tasks-and-the-restricted-standard}
 
 Among the built-in `Tasks` provided by the platform, only the `buildah` `Task` cannot run under the `restricted` standard. This is because `buildah` requires elevated privileges to build container images.
+
+This limitation still applies even when using `Kyverno` to automatically inject the required `restricted` security context into Pods. `Kyverno` can add the fields required by the `restricted` standard, but it cannot make the built-in `buildah` `Task` compatible with `restricted` because `buildah` requires privileges that are forbidden by this standard.
 
 The `buildah` `Task` requires the following security context:
 
@@ -228,8 +234,22 @@ securityContext:
 
 **Solutions:**
 
-1. Use the `buildah` `Task` in a separate namespace with `baseline` mode instead of `restricted` mode (e.g., `pod-security.kubernetes.io/enforce=baseline`)
-2. Explore alternative container image build methods that may have different security requirements
+1. Use the `buildah` `Task` in a separate namespace with `baseline` mode instead of `restricted` mode.
+
+   To allow `buildah` workloads to run, changing `pod-security.kubernetes.io/enforce` to `baseline` is the required step. The `warn` and `audit` labels do not block admission.
+
+   ```bash
+   # Required: change enforce to baseline for buildah workloads
+   $ kubectl label namespace build-ns \
+     pod-security.kubernetes.io/enforce=baseline \
+     --overwrite
+
+   namespace/build-ns labeled
+   ```
+
+   After relabeling the namespace, create a new `TaskRun` or `PipelineRun` that uses the `buildah` `Task` in that namespace. When the registry credentials, `Containerfile`, and workspaces are configured correctly, the `buildah` `Task` can run normally under the `baseline` standard.
+
+2. Explore alternative container image build methods that may have different security requirements.
 
 ### TaskRun fails with container user errors
 
