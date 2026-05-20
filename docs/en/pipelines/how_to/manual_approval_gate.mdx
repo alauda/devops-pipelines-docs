@@ -308,7 +308,7 @@ Ensure the approval task's `timeout` parameter is shorter than the pipeline time
 - **Pipeline ended before approval finished:** Set both `PipelineRun.spec.timeouts.pipeline` and `PipelineRun.spec.timeouts.tasks` to cover the expected approval window, and ensure the approval `timeout` is realistic. Otherwise the run may time out even if approvers have not responded.
 - **Stuck in pending even after approvals:** Check `status.approversResponse` for users who changed their vote or rejected. You may need to update the approver list and rerun the pipeline.
 
-## User and group identifiers
+## User and group identifiers \{#user-and-group-identifiers}
 
 `Manual Approval Gate` relies on your platform's identity provider to match approver names. Always use the canonical identifiers exposed by the provider rather than UI display names. For example, on `Alauda Container Platform`:
 
