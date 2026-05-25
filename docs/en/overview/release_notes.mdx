@@ -55,12 +55,25 @@ For details about channel behavior and upgrade targeting, see [Upgrade Path](../
 
 **Pipelines**
 
+- With this update, catalog Task versions are upgraded. Previous versions remain available and can continue to be used, but users are recommended to migrate to the new versions as early as possible. For detailed change descriptions, refer to the Task READMEs.
+
+  **Task Version Upgrades**
+
+  | Task | Version Upgrade Path |
+  | :--- | :--- |
+  | `Trivy Scanner` | `v0.5 -> v0.6` |
+  | `SonarQube Scanner` | `v0.6 -> v0.7` |
+
+- With this update, the new `nexus-upload` Task is added to upload build artifacts to a Nexus raw repository. It supports direct upload, packaged upload, and checksum generation.
 - With this update, a new `Skopeo Copy` Task is added for image copy and promotion workflows across registries.
+- With this update, an artifact promotion solution based on `Skopeo Copy` is provided. It supports approval-gated promotion of one or more container images across registries and provides a reusable pattern for promoting artifacts from build or test environments to release environments. For details, see [Promote Artifacts with Skopeo Copy](../pipelines/how_to/promote-artifacts-with-skopeo-copy.mdx).
 - With this update, dynamic form descriptors are enhanced with field-level documentation links (`productDoc` and `external`) through `docLink`. For configuration details, see [Link Configuration](../pipelines/how_to/configure_dynamic_forms.mdx#link-configuration).
 - With this update, dynamic forms support advanced fallback rendering for descriptor-only fields (for example `label`, `description`, `tooltip`, `preview`, `docLink`, and `disabled`) without requiring explicit component capability. For configuration details, see [Metadata-only Configuration Without a Component](../pipelines/how_to/configure_dynamic_forms.mdx#metadata-only-configuration-without-a-component).
 - With this update, Java/Python image build-scan-deploy pipelines add optional `ca-bundle` workspace support for private or self-signed CA registry scenarios.
 - With this update, `trivy-scanner`, `cosign`, and `syft` Tasks add `ca-bundle` workspace support for custom CA trust in registry access.
 - With this update, documentation is added for updating existing ACP `Application` resources by reusing the built-in `run-script` Task and `kubectl-app-manager` image, including runnable TaskRun/PipelineRun examples, validation, and rollback guidance. For details, see [Update ACP Application with Existing Image and Run Script Task](../pipelines/how_to/manage-acp-application-with-run-script.mdx).
+- With this update, the Pipeline UI supports copying an existing Pipeline from the namespace Pipeline list or copying a Hub Pipeline into the current namespace, then editing and saving it as a new Pipeline.
+- With this update, the Pipeline Integration UI supports editing prefix and suffix transforms for Integration-bound image parameters. For OCI image scenarios, users can select an image repository address from an Integration and append a static value or Task result as the image tag.
 - With this update, PipelineRun and TaskRun pages add explicit archive-state indicators in list and detail views to make archived records easier to identify.
 
 ### Breaking Changes
@@ -74,61 +87,3 @@ No breaking changes in this release.
 ### Known Issues
 
 {/* release-notes-for-bugs?template=unfixed&project=DEVOPS&version=v4.11.0 */}
-
-## v4.10.0 (LTS)
-
-### New and Optimized Features
-
-**Pipelines**
-
-- With this update, catalog Task and Pipeline versions are upgraded. In these versions, tool image defaults are pinned to fixed tags, and some deprecated parameter fields are removed. Previous versions remain available and can continue to be used, but users are recommended to migrate to the new versions as early as possible. For detailed change descriptions, refer to the Task and Pipeline READMEs.
-
-  **Task Version Upgrades**
-
-  | Task | Version Upgrade Path |
-  | :--- | :--- |
-  | `Buildah` | `v0.9 -> v0.10` |
-  | `Helm Chart Build Push` | `v0.1 -> v0.2` |
-  | `Cosign` | `v0.1 -> v0.2` |
-  | `Git CLI` | `v0.4 -> v0.5` |
-  | `Git Clone` | `v0.9 -> v0.10` |
-  | `Merge Image` | `new -> v0.2` |
-  | `Pytest` | `v0.2 -> v0.3` |
-  | `Python` | `v0.1 -> v0.2` |
-  | `Syft` | `v0.1 -> v0.2` |
-  | `Trivy Scanner` | `v0.4 -> v0.5` |
-  | `Maven` | `v0.5 -> v0.6` |
-  | `SonarQube Scanner` | `v0.5 -> v0.6` |
-
-  **Pipeline Version Upgrades**
-
-  | Pipeline | Version Upgrade Path |
-  | :--- | :--- |
-  | `Java Image Build Scan Deploy` | `v0.1 -> v0.2` |
-  | `Python Image Build Scan Deploy` | `v0.1 -> v0.2` |
-- With this update, a new `Helm Upgrade` Task is added to support pulling a specific chart version from an OCI repository and deploying or updating Helm applications directly from a Git source directory.
-- With this update, a new `Helm Chart Build Push` Task is added to package Helm charts from a directory and push them to an OCI registry by using Helm and ORAS.
-- With this update, a new `Golang` Task is added to support Golang build, test, lint, dependency caching, and test result collection.
-- With this update, a new `Node.js` Task is added to support npm/yarn build, test, lint, and npm registry publishing.
-- With this update, a new `.NET` Task is added to support command execution, optional caching, and NuGet configuration.
-- With this update, a new `Merge Image` Task is added to merge images built for different CPU architectures into a single image.
-- With this update, a new `Workload Apply` Task is added to support Kubernetes workload updates, image updates, custom patch YAML, and configurable deployment and rollback timeouts.
-- With this update, a new `Send Mail` Task is added to support email notifications based on built-in templates or custom content. [Learn More](../pipelines/how_to/configure-custom-mail-template.mdx).
-- With this update, when rerunning a PipelineRun, the system prioritizes generating the new name based on the original PipelineRun name or its naming rule.
-- With this update, graphical pipeline editing supports card-level error indication and blocking validation before submission.
-
-**Triggers**
-
-- With this update, Trigger orchestration in the UI supports TriggerBinding and ClusterTriggerBinding preview, helping users inspect available parameters before referencing them.
-
-### Breaking Changes
-
-No breaking changes in this release.
-
-### Fixed Issues
-
-{/* release-notes-for-bugs?template=fixed&project=DEVOPS&version=v4.10.0 */}
-
-### Known Issues
-
-{/* release-notes-for-bugs?template=unfixed&project=DEVOPS&version=v4.10.0 */}
