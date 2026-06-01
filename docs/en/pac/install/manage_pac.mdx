@@ -1,0 +1,765 @@
+---
+weight: 10
+---
+
+# Manage PAC Component
+
+:::warning For Administrators Only
+
+This guide is for **cluster administrators** only. It covers PAC component deployment, configuration, and maintenance tasks that require cluster administrator permissions.
+
+**Regular users** should refer to:
+- [Guides](../guides/index.mdx) - Set up Git provider integration
+
+:::
+
+This guide explains how to deploy, update, and uninstall the Pipelines-as-Code (PAC) component on Kubernetes platforms.
+
+## Prerequisites \{#prerequisites}
+
+Before managing PAC, ensure you have:
+
+- Kubernetes cluster (version 1.24 or higher)
+- Tekton Operator installed and running
+- Cluster administrator permissions
+- kubectl installed and configured to access your cluster
+
+## Deploy PAC Component \{#deploy-pac-component}
+
+PAC is deployed by creating the `OpenShiftPipelinesAsCode` CR. The operator picks it up and provisions all required resources.
+
+Examples in this document use the default PAC namespace `tekton-pipelines`. If you set a different `targetNamespace`, replace `tekton-pipelines` in the commands and manifests.
+
+### Step 1: Create the `OpenShiftPipelinesAsCode` CR \{#step-1-create-the-openshiftpipelinesascode-cr}
+
+Create a YAML file named `pac.yaml`:
+
+    ```yaml
+    apiVersion: operator.tekton.dev/v1alpha1
+    kind: OpenShiftPipelinesAsCode
+    metadata:
+      name: pipelines-as-code
+    spec:
+      settings:
+        application-name: Pipelines as Code CI
+        hub-url: http://tekton-hub-api.tekton-pipelines:8000/v1
+        remote-tasks: "true"
+        secret-auto-create: "true"
+      targetNamespace: tekton-pipelines  # Default namespace, you can customize this
+    ```
+
+:::warning Important
+
+- The resource name must be `pipelines-as-code`, otherwise the operator will not deploy the PAC component.
+- The `targetNamespace` field specifies where PAC components will be deployed. The default is `tekton-pipelines`, but you can use any namespace name.
+
+:::
+
+**Create the namespace if it doesn't exist**:
+
+    ```bash
+    kubectl create namespace tekton-pipelines  # Or your custom namespace name
+    ```
+
+### Step 2: Apply the Configuration \{#step-2-apply-the-configuration}
+
+Apply the CR to your cluster:
+
+    ```bash
+    kubectl apply -f pac.yaml
+    ```
+
+Example output:
+
+    ```
+    openshiftpipelinesascode.operator.tekton.dev/pipelines-as-code created
+    ```
+
+### Step 3: Verify Deployment \{#step-3-verify-deployment}
+
+Check the `OpenShiftPipelinesAsCode` CR status:
+
+    ```bash
+    kubectl get openshiftpipelinesascodes.operator.tekton.dev
+    ```
+
+The output should show the CR with `Ready` status:
+
+    ```
+    NAME                  VERSION   READY   REASON
+    pipelines-as-code    0.x.x     True    Ready
+    ```
+
+Check the TektonInstallerSet status:
+
+    ```bash
+    kubectl get tektoninstallersets -n tekton-pipelines | grep pipelinesascode
+    ```
+
+Example output:
+
+    ```
+    NAME                              READY   REASON
+    pipelinesascode-installer-set     True    Ready
+    ```
+
+:::info TektonInstallerSet
+
+`TektonInstallerSet` is an internal resource the Tekton Operator uses to roll out PAC and its sub-resources (Deployments, Services, ConfigMaps, RBAC). It is created and deleted by the operator when you create or delete the `OpenShiftPipelinesAsCode` CR. Do not modify or delete it by hand; it is referenced here only as a status checkpoint.
+
+:::
+
+Verify the PAC pods are running:
+
+    ```bash
+    kubectl get pods -n tekton-pipelines | grep pipelines-as-code
+    ```
+
+Example output:
+
+    ```
+    NAME                                      READY   STATUS    RESTARTS   AGE
+    pipelines-as-code-controller-xxxxx        1/1     Running   0          5m
+    pipelines-as-code-watcher-xxxxx           1/1     Running   0          5m
+    pipelines-as-code-webhook-xxxxx           1/1     Running   0          5m
+    ```
+
+Three pods (`controller`, `watcher`, `webhook`) must be `Running`.
+
+### Configure Access \{#configure-access}
+
+The PAC controller must be reachable from the Git providers that will send webhook events to it. Expose it through one of the methods below before configuring any repository.
+
+#### Using Gateway API \{#using-gateway-api-acp}
+
+Use this method to expose the PAC controller with a domain name through ACP Gateway API.
+
+    ```text
+    Git provider -> PAC domain -> Envoy Gateway Service -> Gateway/HTTPRoute -> pipelines-as-code-controller
+    ```
+
+This example uses:
+
+- Default PAC namespace: `tekton-pipelines`
+- GatewayClass: `envoy-gateway-operator-cpaas-default`
+- Domain: `pac.example.com`
+
+**Step 1: Prepare Envoy Gateway.** Install **Alauda build of Envoy Gateway** and ensure the default GatewayClass is accepted. Reference: <ExternalSiteLink name="acp" href="/networking/operators/envoy_gateway_operator" children="Envoy Gateway Operator" />.
+
+    ```bash
+    kubectl get gatewayclass envoy-gateway-operator-cpaas-default
+    ```
+
+    ```text
+    NAME                                   ACCEPTED
+    envoy-gateway-operator-cpaas-default   True
+    ```
+
+**Step 2: Prepare LoadBalancer addresses.** The Envoy Gateway Service will be created as `type: LoadBalancer`, so `LoadBalancer` Services must be able to get an external IP. On ACP bare-metal clusters, install and configure **Alauda Container Platform Load Balancer for MetalLB**. Reference: <ExternalSiteLink name="acp" href="/networking/functions/configure_metallb" children="Configure MetalLB" />.
+
+    ```bash
+    kubectl get ipaddresspool,l2advertisement -A
+    ```
+
+Expected result:
+
+    ```text
+    NAMESPACE        NAME                                    ADDRESSES
+    metallb-system   ipaddresspool.metallb.io/default-pool   ["192.168.1.100-192.168.1.110"]
+    ```
+
+**Step 3: Create Gateway API resources.** Create `gateway-api.yaml`. Replace `tekton-pipelines`, `envoy-gateway-operator-cpaas-default`, and `pac.example.com` as needed. References: <ExternalSiteLink name="acp" href="/networking/functions/configure_gatewayapi_gateway" children="Configure GatewayAPI Gateway" /> and <ExternalSiteLink name="acp" href="/networking/functions/configure_gatewayapi_route" children="Configure GatewayAPI Route" />.
+
+    ```yaml
+    apiVersion: gateway.networking.k8s.io/v1
+    kind: Gateway
+    metadata:
+      name: pipelines-as-code
+      namespace: tekton-pipelines
+    spec:
+      infrastructure:
+        parametersRef:
+          group: gateway.envoyproxy.io
+          kind: EnvoyProxy
+          name: pipelines-as-code
+      gatewayClassName: envoy-gateway-operator-cpaas-default
+      listeners:
+        - name: http
+          port: 80
+          hostname: pac.example.com
+          protocol: HTTP
+          allowedRoutes:
+            namespaces:
+              from: Same
+    ---
+    apiVersion: gateway.envoyproxy.io/v1alpha1
+    kind: EnvoyProxy
+    metadata:
+      name: pipelines-as-code
+      namespace: tekton-pipelines
+    spec:
+      provider:
+        kubernetes:
+          envoyService:
+            type: LoadBalancer
+          envoyDeployment:
+            replicas: 1
+            container:
+              imageRepository: registry.alauda.cn:60080/acp/envoyproxy/envoy
+              resources:
+                limits:
+                  cpu: "1"
+                  memory: 1Gi
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+        type: Kubernetes
+    ---
+    apiVersion: gateway.networking.k8s.io/v1
+    kind: HTTPRoute
+    metadata:
+      name: pipelines-as-code
+      namespace: tekton-pipelines
+    spec:
+      hostnames:
+        - pac.example.com
+      parentRefs:
+        - name: pipelines-as-code
+          sectionName: http
+      rules:
+        - matches:
+            - path:
+                type: PathPrefix
+                value: /
+          backendRefs:
+            - name: pipelines-as-code-controller
+              port: 8080
+    ```
+
+Apply the file:
+
+    ```bash
+    kubectl apply -f gateway-api.yaml
+    ```
+
+Expected result:
+
+    ```text
+    gateway.gateway.networking.k8s.io/pipelines-as-code created
+    envoyproxy.gateway.envoyproxy.io/pipelines-as-code created
+    httproute.gateway.networking.k8s.io/pipelines-as-code created
+    ```
+
+**Step 4: Get the external address.** Check the generated Envoy Service:
+
+    ```bash
+    kubectl get svc -A \
+      -l gateway.envoyproxy.io/owning-gateway-name=pipelines-as-code,gateway.envoyproxy.io/owning-gateway-namespace=tekton-pipelines
+    ```
+
+Expected result:
+
+    ```
+    NAMESPACE                  NAME                                                 TYPE           CLUSTER-IP      EXTERNAL-IP     PORT(S)
+    envoy-gateway-operator    envoy-tekton-pipelines-pipelines-as-code-3f8c88ad    LoadBalancer   10.96.10.20     192.168.1.100   80:32176/TCP
+    ```
+
+**Step 5: Verify and get the webhook URL.** Make sure the Git provider can resolve and access the PAC domain. A common way is to create a DNS A record. For example, if the Service `EXTERNAL-IP` is `192.168.1.100`, create:
+
+    ```text
+    Type: A
+    Name: pac.example.com
+    Value: 192.168.1.100
+    ```
+
+If DNS is not ready yet, or you only want to test the route from your current machine, use `curl --resolve`:
+
+    ```bash
+    EXTERNAL_IP=$(kubectl get svc -A \
+      -l gateway.envoyproxy.io/owning-gateway-name=pipelines-as-code,gateway.envoyproxy.io/owning-gateway-namespace=tekton-pipelines \
+      -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}')
+
+    kubectl get gateway pipelines-as-code -n tekton-pipelines
+    kubectl get httproute pipelines-as-code -n tekton-pipelines -o yaml
+    curl -i --resolve "pac.example.com:80:${EXTERNAL_IP}" http://pac.example.com/
+    ```
+
+Expected result:
+
+- The Service has an `EXTERNAL-IP`.
+- The Gateway shows `PROGRAMMED=True`.
+- The `HTTPRoute` is accepted.
+- `curl` returns the PAC controller response.
+
+After the domain is reachable from the Git provider network, print the URL:
+
+    ```text
+    WEBHOOK_URL=http://pac.example.com
+    ```
+
+`WEBHOOK_URL` is the PAC webhook URL. Register this value in the Git provider or enter it when `tkn pac create repo` prompts for a webhook URL.
+
+If you expose PAC through ACP ALB or another Ingress Controller instead, use [Using Ingress](#using-ingress-http).
+
+**Notes**:
+
+- `HTTPRoute` forwards to the existing `pipelines-as-code-controller` Service on port `8080`; do not point it at the admission webhook Service named `pipelines-as-code-webhook`.
+- If the generated Envoy Service remains `EXTERNAL-IP=<pending>`, check the cluster LoadBalancer provider. For MetalLB, see <ExternalSiteLink name="acp" href="/networking/functions/configure_metallb" children="Configure MetalLB" />.
+- For Gateway API options such as a reserved VIP, hostless routes, or HTTPS listeners, see <ExternalSiteLink name="acp" href="/networking/functions/configure_gatewayapi_gateway" children="Configure GatewayAPI Gateway" /> and <ExternalSiteLink name="acp" href="/networking/functions/configure_gatewayapi_route" children="Configure GatewayAPI Route" />.
+
+#### Using Ingress \{#using-ingress-http}
+
+Use this method when the cluster already has an Ingress Controller and you want to expose the PAC controller with an Ingress domain.
+
+This example uses:
+
+- Default PAC namespace: `tekton-pipelines`
+- Domain: `pac.example.com`
+
+**Step 1: Prepare an Ingress Controller.** Ensure an Ingress Controller is installed and ready. Reference: <ExternalSiteLink name="acp" href="/networking/functions/configure_ingress" children="Configure Ingress" />.
+
+**Step 2: Create the Ingress resource.** Create `ingress.yaml`. Replace `tekton-pipelines` and `pac.example.com` as needed.
+
+    ```yaml
+    apiVersion: networking.k8s.io/v1
+    kind: Ingress
+    metadata:
+      name: pipelines-as-code
+      namespace: tekton-pipelines
+    spec:
+      rules:
+      - host: pac.example.com
+        http:
+          paths:
+          - backend:
+              service:
+                name: pipelines-as-code-controller
+                port:
+                  number: 8080
+            path: /
+            pathType: Prefix
+    ```
+
+Apply the file:
+
+    ```bash
+    kubectl apply -f ingress.yaml
+    ```
+
+Expected result:
+
+    ```text
+    ingress.networking.k8s.io/pipelines-as-code created
+    ```
+
+**Step 3: Verify the Ingress address.** Check that the Ingress has an address:
+
+    ```bash
+    kubectl get ingress pipelines-as-code -n tekton-pipelines
+    ```
+
+Expected result:
+
+    ```text
+    NAME                CLASS   HOSTS             ADDRESS         PORTS
+    pipelines-as-code   nginx   pac.example.com   192.168.1.100   80
+    ```
+
+**Step 4: Get the webhook URL.** Make sure the Git provider can resolve and access `pac.example.com` through the Ingress address. Then print the URL:
+
+    ```bash
+    HOST=$(kubectl get ingress pipelines-as-code -n tekton-pipelines \
+      -o jsonpath='{.spec.rules[0].host}')
+
+    echo "WEBHOOK_URL=http://${HOST}"
+    ```
+
+`WEBHOOK_URL` is the PAC webhook URL. Register this value in the Git provider or enter it when `tkn pac create repo` prompts for a webhook URL.
+
+If you do not have a DNS name, remove the `host` field and use the reachable Ingress IP URL instead.
+
+**Optional: Enable HTTPS.** Create a TLS Secret in `tekton-pipelines` and add a `tls` section to the same Ingress. The certificate must match `pac.example.com`.
+
+    ```bash
+    kubectl create secret tls pipelines-as-code-tls \
+      -n tekton-pipelines \
+      --cert=tls.crt \
+      --key=tls.key
+    ```
+
+    ```yaml
+    apiVersion: networking.k8s.io/v1
+    kind: Ingress
+    metadata:
+      name: pipelines-as-code
+      namespace: tekton-pipelines
+    spec:
+      rules:
+      - host: pac.example.com
+        http:
+          paths:
+          - backend:
+              service:
+                name: pipelines-as-code-controller
+                port:
+                  number: 8080
+            path: /
+            pathType: Prefix
+      tls:
+      - hosts:
+        - pac.example.com
+        secretName: pipelines-as-code-tls
+    ```
+
+When TLS is configured, use the HTTPS webhook URL:
+
+    ```bash
+    echo "WEBHOOK_URL=https://${HOST}"
+    ```
+
+#### Using NodePort \{#using-nodeport}
+
+Create a NodePort Service:
+
+    ```yaml
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: pipelines-as-code-controller-nodeport
+      namespace: tekton-pipelines
+    spec:
+      ports:
+        - name: http-listener
+          port: 8080
+          protocol: TCP
+          targetPort: 8082  # PAC controller listens on port 8082
+          nodePort: 30080  # Optional: specify a fixed NodePort
+      selector:
+        app.kubernetes.io/part-of: pipelines-as-code
+        app.kubernetes.io/component: controller
+      type: NodePort
+    ```
+
+**Important**:
+- The `targetPort` must be `8082`, which is the port the PAC controller pod listens on for webhook events
+- The `port` (8080) is the Service port (used for internal cluster communication)
+- The `nodePort` (30080) is the external port accessible from outside the cluster
+- For Ingress, the Service port is 8080, which routes to the controller's port 8082 internally
+
+Print the URL from a reachable node IP and the generated NodePort:
+
+    ```bash
+    NODEPORT=$(kubectl get service pipelines-as-code-controller-nodeport -n tekton-pipelines \
+      -o jsonpath='{.spec.ports[?(@.name=="http-listener")].nodePort}')
+
+    NODE_IP=$(kubectl get nodes \
+      -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+
+    echo "WEBHOOK_URL=http://${NODE_IP}:${NODEPORT}"
+    ```
+
+`WEBHOOK_URL` is the PAC webhook URL. Register this value in the Git provider or enter it when `tkn pac create repo` prompts for a webhook URL.
+
+### Configuration Settings \{#configuration-settings}
+
+You can customize PAC behavior through the `settings` field in the `OpenShiftPipelinesAsCode` CR:
+
+| Setting | Description | Default |
+|---------|-------------|---------|
+| `application-name` | Name displayed in Git provider UI | `Pipelines as Code CI` |
+| `hub-url` | Tekton Hub API URL | `http://tekton-hub-api.tekton-pipelines:8000/v1` (cluster-internal, default namespace) |
+| `remote-tasks` | Enable remote task resolution | `true` |
+| `secret-auto-create` | Automatically create secrets | `true` |
+| `error-detection-from-container-logs` | Detect errors from container logs | `false` |
+| `error-log-snippet` | Show error log snippets | `true` |
+| `custom-console-name` | Display name for custom console links in Git provider UI | `` (empty) |
+| `custom-console-url` | Base URL for custom console (e.g., OpenShift Console) | `` (empty) |
+| `custom-console-url-pr-details` | URL template for PR/MR details page. Supports variables: `{{namespace}}`, `{{pipelinerun}}` | `` (empty) |
+| `custom-console-url-pr-tasklog` | URL template for PR/MR task log page. Supports variables: `{{namespace}}`, `{{pipelinerun}}`, `{{taskrun}}` | `` (empty) |
+| `custom-console-url-namespace` | URL template for namespace page. Supports variable: `{{namespace}}` | `` (empty) |
+| `custom-console-url-namespace-vars` | Extra template variables resolved from the PipelineRun namespace labels or annotations, for example `{{ project }}` and `{{ cluster }}` | `` (empty) |
+
+**`hub-url`** addresses the Tekton Hub the PAC controller queries when resolving remote tasks. The default in-cluster URL is `http://tekton-hub-api.tekton-pipelines:8000/v1`; for a Hub in another namespace, use the same service DNS format with that namespace.
+
+**`custom-console-*`** settings rewrite the cluster-side links PAC posts back to the Git provider so they point at the platform console rather than at the OpenShift Console. `custom-console-url-namespace-vars` can add variables resolved from namespace labels or annotations. The walkthrough is in [Configure Custom Console Links](#configure-custom-console-links).
+
+## Update PAC Component \{#update-pac-component}
+
+### Update Configuration \{#update-configuration}
+
+1. Edit the `OpenShiftPipelinesAsCode` CR:
+
+    ```bash
+    kubectl edit openshiftpipelinesascodes.operator.tekton.dev pipelines-as-code
+    ```
+
+2. Update the `settings` field as needed:
+
+    ```yaml
+    spec:
+      settings:
+        application-name: "My Custom PAC"
+        hub-url: http://tekton-hub-api.tekton-pipelines:8000/v1
+        remote-tasks: "true"
+        error-detection-from-container-logs: "true"
+    ```
+
+3. Save and exit. The operator will automatically update the TektonInstallerSet and apply the changes.
+
+### Common Configuration Updates \{#common-configuration-updates}
+
+The examples in this section update the `spec.settings` field of the `OpenShiftPipelinesAsCode` CR named `pipelines-as-code`.
+
+    ```bash
+    kubectl edit openshiftpipelinesascodes.operator.tekton.dev pipelines-as-code
+    ```
+
+#### Configure Custom Console Links \{#configure-custom-console-links}
+
+The `custom-console-*` settings rewrite the cluster-side links PAC posts back to the Git provider so they point at the platform console. The example below resolves `{{ project }}` and `{{ cluster }}` from namespace labels, so the URLs do not hard-code a cluster identifier:
+
+    ```yaml
+    spec:
+      targetNamespace: tekton-pipelines
+      settings:
+        custom-console-name: "My Console"
+        custom-console-url-namespace-vars: "project=label:cpaas.io/project,cluster=label:cpaas.io/cluster"
+        custom-console-url: "https://console.example.com/console-acp/workspace/{{ project }}~{{ cluster }}~{{ namespace }}/pipeline/pipelineRuns/"
+        custom-console-url-pr-details: "https://console.example.com/console-acp/workspace/{{ project }}~{{ cluster }}~{{ namespace }}/pipeline/pipelineRuns/detail/{{ pr }}"
+        custom-console-url-pr-tasklog: "https://console.example.com/console-acp/workspace/{{ project }}~{{ cluster }}~{{ namespace }}/pipeline/pipelineRuns/detail/{{ pr }}?tab=task_overview&id={{ task }}"
+        custom-console-url-namespace: "https://console.example.com/console-acp/workspace/{{ project }}~{{ cluster }}~{{ namespace }}/pipeline/pipelineRuns"
+      options:
+        configMaps:
+          pipelines-as-code:
+            data:
+              replace-empty-template-vars-with-empty: "true"
+    ```
+
+Effect: Git provider status links open the platform console PipelineRun and task pages instead of the default OpenShift-style placeholder URLs.
+
+PAC expands these variables when it posts status links:
+
+| Variable | Resolved to |
+|---|---|
+| `{{ namespace }}` | Namespace where the `PipelineRun` runs |
+| `{{ pr }}` | `PipelineRun` name |
+| `{{ task }}` | `TaskRun` name within the `PipelineRun` |
+| `{{ project }}` and `{{ cluster }}` | Namespace labels declared in `custom-console-url-namespace-vars` |
+
+`custom-console-url-namespace-vars` is a comma-separated list. Each item uses `name=label:<key>` or `name=annotation:<key>`, with an optional `|<default>` fallback:
+
+    ```yaml
+    spec:
+      settings:
+        custom-console-url-namespace-vars: "project=label:cpaas.io/project|unknown,cluster=label:cpaas.io/cluster"
+    ```
+
+:::info
+Namespace labels and annotations are cached for up to 30 minutes, so label changes may take a few minutes to appear in generated links.
+:::
+
+For a `PipelineRun` named `my-app-build-abc123` in namespace `my-app` with labels `cpaas.io/project=team-a` and `cpaas.io/cluster=prod`, PAC generates links like:
+
+    ```text
+    https://console.example.com/console-acp/workspace/team-a~prod~my-app/pipeline/pipelineRuns/detail/my-app-build-abc123
+    https://console.example.com/console-acp/workspace/team-a~prod~my-app/pipeline/pipelineRuns/detail/my-app-build-abc123?tab=task_overview&id=build-task
+    https://console.example.com/console-acp/workspace/team-a~prod~my-app/pipeline/pipelineRuns
+    ```
+
+These URLs appear in commit statuses, GitHub Checks panels and merge request comments.
+
+#### Change Application Name \{#change-application-name}
+
+Use this setting to change the display name that PAC uses in Git provider status messages:
+
+    ```yaml
+    spec:
+      settings:
+        application-name: "New Application Name"
+    ```
+
+Effect: Git provider checks, statuses, and comments show the new application name. This does not change the `OpenShiftPipelinesAsCode` resource name.
+
+#### Enable Error Detection \{#enable-error-detection}
+
+    ```yaml
+    spec:
+      settings:
+        error-detection-from-container-logs: "true"
+        error-detection-max-number-of-lines: "100"
+    ```
+
+Effect: PAC scans failed task logs and adds a short error snippet to the Git provider feedback.
+
+#### Update Hub URL \{#update-hub-url}
+
+If your Tekton Hub is deployed in a different namespace or you want to use an external Hub:
+
+    ```yaml
+    spec:
+      settings:
+        # For a cluster-internal Hub in another namespace
+        hub-url: "http://tekton-hub-api.devops-system:8000/v1"
+
+        # Or for external/public Hub
+        hub-url: "https://api.hub.tekton.dev/v1"
+    ```
+
+Effect: PAC resolves remote tasks from the specified Tekton Hub API instead of the default in-cluster Hub.
+
+**To find your Tekton Hub service**:
+
+    ```bash
+    kubectl get svc -A | grep tekton-hub-api
+    ```
+
+Example output:
+
+    ```
+    tekton-pipelines   tekton-hub-api   ClusterIP   10.96.123.45   <none>   8000/TCP   10m
+    ```
+
+#### Disable Remote Tasks \{#disable-remote-tasks}
+
+Use `remote-tasks` to control whether PAC fetches and embeds remote resources referenced by PAC annotations.
+
+:::note
+`remote-tasks: "true"` is the default. PAC can fetch remote resources referenced by `pipelinesascode.tekton.dev/task` and `pipelinesascode.tekton.dev/pipeline` annotations, then embed the resolved Task or Pipeline into the generated `PipelineRun`.
+
+`remote-tasks: "false"` disables PAC annotation-based remote resource resolution. Pipeline code must define the required Pipeline and Tasks in the repository, inline them, or rely on cluster resources.
+
+This setting does not disable Tekton Pipelines remote resolver syntax such as `taskRef.resolver` or `pipelineRef.resolver`; those are handled by the Tekton Pipelines controller.
+:::
+
+    ```yaml
+    spec:
+      settings:
+        remote-tasks: "false"
+    ```
+
+Effect: Use `"false"` when you want to prevent PAC from fetching remote Tasks or Pipelines from annotation references.
+
+## Uninstall PAC Component \{#uninstall-pac-component}
+
+### Delete the `OpenShiftPipelinesAsCode` CR \{#delete-the-openshiftpipelinesascode-cr}
+
+Removing the CR makes the operator tear down the `TektonInstallerSet` and every PAC Deployment, Service, ConfigMap and RBAC object the operator created.
+
+    ```bash
+    kubectl delete openshiftpipelinesascodes.operator.tekton.dev pipelines-as-code
+    ```
+
+Confirm the CR, the installer set and the pods are gone:
+
+    ```bash
+    kubectl get openshiftpipelinesascodes.operator.tekton.dev
+    kubectl get tektoninstallersets -n tekton-pipelines | grep pipelinesascode
+    kubectl get pods -n tekton-pipelines | grep pipelines-as-code
+    ```
+
+Each of these should return `No resources found`.
+
+### Clean up resources the operator does not own \{#clean-up-resources-the-operator-does-not-own}
+
+The operator removes everything it created. Resources you added yourself stay behind and must be removed manually.
+
+**Repository CRs** in user namespaces:
+
+    ```bash
+    kubectl get repositories -A
+    kubectl delete repositories --all -n <namespace>
+    ```
+
+**Per-repository Secrets** in user namespaces. These are the Git provider access tokens (`provider.token`) and webhook secrets (`webhook.secret`) created by users when configuring repositories. The PAC-owned cluster secrets (carrying the `app.kubernetes.io/part-of=pipelines-as-code` label) are removed by the operator; these per-repository ones are not. Verify each Secret is not used by any other resource before deleting:
+
+    ```bash
+    kubectl delete secret <secret-name> -n <namespace>
+    ```
+
+**Gateway API resources** for the PAC controller, if you created them in [Configure Access](#configure-access):
+
+    ```bash
+    kubectl delete httproute pipelines-as-code -n tekton-pipelines
+    kubectl delete gateway pipelines-as-code -n tekton-pipelines
+    kubectl delete envoyproxy pipelines-as-code -n tekton-pipelines
+    ```
+
+**Ingress / NodePort Service** for the PAC controller, if you created them in [Configure Access](#configure-access):
+
+    ```bash
+    kubectl delete ingress pipelines-as-code -n tekton-pipelines
+    kubectl delete service pipelines-as-code-controller-nodeport -n tekton-pipelines
+    ```
+
+## Troubleshooting \{#troubleshooting}
+
+### PAC Pods Not Starting \{#pac-pods-not-starting}
+
+Check pod logs:
+
+    ```bash
+    kubectl logs -n tekton-pipelines -l app.kubernetes.io/part-of=pipelines-as-code
+    ```
+
+Example output (example log entries):
+
+    ```
+    {"level":"info","ts":"2024-01-01T12:00:00Z","logger":"controller","msg":"Starting PAC controller"}
+    {"level":"info","ts":"2024-01-01T12:00:01Z","logger":"controller","msg":"PAC controller ready"}
+    ```
+
+### `OpenShiftPipelinesAsCode` CR Not Ready \{#openshiftpipelinesascode-cr-not-ready}
+
+Check the CR status and events:
+
+    ```bash
+    kubectl describe openshiftpipelinesascodes.operator.tekton.dev pipelines-as-code
+    ```
+
+Example output (abbreviated):
+
+    ```
+    Name:         pipelines-as-code
+    Namespace:
+    Status:       Ready
+    Version:      0.x.x
+    Events:
+      Type    Reason   Age   From              Message
+      ----    ------   ----  ----              -------
+      Normal  Ready    5m    tekton-operator   PAC component deployed successfully
+    ```
+
+### TektonInstallerSet Issues \{#tektoninstallerset-issues}
+
+When the `TektonInstallerSet` is not `Ready`, read its conditions and the operator's view of the underlying `OpenShiftPipelinesAsCode` CR. Both are read-only checks; never delete the installer set yourself.
+
+    ```bash
+    kubectl get tektoninstallersets -n tekton-pipelines -o yaml
+    ```
+
+If errors persist, recreate the `OpenShiftPipelinesAsCode` CR — the operator rebuilds the installer set from scratch.
+
+### CR Not Deleting \{#cr-not-deleting}
+
+A deletion that hangs is usually held by the operator finalizer. List the finalizers:
+
+    ```bash
+    kubectl get openshiftpipelinesascodes.operator.tekton.dev pipelines-as-code -o yaml | grep finalizers
+    ```
+
+A `tekton.dev/operator` finalizer means the operator is still cleaning up; wait and retry. An empty output means the CR is free to delete.
+
+### Resources Not Removed \{#resources-not-removed}
+
+When pods or Services linger after deletion:
+
+    ```bash
+    kubectl delete deployment -n tekton-pipelines -l app.kubernetes.io/part-of=pipelines-as-code
+    kubectl delete service -n tekton-pipelines -l app.kubernetes.io/part-of=pipelines-as-code
+    ```
+
+## Next Steps \{#next-steps}
+
+- [Guides](../guides/index.mdx)
+- [Define PipelineRuns in Git](../how_to/maintain_pipeline_code.mdx)
+- [Trigger Pipelines](../how_to/trigger_pipeline.mdx)
