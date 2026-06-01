@@ -55,9 +55,9 @@ Create a YAML file named `pac.yaml`:
       targetNamespace: tekton-pipelines  # Default namespace, you can customize this
     ```
 
-**Important**: 
+**Important**:
 - The resource name must be `pipelines-as-code`, otherwise the operator will not deploy the PAC component.
-- The `targetNamespace` field specifies where PAC components will be deployed. The default is `tekton-pipelines`, but you can use any namespace name. 
+- The `targetNamespace` field specifies where PAC components will be deployed. The default is `tekton-pipelines`, but you can use any namespace name.
 
 **Create the namespace if it doesn't exist**:
 
@@ -237,7 +237,7 @@ Then access PAC using the Ingress Controller's IP address:
     ```bash
     # Get Ingress Controller IP
     kubectl get ingress pipelines-as-code -n <pac-namespace>
-    
+
     # Access PAC
     # http://<INGRESS-IP>/
     # Example: http://192.168.1.100/
@@ -322,7 +322,7 @@ Create a NodePort Service (replace `<pac-namespace>` with your PAC namespace, de
       type: NodePort
     ```
 
-**Important**: 
+**Important**:
 - The `targetPort` must be `8082`, which is the port the PAC controller pod listens on for webhook events
 - The `port` (8080) is the Service port (used for internal cluster communication)
 - The `nodePort` (30080) is the external port accessible from outside the cluster
@@ -371,7 +371,7 @@ Get the NodePort and node IP:
     ```bash
     # Set your PAC namespace (default: tekton-pipelines)
     PAC_NAMESPACE="tekton-pipelines"
-    
+
     # Get NodePort
     NODEPORT=$(kubectl get service -n ${PAC_NAMESPACE} pipelines-as-code-controller-nodeport -o jsonpath='{.spec.ports[?(@.name=="http-listener")].nodePort}')
 
@@ -425,6 +425,7 @@ You can customize PAC behavior through the `settings` field in the `OpenShiftPip
 | `custom-console-url-pr-details` | URL template for PR/MR details page. Supports variables: `{{namespace}}`, `{{pipelinerun}}` | `` (empty) |
 | `custom-console-url-pr-tasklog` | URL template for PR/MR task log page. Supports variables: `{{namespace}}`, `{{pipelinerun}}`, `{{taskrun}}` | `` (empty) |
 | `custom-console-url-namespace` | URL template for namespace page. Supports variable: `{{namespace}}` | `` (empty) |
+| `custom-console-url-namespace-vars` | Extra template variables resolved from the PipelineRun namespace labels/annotations (e.g. `{{ project }}`, `{{ cluster }}`), usable in the `custom-console-url*` templates above | `` (empty) |
 
 **Note on `hub-url`**:
 - Default value points to the cluster-internal Tekton Hub service in the default namespace (`tekton-pipelines`)
@@ -442,6 +443,7 @@ You can customize PAC behavior through the `settings` field in the `OpenShiftPip
 - The `custom-console-url-pr-tasklog` is the URL template for PR/MR task log page. Supports variables: `{{namespace}}`, `{{pipelinerun}}`, `{{taskrun}}`
 - The `custom-console-url-namespace` is the URL template for namespace page. Supports variable: `{{namespace}}`
 - It provides a way to customize the console links in Git provider UI to point to the Devops Console.
+- The `custom-console-url-namespace-vars` declares extra variables (such as `{{ project }}` and `{{ cluster }}`) resolved from the PipelineRun namespace labels/annotations. See [Configure Custom Console Links](#configure-custom-console-links) for details.
 
 For more information about PAC settings, see the [Common Configuration Updates](#common-configuration-updates) section.
 
@@ -498,7 +500,7 @@ Example output:
 
     ```
     NAME                VERSION           READY   REASON
-    pipelines-as-code   v0.36.0-2881c2a   True    
+    pipelines-as-code   v0.36.0-2881c2a   True
     ```
 
 2. Check if pods are restarting (replace `<pac-namespace>` with your PAC namespace):
@@ -605,7 +607,7 @@ If your Tekton Hub is deployed in a different namespace or you want to use an ex
       settings:
         # For cluster-internal Hub in different namespace
         hub-url: "http://tekton-hub-api.<your-namespace>:8000/v1"
-        
+
         # Or for external/public Hub
         hub-url: "https://api.hub.tekton.dev/v1"
     ```
@@ -632,88 +634,83 @@ Example output:
 
 #### Configure Custom Console Links \{#configure-custom-console-links}
 
-To integrate PAC with your custom console, configure custom console links. This allows pipeline status links in Git providers (GitLab, GitHub, etc.) to point to your custom console.
+To integrate PAC with your custom console, configure custom console links. This makes the pipeline status links in Git providers (GitLab, GitHub, etc.) point to your custom console, with `{{ project }}` and `{{ cluster }}` resolved automatically from the PipelineRun namespace.
 
-##### Configuration Example
+##### Quick Start
+
+Apply the configuration below and replace `console.example.com` with your platform host — everything else works as-is:
 
     ```yaml
+    apiVersion: operator.tekton.dev/v1alpha1
+    kind: OpenShiftPipelinesAsCode
+    metadata:
+      name: pipelines-as-code
     spec:
+      targetNamespace: tekton-pipelines
       settings:
         # Custom console display name
         custom-console-name: "My Console"
-        
-        # Base URL for the custom console (Console entry point)
-        custom-console-url: "https://console.example.com"
-        
-        # URL template for PipelineRun details page
-        # Format: /console-acp/workspace/{{ namespace }}~CLUSTER_NAME~{{ namespace }}/pipeline/pipelineRuns/detail/{{ pr }}
-        # Replace CLUSTER_NAME with your actual cluster name (e.g., my-cluster, business-1)
-        custom-console-url-pr-details: "https://console.example.com/console-acp/workspace/{{ namespace }}~my-cluster~{{ namespace }}/pipeline/pipelineRuns/detail/{{ pr }}"
-        
-        # URL template for TaskRun log page
-        # Format: /console-acp/workspace/~CLUSTER_NAME~{{ namespace }}/pipeline/pipelineRuns/detail/{{ pr }}?tab=task_overview&id={{ task }}
-        custom-console-url-pr-tasklog: "https://console.example.com/console-acp/workspace/{{ namespace }}~my-cluster~{{ namespace }}/pipeline/pipelineRuns/detail/{{ pr }}?tab=task_overview&id={{ task }}"
-        
-        # URL template for namespace pipeline list page
-        # Format: /console-acp/workspace/~CLUSTER_NAME~{{ namespace }}/pipeline/pipelineRuns
-        custom-console-url-namespace: "https://console.example.com/console-acp/workspace/{{ namespace }}~my-cluster~{{ namespace }}/pipeline/pipelineRuns"
+
+        # Resolve {{ project }} and {{ cluster }} from the PipelineRun namespace labels
+        custom-console-url-namespace-vars: "project=label:cpaas.io/project,cluster=label:cpaas.io/cluster"
+
+        # Base / fallback console URL
+        custom-console-url: "https://console.example.com/console-acp/workspace/{{ project }}~{{ cluster }}~{{ namespace }}/pipeline/pipelineRuns/"
+
+        # URL template for the PipelineRun details page
+        custom-console-url-pr-details: "https://console.example.com/console-acp/workspace/{{ project }}~{{ cluster }}~{{ namespace }}/pipeline/pipelineRuns/detail/{{ pr }}"
+
+        # URL template for the TaskRun log page
+        custom-console-url-pr-tasklog: "https://console.example.com/console-acp/workspace/{{ project }}~{{ cluster }}~{{ namespace }}/pipeline/pipelineRuns/detail/{{ pr }}?tab=task_overview&id={{ task }}"
+
+        # URL template for the namespace pipeline list page
+        custom-console-url-namespace: "https://console.example.com/console-acp/workspace/{{ project }}~{{ cluster }}~{{ namespace }}/pipeline/pipelineRuns"
+      options:
+        configMaps:
+          pipelines-as-code:
+            data:
+              # Render an unset template variable as empty instead of keeping {{ var }} in the URL
+              replace-empty-template-vars-with-empty: "true"
     ```
 
-##### How to Configure
+##### How the Variables Are Resolved
 
-**Step 1: Identify your cluster name**
+PAC replaces the following variables in the URL templates:
 
-Contact your cluster administrator to get the correct cluster name. Common examples:
-- `my-cluster` - generic cluster name
-- `business-1` - for business cluster 1
-- `dev-cluster` - for development cluster
-
-The cluster name appears in the URL path as `~CLUSTER_NAME~` (note the tilde characters).
-
-**Step 2: Set the console URL**
-
-Set `custom-console-url` to your console's entry point (without trailing slash):
-- `https://console.example.com`
-- `https://devops.example.com`
-
-**Step 3: Configure URL templates**
-
-Replace `CLUSTER_NAME` in the URL templates with your actual cluster name. PAC will automatically replace the following variables:
-- `{{ namespace }}`: The namespace where the PipelineRun is executed
+- `{{ namespace }}`: The namespace where the PipelineRun runs
 - `{{ pr }}`: The PipelineRun name
 - `{{ task }}`: The Task name in the PipelineRun
+- `{{ project }}` and `{{ cluster }}`: Resolved from the PipelineRun namespace labels declared in `custom-console-url-namespace-vars`. By default `{{ project }}` comes from the `cpaas.io/project` label and `{{ cluster }}` from the `cpaas.io/cluster` label, which the platform sets on each namespace. This avoids hard-coding a cluster name per environment.
 
-##### Example: Complete Configuration
-
-For a cluster named `my-cluster` with console at `https://console.example.com`:
+`custom-console-url-namespace-vars` is a comma-separated list; each entry is `name=label:<key>` or `name=annotation:<key>`, with an optional `|<default>` used when the label or annotation is missing or empty. You can change the label keys, read from annotations, or declare additional variables to match your platform. For example, to fall back to `unknown` when the project label is absent:
 
     ```yaml
     spec:
       settings:
-        custom-console-name: "My Console"
-        custom-console-url: "https://console.example.com"
-        custom-console-url-pr-details: "https://console.example.com/console-acp/workspace/{{ namespace }}~my-cluster~{{ namespace }}/pipeline/pipelineRuns/detail/{{ pr }}"
-        custom-console-url-pr-tasklog: "https://console.example.com/console-acp/workspace/{{ namespace }}~my-cluster~{{ namespace }}/pipeline/pipelineRuns/detail/{{ pr }}?tab=task_overview&id={{ task }}"
-        custom-console-url-namespace: "https://console.example.com/console-acp/workspace/{{ namespace }}~my-cluster~{{ namespace }}/pipeline/pipelineRuns"
+        custom-console-url-namespace-vars: "project=label:cpaas.io/project|unknown,cluster=label:cpaas.io/cluster"
     ```
+
+:::info
+Namespace labels and annotations are cached for up to 30 minutes, so a label change may take a few minutes to appear in the generated links.
+:::
 
 ##### Example: Generated Links
 
-When PAC creates a PipelineRun named `my-app-build-abc123` with a task `build-task` in namespace `my-project`:
+When PAC creates a PipelineRun named `my-app-build-abc123` with a task `build-task` in namespace `my-app` (labeled `cpaas.io/project=team-a`, `cpaas.io/cluster=prod`):
 
-- **PipelineRun Details**: 
+- **PipelineRun Details**:
   ```
-  https://console.example.com/console-acp/workspace/my-project~my-cluster~my-project/pipeline/pipelineRuns/detail/my-app-build-abc123
-  ```
-
-- **TaskRun Logs**: 
-  ```
-  https://console.example.com/console-acp/workspace/my-project~my-cluster~my-project/pipeline/pipelineRuns/detail/my-app-build-abc123?tab=task_overview&id=build-task
+  https://console.example.com/console-acp/workspace/team-a~prod~my-app/pipeline/pipelineRuns/detail/my-app-build-abc123
   ```
 
-- **Namespace Pipeline List**: 
+- **TaskRun Logs**:
   ```
-  https://console.example.com/console-acp/workspace/my-project~my-cluster~my-project/pipeline/pipelineRuns
+  https://console.example.com/console-acp/workspace/team-a~prod~my-app/pipeline/pipelineRuns/detail/my-app-build-abc123?tab=task_overview&id=build-task
+  ```
+
+- **Namespace Pipeline List**:
+  ```
+  https://console.example.com/console-acp/workspace/team-a~prod~my-app/pipeline/pipelineRuns
   ```
 
 These links will appear in your Git provider's UI (GitLab merge requests, GitHub pull requests, etc.), allowing developers to quickly navigate to your custom console.
@@ -831,7 +828,7 @@ To find and delete Repository CR-related secrets:
     kubectl delete secret <secret-name> -n <namespace>
     ```
 
-**Warning**: 
+**Warning**:
 - Secrets may be shared across multiple Repository CRs or other resources
 - Deleting a secret that is still in use will cause authentication failures
 - Always verify the secret is not referenced elsewhere before deletion
@@ -887,7 +884,7 @@ Example output (abbreviated):
 
     ```
     Name:         pipelines-as-code
-    Namespace:    
+    Namespace:
     Status:       Ready
     Version:      0.x.x
     Events:
