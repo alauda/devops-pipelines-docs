@@ -4,119 +4,59 @@ weight: 10
 
 # Introduction
 
-:::info Target Audience
+Pipelines-as-Code (PAC) lets you keep Tekton pipeline definitions next to your application code, in the same Git repository, and have them executed automatically when a Git event matches. Instead of editing PipelineRuns in the cluster, you commit them under a `.tekton/` directory; PAC reads the right manifest on the right branch and creates the PipelineRun for you.
 
-This documentation is for both **cluster administrators** and **regular users**:
-- **Administrators**: Manage PAC component deployment, configuration, and maintenance
-- **Regular Users**: Configure Git repositories and create pipelines in code
+## Who this documentation is for \{#who-this-documentation-is-for}
 
-:::
+- **Cluster administrators** deploy and maintain the PAC component, expose it to Git providers, and configure cluster-wide settings.
+- **Project users** create `Repository` resources, set up the per-repository or per-organization Git integration, and write the PipelineRuns committed under `.tekton/`.
 
-## What is Pipelines as Code?
+The [Install](./install/index.mdx) chapter is administrator-focused. The [Guides](./guides/index.mdx) and [How To](./how_to/index.mdx) chapters are user-focused.
 
-Pipelines-as-Code (PAC) is a component that enables you to define and manage Tekton Pipeline workflows directly in your source code repository. Instead of maintaining pipelines in the Kubernetes cluster, you can:
+## Core capabilities \{#core-capabilities}
 
-- Store pipeline definitions in Git alongside your code
-- Version control pipeline configurations
-- Review pipeline changes through Merge Requests
-- Trigger pipelines automatically from Git events (Pull Request, Merge Request, or Push)
-- Get execution status reported back to your Git provider
+- **Per-repository integration** through a single `Repository` Kubernetes resource that references the Git URL and (in Webhook mode) a Secret with the access token.
+- **Git event matching** — push, pull request / merge request, tag push, commit comment, issue comment.
+- **PipelineRun selection** through annotations on the PipelineRun manifest (`on-event`, `on-target-branch`, `on-cel-expression`, `on-path-change` and others).
+- **Status reporting** back to the Git provider, surfaced as GitHub Checks or commit statuses, with a link back to the cluster.
+- **Comment-driven actions** — `/retest`, `/cancel`, custom commands defined on the PipelineRun.
+- **GitHub and GitLab integration** — GitHub App, GitHub Webhook, and GitLab Webhook workflows are covered in this documentation.
+- **Resolver integration** — pull tasks from Tekton Hub, remote Git URLs, or other resolvers without bundling them in the repository.
 
-PAC is built on top of Tekton Pipeline, leveraging its powerful pipeline execution engine while adding Git integration capabilities.
+## How it works \{#how-it-works}
 
-## Platform Support
+PAC consists of three controller-side components and one Kubernetes resource:
 
-PAC supports deployment on Kubernetes platforms. Although the resource name contains "OpenShift" (for historical reasons), PAC can be deployed and used on standard Kubernetes clusters through the Tekton Operator.
+1. **Repository resource** — a namespaced `pipelinesascode.tekton.dev/v1alpha1` resource that binds a Git repository URL to its credentials (Webhook mode) or to nothing at all (GitHub App mode, where credentials are cluster-wide).
+2. **PAC Webhook** — the HTTP receiver that the Git provider posts events to. It verifies the signature using the `webhook.secret` value shared with the provider.
+3. **PAC Controller** — looks up the matching `Repository`, fetches the PipelineRun manifests from `.tekton/` on the relevant ref, filters them through the annotation grammar, and creates the `PipelineRun` in the `Repository`'s namespace.
+4. **PAC Watcher** — observes the `PipelineRun` and reports completion (and intermediate steps where the provider supports it) back to the Git provider.
 
-### Prerequisites
+The full sequence is covered in [Core Concepts](./concepts/pac_concept.mdx#how-it-works).
 
-To use PAC, you need:
+## Prerequisites for using PAC \{#prerequisites-for-using-pac}
 
-**Infrastructure Requirements**:
-- Kubernetes cluster (1.24+)
-- Tekton Operator installed
-- A Git repository with admin access (for webhook configuration)
-- kubectl installed and configured
-- tkn CLI with pac plugin (for repository configuration)
+Infrastructure:
 
-**Knowledge Requirements**:
-- Basic understanding of Kubernetes concepts (Pods, Services, Namespaces, Custom Resources)
-- Basic understanding of Tekton concepts (Pipeline, PipelineRun, Task)
-- Familiarity with Git and Git providers (GitHub, GitLab, Bitbucket)
+- A Kubernetes cluster with the Tekton Operator installed.
+- The PAC component deployed and exposed to the Internet or to the network that hosts your Git provider; see [Manage PAC Component](./install/manage_pac.mdx).
+- `kubectl` access to the namespace where you intend to run pipelines.
 
-For detailed prerequisites, see [Quick Start](./quick_start.mdx#prerequisites).
+Knowledge:
 
-## Core Features
+- Tekton basics — `Pipeline`, `PipelineRun`, `Task`, `TaskRun`.
+- Kubernetes basics — namespaces, Secrets, custom resources.
+- Familiarity with the Git provider you will integrate, such as GitHub or GitLab.
 
-PAC provides rich out-of-the-box features, including:
+## Where to go next \{#where-to-go-next}
 
-- **Pipeline Status Tracking**: Track and control pipeline status in Git providers when processing Pull Requests or Merge Requests
-- **Event Support**: Support for Pull Request, Merge Request, and Push events
-- **Comment Commands**: Support commands in Pull Request or Merge Request comments, such as `/retest` to rerun tests
-- **Event Filtering**: Support Git event filtering and configure independent pipelines for different events
-- **Task Resolution**: Automatically resolve tasks in pipelines (including local tasks, Tekton Hub, and remote URLs)
-- **CLI Tools**: Provide `tkn pac` CLI plugin for managing PAC Repository resources and registering webhooks. See [tkn pac Command Reference](./how_to/tkn_pac_commands.mdx) for installation and usage
-- **Git Provider Integration**: Full support for multiple Git providers (GitHub, GitLab, Bitbucket Cloud, Bitbucket Data Center), webhooks, and status reporting
+- **First time** — start with [Quick Start](./quick_start.mdx) for an end-to-end minimal example.
+- **Setting up a real repository** — pick the matching guide under [Guides](./guides/index.mdx).
+- **Understanding the resources** — read [Core Concepts](./concepts/pac_concept.mdx).
+- **Component deployment** — [Manage PAC Component](./install/manage_pac.mdx).
+- **Troubleshooting** — [Common Issues](./trouble_shooting/common_issues.mdx).
 
-## How It Works
+## Related documentation \{#related-documentation}
 
-PAC operates with the following core components that work together:
-
-1. **Repository CR (Custom Resource)**: A Kubernetes custom resource that defines the connection between a Git repository and the PAC controller. It stores repository configuration, Git provider credentials, and webhook settings.
-2. **PAC Webhook**: Receives HTTP requests (webhooks) from Git providers and validates webhook signatures
-3. **PAC Controller**: Processes webhook events from Git providers, fetches pipeline definitions from Git repositories, and creates PipelineRun resources in Kubernetes
-4. **PAC Watcher**: Monitors PipelineRun execution status and reports the results back to Git providers
-
-### Component Flow
-
-When a Git event occurs (push, pull request, merge request):
-
-1. **Git provider** sends webhook → **PAC Webhook** receives and validates the event
-2. **PAC Webhook** forwards event → **PAC Controller** processes the event
-3. **PAC Controller** fetches pipeline definition from Git → Creates **PipelineRun** in Kubernetes
-4. **Tekton Pipeline** executes the PipelineRun
-5. **PAC Watcher** monitors execution → Reports status back to **Git provider**
-
-For more details, see [Core Concepts](./concepts/pac_concept.mdx#how-it-works).
-
-## Use Cases
-
-PAC is suitable for the following scenarios:
-
-1. **Code-Based Pipeline Management**
-   - Maintain pipeline definitions in source code repositories
-   - Version control pipeline configurations
-   - Review pipeline changes through Merge Requests
-
-2. **CI/CD Automation**
-   - Automatically trigger pipelines on code push
-   - Run tests on Merge Requests
-   - Deploy applications after merge
-
-3. **Multi-Repository Workflows**
-   - Manage pipelines for multiple repositories
-   - Share pipeline templates across projects
-   - Centralized pipeline management
-
-## Key Advantages
-
-1. **Version Control**: Pipeline definitions are stored in Git, enabling version control and review
-2. **Developer-Friendly**: Developers can modify pipelines without cluster access
-3. **Transparency**: Pipeline changes are visible in Merge Requests
-4. **Consistency**: Standardized pipeline definitions across projects
-5. **Flexibility**: Support for multiple Git providers (GitHub, GitLab, Bitbucket Cloud, Bitbucket Data Center) and various event types
-
-## Getting Started
-
-If you're new to PAC, follow this learning path:
-
-1. **[Core Concepts](./concepts/pac_concept.mdx)** - Understand PAC architecture and core concepts
-2. **[Quick Start](./quick_start.mdx)** - Deploy PAC and configure your first repository
-3. **[Manage PAC Component](./configure/manage_pac.mdx)** - Learn how to deploy, update, and maintain PAC
-4. **[Configure Repository](./how_to/configure_gitlab_repo.mdx)** - Set up Git repository integration
-
-## Related Documentation
-
-- [Pipeline As Code](https://pipelinesascode.com/) - Pipelines As Code Official Documentation
-- [Maintain Pipeline Code](./how_to/maintain_pipeline_code.mdx) - Define and maintain pipelines in code
-- [Troubleshooting](./trouble_shooting/common_issues.mdx) - Common issues and solutions
+- [Define PipelineRuns in Git](./how_to/maintain_pipeline_code.mdx) — define and version PipelineRuns under `.tekton/`.
+- [Trigger Pipelines](./how_to/trigger_pipeline.mdx) — how Git operations map to events.
