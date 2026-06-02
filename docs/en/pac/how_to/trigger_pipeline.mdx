@@ -1,5 +1,5 @@
 ---
-weight: 60
+weight: 40
 ---
 
 # Triggering with Git Operations
@@ -14,19 +14,19 @@ This guide shows common Git commands used to trigger PAC pipelines through Git p
 
 :::info How PAC Triggers Work
 
-PAC uses webhooks from Git providers (GitHub, GitLab, Bitbucket, etc.) to detect events:
+PAC uses webhooks from Git providers such as GitHub or GitLab to detect events:
 1. **Webhook Configuration**: When you create a Repository CR, PAC automatically configures a webhook in your Git provider
 2. **Event Detection**: When events occur (push, pull request, comments), the Git provider sends a webhook to PAC controller
 3. **Pipeline Matching**: PAC controller matches the event against annotations in your PipelineRun files
 4. **Pipeline Execution**: If a match is found, PAC creates a PipelineRun in your cluster
 
-For more details on pipeline definitions and event annotations, see [Maintain Pipeline Code](./maintain_pipeline_code.mdx).
+For more details on pipeline definitions and event annotations, see [Define PipelineRuns in Git](./maintain_pipeline_code.mdx).
 
 :::
 
-## Testing Push Triggers
+## Testing Push Triggers \{#testing-push-triggers}
 
-### Basic Push
+### Basic Push \{#basic-push}
 
 Make a change and push to trigger pipelines:
 
@@ -37,7 +37,7 @@ git commit -m "Test push trigger"
 git push origin main
 ```
 
-### Push to Specific Branch
+### Push to Specific Branch \{#push-to-specific-branch}
 
 Create and push to a feature branch:
 
@@ -49,7 +49,7 @@ git commit -m "Add new feature"
 git push origin feature/new-feature
 ```
 
-### Empty Commit
+### Empty Commit \{#empty-commit}
 
 Trigger pipeline without code changes:
 
@@ -58,9 +58,9 @@ git commit --allow-empty -m "Trigger pipeline"
 git push origin main
 ```
 
-## Testing Merge Request Triggers
+## Testing Merge Request Triggers \{#testing-merge-request-triggers}
 
-### Create Merge Request
+### Create Merge Request \{#create-merge-request}
 
 1. Create a feature branch:
 
@@ -74,7 +74,7 @@ git push origin main
 
 2. Create a Pull/Merge Request targeting `main` branch via your Git provider UI
 
-### Update Merge Request
+### Update Merge Request \{#update-merge-request}
 
 Push more commits to trigger pipeline again:
 
@@ -85,7 +85,7 @@ git commit -m "Update feature"
 git push origin feature/test-mr
 ```
 
-### Force Push to Merge Request
+### Force Push to Merge Request \{#force-push-to-merge-request}
 
 Rewrite history and force push:
 
@@ -96,11 +96,11 @@ git push --force-with-lease origin feature/test-mr
 
 **Note**: Use `--force-with-lease` instead of `--force` to prevent overwriting others' work.
 
-## Using Comment Commands
+## Using Comment Commands \{#using-comment-commands}
 
 Comment commands only work in Merge Requests (Pull Requests), not in regular commits or push events.
 
-### Trigger via Comment
+### Trigger via Comment \{#trigger-via-comment}
 
 1. Open your Pull/Merge Request in the Git provider UI
 
@@ -118,7 +118,7 @@ or
 
 3. PAC will detect the comment and trigger the corresponding pipeline
 
-### Common Comment Commands
+### Common Comment Commands \{#common-comment-commands}
 
 | Command | Description |
 |---------|-------------|
@@ -129,9 +129,9 @@ or
 
 **Note**: The exact commands depend on your pipeline configuration. You define commands in the `on-comment` annotation in your PipelineRun files.
 
-## Checking Pipeline Status
+## Checking Pipeline Status \{#checking-pipeline-status}
 
-### View PipelineRuns
+### View PipelineRuns \{#view-pipelineruns}
 
 Check if pipeline was triggered:
 
@@ -139,7 +139,7 @@ Check if pipeline was triggered:
 kubectl get pipelineruns -n <namespace>
 ```
 
-### View Pipeline Logs
+### View Pipeline Logs \{#view-pipeline-logs}
 
 View logs of a specific PipelineRun:
 
@@ -153,7 +153,7 @@ Or follow logs in real-time:
 tkn pipelinerun logs <pipelinerun-name> -n <namespace> -f
 ```
 
-### Check Latest PipelineRun
+### Check Latest PipelineRun \{#check-latest-pipelinerun}
 
 Get the latest PipelineRun:
 
@@ -161,9 +161,9 @@ Get the latest PipelineRun:
 kubectl get pipelineruns -n <namespace> --sort-by=.metadata.creationTimestamp | tail -1
 ```
 
-## Troubleshooting Git Operations
+## Troubleshooting Git Operations \{#troubleshooting-git-operations}
 
-### Check Current Branch
+### Check Current Branch \{#check-current-branch}
 
 Verify you're on the correct branch:
 
@@ -171,7 +171,7 @@ Verify you're on the correct branch:
 git branch --show-current
 ```
 
-### Verify Last Commit
+### Verify Last Commit \{#verify-last-commit}
 
 Check the last commit details:
 
@@ -179,7 +179,7 @@ Check the last commit details:
 git log --oneline -1
 ```
 
-### Check Remote Branch
+### Check Remote Branch \{#check-remote-branch}
 
 Verify branch exists on remote:
 
@@ -187,7 +187,7 @@ Verify branch exists on remote:
 git branch -r | grep <branch-name>
 ```
 
-### View Git Remote
+### View Git Remote \{#view-git-remote}
 
 Check configured remote URL:
 
@@ -195,7 +195,7 @@ Check configured remote URL:
 git remote -v
 ```
 
-### Force Sync with Remote
+### Force Sync with Remote \{#force-sync-with-remote}
 
 Reset local branch to match remote:
 
@@ -206,8 +206,8 @@ git reset --hard origin/<branch-name>
 
 **Warning**: This will discard local changes.
 
-## Next Steps
+## Next Steps \{#next-steps}
 
-- [Maintain Pipeline Code](./maintain_pipeline_code.mdx) - Learn how to define pipelines and configure event triggers
-- [Configure Repository](./configure_gitlab_repo.mdx) - Repository setup guide
+- [Define PipelineRuns in Git](./maintain_pipeline_code.mdx) - Learn how to define pipelines and configure event triggers
+- [Guides](../guides/index.mdx) - Repository setup walkthroughs
 - [Common Issues](../trouble_shooting/common_issues.mdx) - Troubleshooting guide

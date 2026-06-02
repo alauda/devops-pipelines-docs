@@ -18,11 +18,11 @@ Replace these placeholders with your actual namespace names.
 
 This document provides troubleshooting steps for common issues encountered when using Pipelines-as-Code (PAC).
 
-## Before You Start
+## Before You Start \{#before-you-start}
 
 Before troubleshooting specific issues, verify these basics:
 
-### 1. Check PAC Components Are Running
+### 1. Check PAC Components Are Running \{#1-check-pac-components-are-running}
 
 Verify all PAC pods are running (replace `<pac-namespace>` with your PAC namespace, default is `tekton-pipelines`):
 
@@ -39,7 +39,7 @@ pipelines-as-code-watcher-546d6cd86d-xxxxx     1/1     Running   15         113d
 pipelines-as-code-webhook-5fcd94db5b-xxxxx     1/1     Running   0          113d
 ```
 
-### 2. Determine Your Namespaces
+### 2. Determine Your Namespaces \{#2-determine-your-namespaces}
 
 **Get PAC namespace** (where PAC components are deployed):
 
@@ -57,7 +57,7 @@ kubectl get repository -A
 
 This shows all Repository CRs and their namespaces. The namespace column shows where PipelineRuns will be created.
 
-### 3. Get Resource Names
+### 3. Get Resource Names \{#3-get-resource-names}
 
 **Get pod names**:
 
@@ -77,7 +77,7 @@ kubectl get repository -n <namespace>
 kubectl get pipelinerun -n <namespace>
 ```
 
-### 4. Common Placeholders Used in This Document
+### 4. Common Placeholders Used in This Document \{#4-common-placeholders-used-in-this-document}
 
 - `<pac-namespace>`: PAC deployment namespace (default: `tekton-pipelines`)
 - `<namespace>`: PipelineRun namespace (varies by repository)
@@ -86,13 +86,13 @@ kubectl get pipelinerun -n <namespace>
 - `<name>`: PipelineRun name (use `kubectl get pipelinerun -n <namespace>` to list)
 - `<gitlab-secret>`: GitLab token secret name (check Repository CR spec)
 
-## PAC Component Not Deploying
+## PAC Component Not Deploying \{#pac-component-not-deploying}
 
-### Symptom
+### Symptom \{#symptom}
 
 `OpenShiftPipelinesAsCode` CR shows `Ready: False` or pods are not starting.
 
-### Troubleshooting Steps
+### Troubleshooting Steps \{#troubleshooting-steps}
 
 1. **Check CR Status**:
 
@@ -161,27 +161,27 @@ Example output (example log entries):
     {"level":"error","ts":"2024-01-01T12:00:00Z","logger":"operator","msg":"Failed to deploy PAC","error":"..."}
     ```
 
-### Common Causes
+### Common Causes \{#common-causes}
 
 - **Incorrect CR name**: Must be exactly `pipelines-as-code`
 - **Operator not running**: Check Tekton Operator status
 - **Namespace issues**: Verify `targetNamespace` exists
 - **Resource conflicts**: Check for existing resources
 
-### Solution
+### Solution \{#solution}
 
 1. Verify the CR name is `pipelines-as-code`
 2. Ensure Tekton Operator is running
 3. Check namespace exists (replace `<pac-namespace>` with your actual PAC namespace): `kubectl get namespace <pac-namespace>`
 4. Delete and recreate the CR if needed
 
-## PAC Pods Not Starting
+## PAC Pods Not Starting \{#pac-pods-not-starting}
 
-### Symptom
+### Symptom \{#symptom-2}
 
 PAC pods are in `Pending` or `CrashLoopBackOff` state.
 
-### Troubleshooting Steps
+### Troubleshooting Steps \{#troubleshooting-steps-2}
 
 1. **Check Pod Status** (replace `<pac-namespace>` with your PAC namespace):
 
@@ -254,13 +254,13 @@ Example output:
         memory: 128Mi
     ```
 
-## Webhook Not Receiving Events
+## Webhook Not Receiving Events \{#webhook-not-receiving-events}
 
-### Symptom
+### Symptom \{#symptom-3}
 
 GitLab webhook events are not reaching PAC, pipelines not triggering.
 
-### Troubleshooting Steps
+### Troubleshooting Steps \{#troubleshooting-steps-3}
 
 1. **Check Webhook Configuration in GitLab**:
 
@@ -341,21 +341,21 @@ Example output (abbreviated):
           key: secret
     ```
 
-### Common Causes
+### Common Causes \{#common-causes-2}
 
 - **Controller URL not accessible**: Firewall or network issues
 - **Webhook secret mismatch**: Secret in GitLab doesn't match Repository CR
 - **Webhook URL incorrect**: Wrong controller URL configured
 - **Ingress/Service not configured**: Controller not exposed
 
-### Solution
+### Solution \{#solution-2}
 
 1. Verify controller URL is accessible from GitLab servers
 2. Ensure webhook secret matches in both GitLab and Repository CR
 3. Check Ingress/Service configuration
 4. Test webhook manually using `curl`
 
-### Verification
+### Verification \{#verification}
 
 After applying solutions, verify the fix:
 
@@ -372,13 +372,13 @@ After applying solutions, verify the fix:
 
     You should see log entries indicating webhook events are being received.
 
-## Pipeline Not Triggering
+## Pipeline Not Triggering \{#pipeline-not-triggering}
 
-### Symptom
+### Symptom \{#symptom-4}
 
 Pipelines are not being created when Git events occur.
 
-### Troubleshooting Steps
+### Troubleshooting Steps \{#troubleshooting-steps-4}
 
 1. **Check Pipeline Annotations**:
 
@@ -459,7 +459,7 @@ Example output:
     .tekton/pipelinerun.yaml
     ```
 
-### Common Causes
+### Common Causes \{#common-causes-3}
 
 - **Annotation syntax error**: Incorrect annotation format
 - **Branch name mismatch**: Branch pattern doesn't match actual branch
@@ -467,7 +467,7 @@ Example output:
 - **Path filtering**: Files changed don't match path filter
 - **Repository CR not found**: No matching Repository CR for the repository
 
-### Solution
+### Solution \{#solution-3}
 
 1. Verify annotation syntax: Use `pipelinesascode.tekton.dev/on-target-branch: "[refs/heads/main]"` and `pipelinesascode.tekton.dev/on-event: "[push]"` instead of the deprecated `on-push` annotation
 2. Check branch names match exactly (case-sensitive)
@@ -475,7 +475,7 @@ Example output:
 4. Review path filtering if configured
 5. Verify Repository CR exists and matches repository URL
 
-### Verification
+### Verification \{#verification-2}
 
 After applying solutions, verify the fix:
 
@@ -499,13 +499,13 @@ After applying solutions, verify the fix:
 
     Look for log entries indicating the event was processed.
 
-## PipelineRuns Not Created
+## PipelineRuns Not Created \{#pipelineruns-not-created}
 
-### Symptom
+### Symptom \{#symptom-5}
 
 Webhook events are received but PipelineRuns are not created.
 
-### Troubleshooting Steps
+### Troubleshooting Steps \{#troubleshooting-steps-5}
 
 1. **Check PAC Controller Logs**:
 
@@ -601,7 +601,7 @@ Example output (abbreviated, token is base64 encoded):
       token: Z2xwYXQt...
     ```
 
-### Common Causes
+### Common Causes \{#common-causes-4}
 
 - **Namespace doesn't exist**: Target namespace not created
 - **RBAC permissions**: PAC ServiceAccount lacks permissions
@@ -609,7 +609,7 @@ Example output (abbreviated, token is base64 encoded):
 - **Pipeline definition error**: Invalid YAML or Tekton syntax
 - **Repository access**: Cannot access Git repository
 
-### Solution
+### Solution \{#solution-4}
 
 1. Create namespace if missing: 
 
@@ -663,7 +663,7 @@ If token is invalid:
     {"message":"401 Unauthorized"}
     ```
 
-### Verification
+### Verification \{#verification-3}
 
 After applying solutions, verify the fix:
 
@@ -681,13 +681,13 @@ After applying solutions, verify the fix:
 
     The PipelineRun should be created and start executing.
 
-## Tasks Not Found
+## Tasks Not Found \{#tasks-not-found}
 
-### Symptom
+### Symptom \{#symptom-6}
 
 PipelineRun fails with "task not found" error.
 
-### Troubleshooting Steps
+### Troubleshooting Steps \{#troubleshooting-steps-6}
 
 1. **Check PipelineRun Status**:
 
@@ -798,7 +798,7 @@ Example output (if accessible):
     ...
     ```
 
-### Common Causes
+### Common Causes \{#common-causes-5}
 
 - **Task name incorrect**: Typo in task name
 - **Task not in namespace**: Task defined in different namespace
@@ -806,7 +806,7 @@ Example output (if accessible):
 - **Remote URL inaccessible**: Cannot fetch task from remote URL
 - **Task resolver error**: Resolver configuration incorrect
 
-### Solution
+### Solution \{#solution-5}
 
 1. Verify task name spelling
 2. Check task exists in correct namespace
@@ -814,13 +814,13 @@ Example output (if accessible):
 4. Verify remote URLs are accessible
 5. Check task resolver configuration
 
-## Variables Not Resolving
+## Variables Not Resolving \{#variables-not-resolving}
 
-### Symptom
+### Symptom \{#symptom-7}
 
 Pipeline variables like `{{revision}}` are not being replaced.
 
-### Troubleshooting Steps
+### Troubleshooting Steps \{#troubleshooting-steps-7}
 
 1. **Check Variable Syntax**:
 
@@ -904,14 +904,14 @@ Example output:
     ]
     ```
 
-### Common Causes
+### Common Causes \{#common-causes-6}
 
 - **Syntax error**: Missing curly braces or incorrect format
 - **Case sensitivity**: Variable names are case-sensitive
 - **Variable not available**: Variable not available for current event type (e.g., `{{pull_request_number}}` is only available for pull_request events)
 - **PAC version**: Older PAC version may not support certain variables
 
-### Solution
+### Solution \{#solution-6}
 
 1. Verify variable syntax: Use `{{variable_name}}` format, for example `{{revision}}` or `{{repo_url}}`
 2. Check variable names are correct (case-sensitive): `{{repo_owner}}`, `{{source_branch}}`, `{{pull_request_number}}`
@@ -920,7 +920,7 @@ Example output:
 
 For a complete list of available variables, see [Parameterizing Commits and URLs](../how_to/maintain_pipeline_code.mdx#parameterizing-commits-and-urls).
 
-### Verification
+### Verification \{#verification-4}
 
 After applying solutions, verify the fix:
 
@@ -940,13 +940,13 @@ After applying solutions, verify the fix:
 
     There should be no warnings about unknown variables.
 
-## Status Not Reported to GitLab
+## Status Not Reported to GitLab \{#status-not-reported-to-gitlab}
 
-### Symptom
+### Symptom \{#symptom-8}
 
 Pipelines run successfully but status is not shown in GitLab.
 
-### Troubleshooting Steps
+### Troubleshooting Steps \{#troubleshooting-steps-8}
 
 1. **Check PAC Watcher Logs**:
 
@@ -1051,7 +1051,7 @@ Example output:
     simple-pipeline-xxxxx   5 minutes ago  30s        Succeeded
     ```
 
-### Common Causes
+### Common Causes \{#common-causes-7}
 
 - **GitLab token invalid**: Token expired or incorrect
 - **Token permissions**: Token lacks required scopes
@@ -1059,7 +1059,7 @@ Example output:
 - **PAC Watcher not running**: Watcher pod not running
 - **Repository CR misconfigured**: Incorrect GitLab configuration
 
-### Solution
+### Solution \{#solution-7}
 
 1. Verify GitLab token is valid and not expired
 2. Ensure token has `api` scope
@@ -1067,7 +1067,7 @@ Example output:
 4. Check PAC Watcher pod is running
 5. Verify Repository CR GitLab configuration
 
-### Verification
+### Verification \{#verification-5}
 
 After applying solutions, verify the fix:
 
@@ -1092,13 +1092,13 @@ After applying solutions, verify the fix:
 
     The PipelineRun should show `Succeeded` or `Failed` status, and this status should be reflected in GitLab.
 
-## Comment Commands Not Working
+## Comment Commands Not Working \{#comment-commands-not-working}
 
-### Symptom
+### Symptom \{#symptom-9}
 
 Comment commands like `/retest` are not triggering pipelines.
 
-### Troubleshooting Steps
+### Troubleshooting Steps \{#troubleshooting-steps-9}
 
 1. **Check Annotation Configuration**:
 
@@ -1142,7 +1142,7 @@ Comment commands like `/retest` are not triggering pipelines.
     # In GitLab, verify webhook includes "Comments" trigger
     ```
 
-### Common Causes
+### Common Causes \{#common-causes-8}
 
 - **Annotation missing**: `on-comment` annotation not configured
 - **Command format**: Command not at start of line
@@ -1150,7 +1150,7 @@ Comment commands like `/retest` are not triggering pipelines.
 - **Webhook not configured**: Comments event not enabled in webhook
 - **Command name mismatch**: Command in comment doesn't match annotation
 
-### Solution
+### Solution \{#solution-8}
 
 1. Add `on-comment` annotation: `pipelinesascode.tekton.dev/on-comment: "retest"`
 2. Ensure commands are at the start of a line
@@ -1158,7 +1158,7 @@ Comment commands like `/retest` are not triggering pipelines.
 4. Enable "Comments" in GitLab webhook configuration
 5. Match command names exactly (case-sensitive)
 
-## Getting Help
+## Getting Help \{#getting-help}
 
 If you're still experiencing issues:
 
@@ -1167,9 +1167,9 @@ If you're still experiencing issues:
 3. **Check Documentation**: Review the PAC documentation in this guide
 4. **Review Troubleshooting**: Check other troubleshooting sections in this document
 
-## Next Steps
+## Next Steps \{#next-steps}
 
-- [Manage PAC Component](../configure/manage_pac.mdx) - Deployment and management guide
-- [Configure Repository](../how_to/configure_gitlab_repo.mdx) - Repository setup guide
+- [Manage PAC Component](../install/manage_pac.mdx) - Deployment and management guide
+- [Guides](../guides/index.mdx) - Repository setup walkthroughs
 - [Trigger Pipelines](../how_to/trigger_pipeline.mdx) - Trigger configuration guide
 

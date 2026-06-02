@@ -1,0 +1,152 @@
+---
+weight: 20
+---
+
+# Configure GitLab Repository
+
+This guide connects a GitLab repository to PAC: prepare the credentials, create the `Repository` resource, register the webhook, and trigger a `PipelineRun`.
+
+GitLab uses Webhook mode. A GitLab access token and a project webhook are configured per repository.
+
+This page uses manifests and the GitLab Web UI. For the CLI workflow, see [tkn pac Command Reference](../how_to/tkn_pac_commands.mdx#tkn-pac-create-repository).
+
+## Prerequisites \{#prerequisites}
+
+- PAC component deployed and exposed to GitLab; see [Manage PAC Component](../install/manage_pac.mdx#configure-access).
+- The PAC webhook URL; see [Get the PAC Webhook URL](../how_to/get_pac_webhook_url.mdx).
+- Maintainer access to the GitLab project (required to add a webhook).
+- A target Kubernetes namespace where the `Repository` resource and its `PipelineRun`s will live.
+- `kubectl` access to that namespace.
+
+## Step 1: Create a GitLab Access Token \{#step-1-create-a-gitlab-access-token}
+
+PAC needs a token to read project metadata, post merge request comments, and update commit status. A **Personal Access Token** or a **Project Access Token** both work.
+
+1. In GitLab, open the project or your user **Settings → Access Tokens**.
+2. Create a token with:
+   - **Name**: a descriptive name, for example `pac-integration`.
+   - **Scopes**: `api`.
+3. Copy the token. GitLab shows it only once.
+
+## Step 2: Create the Kubernetes Secret \{#step-2-create-the-kubernetes-secret}
+
+Create one Secret carrying the GitLab token and a webhook secret. Follow [Create a Git Secret for PAC](../how_to/create_git_secret.mdx).
+
+In the rest of this guide the Secret is named `gitlab-webhook-config`.
+
+## Step 3: Create the `Repository` resource \{#step-3-create-the-repository-resource}
+
+The `Repository` references the Secret. For GitLab.com:
+
+    ```yaml
+    apiVersion: pipelinesascode.tekton.dev/v1alpha1
+    kind: Repository
+    metadata:
+      name: my-repo
+      namespace: project-pipelines
+    spec:
+      url: https://gitlab.com/<group>/<project>
+      git_provider:
+        type: gitlab
+        secret:
+          name: gitlab-webhook-config
+        webhook_secret:
+          name: gitlab-webhook-config
+    ```
+
+For self-hosted GitLab, set `spec.url` to the project URL and add `git_provider.url` with the GitLab instance base URL:
+
+    ```yaml
+    spec:
+      url: https://gitlab.example.com/<group>/<project>
+      git_provider:
+        type: gitlab
+        url: https://gitlab.example.com
+        secret:
+          name: gitlab-webhook-config
+        webhook_secret:
+          name: gitlab-webhook-config
+    ```
+
+:::info
+For self-hosted GitLab, `git_provider.url` must be the GitLab instance base URL, not the project URL.
+:::
+
+Apply it:
+
+    ```bash
+    kubectl apply -f repository.yaml
+    ```
+
+Verify:
+
+    ```bash
+    kubectl get repositories -n project-pipelines
+    ```
+
+Example output:
+
+    ```
+    NAME      URL                                       SUCCEEDED   REASON   STARTTIME   COMPLETIONTIME
+    my-repo   https://gitlab.com/group/project
+    ```
+
+## Step 4: Register the webhook in GitLab \{#step-4-register-the-webhook-in-gitlab}
+
+1. Open the GitLab project, then **Settings → Webhooks**.
+2. Click **Add new webhook**.
+3. Fill in the form:
+   - **URL**: the PAC webhook URL from the prerequisites.
+   - **Secret token**: the same `webhook.secret` value stored in the Kubernetes Secret.
+   - **SSL verification**: enabled (recommended; uncheck only for non-production setups with self-signed certificates).
+4. Under **Trigger**, check:
+   - **Push events** (with **All branches** unless you want to restrict)
+   - **Tag push events**
+   - **Comments**
+   - **Merge request events**
+5. Click **Add webhook**.
+
+GitLab offers a **Test → Push events** action under the webhook entry. A `200` response confirms the controller received and accepted the event.
+
+## Step 5: Add a PipelineRun and trigger it \{#step-5-add-a-pipelinerun-and-trigger-it}
+
+Add a PipelineRun manifest under `.tekton/` in the repository and push it. PAC reads the file from the branch the event was raised on, matches the annotations against the event, and creates a `PipelineRun` in the namespace.
+
+See [Define PipelineRuns in Git](../how_to/maintain_pipeline_code.mdx) for the file layout and the annotation grammar, and [Trigger Pipelines](../how_to/trigger_pipeline.mdx) for the Git operations that PAC reacts to.
+
+## Verification \{#verification}
+
+After a Git event arrives, PAC creates a `PipelineRun` in the `Repository`'s namespace. Confirm:
+
+    ```bash
+    kubectl get pipelineruns -n project-pipelines \
+      -l pipelinesascode.tekton.dev/repository=my-repo
+    ```
+
+The PAC controller logs show the event being processed:
+
+    ```bash
+    kubectl logs -n <pac-namespace> -l app=pipelines-as-code-controller --tail=100
+    ```
+
+GitLab displays the commit status set by PAC on the relevant pipeline / merge request page.
+
+## Troubleshooting \{#troubleshooting}
+
+| Symptom | First thing to check |
+|---|---|
+| Webhook test returns `Hook executed successfully` but no PipelineRun appears | A PipelineRun manifest exists under `.tekton/` and its annotations match the event. See [Define PipelineRuns in Git](../how_to/maintain_pipeline_code.mdx). |
+| Webhook test fails with `connection refused` | The PAC webhook URL is reachable from GitLab. See [Get the PAC Webhook URL](../how_to/get_pac_webhook_url.mdx#verification). |
+| Webhook test fails with `401` or `403` | The `webhook.secret` configured in GitLab matches the one in the Kubernetes Secret. |
+| `repositories` status shows `failed` | Run `kubectl describe repository <name> -n <ns>`; common causes are an unreachable `git_provider.url` or an expired token. |
+| Self-hosted GitLab events are not received | `git_provider.url` is set to the GitLab base URL, not to the project URL. |
+| Status checks are not posted back to GitLab | The token has the `api` scope and has not expired. |
+
+For the full troubleshooting matrix, see [Common Issues](../trouble_shooting/common_issues.mdx).
+
+## Next steps \{#next-steps}
+
+- [Define PipelineRuns in Git](../how_to/maintain_pipeline_code.mdx) — define and evolve pipelines under `.tekton/`.
+- [Trigger Pipelines](../how_to/trigger_pipeline.mdx) — push, merge request and comment-driven triggers.
+- [Advanced Repository Configuration](../how_to/advanced_repository_config.mdx) — concurrency, parameters, custom settings.
+- [Configure Custom Certificates](../install/configure_custom_certificates.mdx) — for self-hosted GitLab with a private CA.

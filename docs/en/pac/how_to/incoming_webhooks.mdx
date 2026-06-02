@@ -6,7 +6,7 @@ weight: 65
 
 Incoming webhooks allow you to trigger pipelines directly via HTTP POST requests, without requiring Git events.
 
-## Overview
+## Overview \{#overview}
 
 Incoming webhooks provide a way to:
 - Trigger pipelines from external systems
@@ -30,7 +30,7 @@ Incoming webhooks provide a way to:
 
 :::
 
-## Configure Incoming Webhook
+## Configure Incoming Webhook \{#configure-incoming-webhook}
 
 1. **Enable in Repository CR**: Add incoming webhook configuration to your Repository CR:
 
@@ -98,7 +98,7 @@ Use headers (`X-Repository`, `X-Namespace`, `X-Secret`) instead of query paramet
 
 :::
 
-## Trigger Pipeline via Incoming Webhook
+## Trigger Pipeline via Incoming Webhook \{#trigger-pipeline-via-incoming-webhook}
 
 Send a POST request to the incoming webhook endpoint:
 
@@ -118,7 +118,7 @@ Send a POST request to the incoming webhook endpoint:
       }'
     ```
 
-## Incoming Webhook Payload
+## Incoming Webhook Payload \{#incoming-webhook-payload}
 
 The incoming webhook accepts a JSON payload with the following structure:
 
@@ -144,7 +144,7 @@ The incoming webhook accepts a JSON payload with the following structure:
     }
     ```
 
-## Custom Parameters
+## Custom Parameters \{#custom-parameters}
 
 You can pass custom parameters in the webhook payload:
 
@@ -164,7 +164,7 @@ You can pass custom parameters in the webhook payload:
 
 These parameters are available in your pipeline as `$(params.environment)` and `$(params.deploy)`.
 
-## Security Considerations
+## Security Considerations \{#security-considerations}
 
 1. **Use secrets**: Always use webhook secrets to validate requests
 2. **HTTPS**: Use HTTPS for webhook endpoints in production
@@ -172,7 +172,7 @@ These parameters are available in your pipeline as `$(params.environment)` and `
 4. **Rate limiting**: Implement rate limiting to prevent abuse
 5. **Validate payloads**: Validate incoming payloads before processing
 
-## Troubleshooting Incoming Webhooks
+## Troubleshooting Incoming Webhooks \{#troubleshooting-incoming-webhooks}
 
 1. **Check webhook URL**: Verify the URL is correct and accessible
 2. **Verify secret**: Ensure the secret matches in both request and Repository CR
@@ -185,54 +185,53 @@ These parameters are available in your pipeline as `$(params.environment)` and `
 4. **Verify Repository CR**: Ensure incoming webhook is configured correctly
 5. **Test with curl**: Use curl to test the webhook endpoint
 
-## Best Practices
+## Best Practices \{#best-practices}
 
-### 1. PipelineRun Management
+### 1. PipelineRun Management \{#1-pipelinerun-management}
 
 - **Set cleanup limits**: Use `max-keep-runs` to prevent accumulation
 - **Monitor resources**: Watch for resource usage from PipelineRuns
 - **Archive important runs**: Export important PipelineRuns before cleanup
 
-### 2. Monitoring
+### 2. Monitoring \{#2-monitoring}
 
 - **Use labels**: Label PipelineRuns for easier filtering
 - **Set up alerts**: Configure alerts for failed PipelineRuns
 - **Regular reviews**: Periodically review PipelineRun status and logs
 
-### 3. Incoming Webhooks
+### 3. Incoming Webhooks \{#3-incoming-webhooks}
 
 - **Secure endpoints**: Always use HTTPS and secrets
 - **Validate payloads**: Validate incoming webhook payloads
 - **Document usage**: Document webhook endpoints and payload formats
 - **Test thoroughly**: Test webhook triggers before production use
 
-## Troubleshooting
+## Troubleshooting \{#troubleshooting}
 
-### PipelineRun Not Created
+### PipelineRun Not Created \{#pipelinerun-not-created}
 
 1. **Check webhook**: Verify webhook is configured and receiving events
 2. **Review Repository CR**: Ensure Repository CR is correctly configured
 3. **Check PAC logs**: Review PAC controller logs for errors
 4. **Verify pipeline file**: Ensure pipeline definition file exists in repository
 
-### PipelineRun Not Running
+### PipelineRun Not Running \{#pipelinerun-not-running}
 
 1. **Check status**: Review PipelineRun status and conditions
 2. **Review logs**: Check PipelineRun and TaskRun logs
 3. **Verify resources**: Ensure sufficient cluster resources
 4. **Check permissions**: Verify ServiceAccount has required permissions
 
-### Status Not Reported
+### Status Not Reported \{#status-not-reported}
 
 1. **Verify Git provider token**: Ensure token has required scopes
 2. **Check PAC Watcher**: Verify PAC Watcher is running
 3. **Review logs**: Check PAC Watcher logs for errors
 4. **Test connectivity**: Ensure PAC can reach Git provider API
 
-## Next Steps
+## Next Steps \{#next-steps}
 
 - [Trigger Pipelines](./trigger_pipeline.mdx) - Learn about different trigger methods
-- [Maintain Pipeline Code](./maintain_pipeline_code.mdx) - Pipeline definition guide
-- [Configure Repository](./configure_gitlab_repo.mdx) - Repository setup
+- [Define PipelineRuns in Git](./maintain_pipeline_code.mdx) - PipelineRun files and trigger annotations
+- [Guides](../guides/index.mdx) - Repository setup walkthroughs
 - [Common Issues](../trouble_shooting/common_issues.mdx) - Troubleshooting guide
-

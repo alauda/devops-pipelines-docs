@@ -1,31 +1,27 @@
 ---
-weight: 70
+weight: 110
 ---
 
 # tkn pac Command Reference
 
-:::info For Regular Users
+`tkn pac` is the official CLI plugin for Pipelines-as-Code. It automates one-off setups (creating the `Repository` resource, registering the webhook, generating a starter `.tekton/pipelinerun.yaml`) that are otherwise done manually with `kubectl apply` and the Git provider's web UI.
 
-This guide covers `tkn pac` CLI commands for repository management, pipeline generation, and resolution.
+This page is a command reference for users who prefer the CLI workflow. For the recommended end-to-end procedure that uses plain manifests, see [Configure GitHub Repository](../guides/configure_github_repo.mdx) and [Configure GitLab Repository](../guides/configure_gitlab_repo.mdx).
 
-:::
+## Prerequisites \{#prerequisites}
 
-This guide provides a comprehensive reference for the `tkn pac` CLI plugin commands, including repository management, pipeline generation, and resolution.
-
-## Prerequisites
-
-- `tkn` CLI installed
+- [`tkn` CLI](https://github.com/tektoncd/cli/releases) installed
 - `tkn pac` plugin installed
 - kubectl configured to access your cluster
 - PAC component deployed
 
 ### Installing tkn pac Plugin \{#installing-tkn-pac-plugin}
 
-See [tkn pac Releases](https://github.com/tektoncd/pipelines-as-code/releases) for the latest version.
+Download `tkn` from [Tekton CLI Releases](https://github.com/tektoncd/cli/releases), then install the `pac` plugin from [tkn pac Releases](https://github.com/tektoncd/pipelines-as-code/releases).
 
 Install `tkn pac` by using one of the methods in the official `tkn pac` project release guide, and make sure the executable is available in your `PATH`.
 
-### Verify Installation
+### Verify Installation \{#verify-installation}
 
     ```bash
     # Verify tkn CLI
@@ -50,9 +46,9 @@ Example output:
     0.39.2
     ```
 
-## Repository Commands
+## Repository Commands \{#repository-commands}
 
-### tkn pac create repository
+### tkn pac create repository \{#tkn-pac-create-repository}
 
 Creates a new Pipelines as Code repository and namespace based on the pipeline run template.
 
@@ -102,9 +98,9 @@ Example output (interactive prompts):
     ✓ Template generated at .tekton/pipelinerun.yaml
     ```
 
-For detailed usage, see [Configure Repository](./configure_gitlab_repo.mdx).
+For provider-specific end-to-end procedures, see [Guides](../guides/index.mdx).
 
-### tkn pac list
+### tkn pac list \{#tkn-pac-list}
 
 Lists all Pipelines as Code repositories and displays the last status of associated runs.
 
@@ -147,7 +143,7 @@ Lists all Pipelines as Code repositories and displays the last status of associa
     tkn pac list -A
     ```
 
-### tkn pac repo describe
+### tkn pac repo describe \{#tkn-pac-repo-describe}
 
 Describes a Pipelines as Code repository and associated runs.
 
@@ -194,9 +190,9 @@ Example output:
       - pipelinerun-ghi789: Failed (10 minutes ago)
     ```
 
-## Generate Command
+## Generate Command \{#generate-command}
 
-### tkn pac generate
+### tkn pac generate \{#tkn-pac-generate}
 
 Generates a simple PipelineRun template.
 
@@ -259,9 +255,9 @@ Example output:
                 echo "Hello from generated pipeline!"
     ```
 
-## Resolve Command
+## Resolve Command \{#resolve-command}
 
-### tkn pac resolve
+### tkn pac resolve \{#tkn-pac-resolve}
 
 Executes a pipeline run as if it is owned by the Pipelines as Code service. This is useful for testing pipeline definitions locally without creating a new commit.
 
@@ -378,7 +374,7 @@ Example output:
 - Validate pipeline syntax before committing
 - Test parameter resolution
 
-## Global Options
+## Global Options \{#global-options}
 
 All `tkn pac` commands support the following global options:
 
@@ -387,23 +383,23 @@ All `tkn pac` commands support the following global options:
 - `--kubeconfig`: Path to kubeconfig file
 - `--context`: Kubernetes context to use
 
-## Best Practices
+## Best Practices \{#best-practices}
 
-### 1. Repository Management
+### 1. Repository Management \{#1-repository-management}
 
 - **Use descriptive names**: Choose clear repository names
 - **Organize by namespace**: Group related repositories in namespaces
 - **Regular monitoring**: Use `tkn pac list` to monitor repository status
 
-### 2. Pipeline Generation
+### 2. Pipeline Generation \{#2-pipeline-generation}
 
 - **Review generated templates**: Always review and customize generated pipelines
 - **Test locally**: Use `tkn pac resolve` to test pipelines before committing
 - **Version control**: Commit pipeline definitions to Git
 
-## Troubleshooting
+## Troubleshooting \{#troubleshooting}
 
-### Command Not Found
+### Command Not Found \{#command-not-found}
 
 If `tkn pac` command is not found:
 
@@ -422,7 +418,7 @@ If `tkn pac` command is not found:
 2. **Check PATH**: Ensure `tkn-pac` is in your PATH
 3. **Reinstall**: Reinstall the plugin if needed
 
-### Connection Issues
+### Connection Issues \{#connection-issues}
 
 If commands fail to connect to the cluster:
 
@@ -430,9 +426,9 @@ If commands fail to connect to the cluster:
 2. **Check context**: Verify Kubernetes context
 3. **Review permissions**: Ensure you have required permissions
 
-## Next Steps
+## Next Steps \{#next-steps}
 
-- [Configure Repository](./configure_gitlab_repo.mdx) - Repository setup guide
+- [Guides](../guides/index.mdx) - Repository setup walkthroughs
 - [Incoming Webhooks](./incoming_webhooks.mdx) - Trigger pipelines via webhooks
-- [Manage PAC Component](../configure/manage_pac.mdx) - PAC component management
+- [Manage PAC Component](../install/manage_pac.mdx) - PAC component management
 - [Common Issues](../trouble_shooting/common_issues.mdx) - Troubleshooting guide

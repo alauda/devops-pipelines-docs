@@ -12,13 +12,13 @@ This guide is for **regular users** to use PAC resolver for automatically resolv
 
 This guide explains how to use the Pipelines as Code (PAC) resolver to automatically resolve and embed tasks and pipelines from three sources: local tasks defined in your repository, remote tasks from Tekton Hub, and tasks from remote Git repositories or HTTP URLs.
 
-## Prerequisites
+## Prerequisites \{#prerequisites}
 
 - PAC component deployed and running
-- A Repository CR configured (see [Configure Repository](./configure_gitlab_repo.mdx))
+- A Repository CR configured (see [Guides](../guides/index.mdx))
 - Understanding of Tekton PipelineRun structure
 
-## About PAC Resolver
+## About PAC Resolver \{#about-pac-resolver}
 
 The PAC resolver automatically fetches and embeds remote tasks and pipelines into your PipelineRun definitions. This eliminates the need to manually define tasks or use resolver syntax in your pipeline code.
 
@@ -34,23 +34,17 @@ This means you can use tasks from Tekton Hub without manually copying their defi
 
 :::
 
-### Supported Sources
+### Supported Sources \{#supported-sources}
 
 - **Local Tasks**: Tasks defined in your Git repository (using taskSpec or resolver syntax)
 - **Tekton Hub**: Tasks and pipelines from the Tekton Hub catalog
 - **Remote URLs**: Tasks and pipelines from remote Git repositories or HTTP URLs
 
-### Official Documentation
-
-For comprehensive information about Pipelines as Code remote resolution features, refer to:
-- [Red Hat OpenShift Pipelines as Code Documentation](https://docs.redhat.com/en/documentation/red_hat_openshift_pipelines/latest/html-single/pipelines_as_code/index)
-- [Pipelines as Code Community Documentation](https://pipelinesascode.com/)
-
-## How PAC Resolver Works
+## How PAC Resolver Works \{#how-pac-resolver-works}
 
 Understanding the resolver workflow helps you troubleshoot issues and optimize your pipeline configurations.
 
-### Resolver Workflow
+### Resolver Workflow \{#resolver-workflow}
 
 When PAC processes a PipelineRun with resolver annotations, it follows these steps:
 
@@ -70,11 +64,11 @@ When PAC processes a PipelineRun with resolver annotations, it follows these ste
 6. **PipelineRun Creation**: PAC creates the final PipelineRun with embedded tasks in Kubernetes
 7. **Execution**: Tekton Pipeline controller picks up the PipelineRun and executes it
 
-### Detailed Example: Step-by-Step Resolution
+### Detailed Example: Step-by-Step Resolution \{#detailed-example-step-by-step-resolution}
 
 Let's trace through a complete example to see how resolver works:
 
-#### Step 1: Original PipelineRun Definition
+#### Step 1: Original PipelineRun Definition \{#step-1-original-pipelinerun-definition}
 
 You define a PipelineRun in your repository (`.tekton/pipelinerun.yaml`):
 
@@ -100,7 +94,7 @@ You define a PipelineRun in your repository (`.tekton/pipelinerun.yaml`):
               value: "main"
     ```
 
-#### Step 2: PAC Controller Processes Annotations
+#### Step 2: PAC Controller Processes Annotations \{#step-2-pac-controller-processes-annotations}
 
 When a push event occurs, PAC controller:
 
@@ -153,7 +147,7 @@ When a push event occurs, PAC controller:
 - **Version pinning**: Always pin to specific versions in production to avoid breaking changes from Hub updates
 - **Version updates**: Periodically review and update pinned versions in a controlled manner
 
-#### Step 3: PAC Embeds Task into PipelineRun
+#### Step 3: PAC Embeds Task into PipelineRun \{#step-3-pac-embeds-task-into-pipelinerun}
 
 PAC modifies the PipelineRun by converting `taskRef` to `taskSpec` and embedding the resolved task definition:
 
@@ -191,7 +185,7 @@ PAC modifies the PipelineRun by converting `taskRef` to `taskSpec` and embedding
               value: "main"
     ```
 
-#### Step 4: PipelineRun Created in Kubernetes
+#### Step 4: PipelineRun Created in Kubernetes \{#step-4-pipelinerun-created-in-kubernetes}
 
 PAC creates the final PipelineRun in your cluster. You can verify it:
 
@@ -228,7 +222,7 @@ Example output (abbreviated, showing embedded task):
               value: "abc1234"
     ```
 
-### Resolver Timing
+### Resolver Timing \{#resolver-timing}
 
 **Important**: Task resolution happens **before** the PipelineRun is created in Kubernetes. This means:
 
@@ -237,7 +231,7 @@ Example output (abbreviated, showing embedded task):
 - You can verify task resolution by checking the PipelineRun YAML in Kubernetes
 - Resolved tasks are cached by PAC for performance
 
-### Verifying Task Resolution
+### Verifying Task Resolution \{#verifying-task-resolution}
 
 To verify that tasks were resolved correctly:
 
@@ -318,11 +312,11 @@ Example output:
 
 If task resolution failed, the PipelineRun may not be created, or it will have a Failed condition with an error message.
 
-## Using Local Tasks
+## Using Local Tasks \{#using-local-tasks}
 
 Local tasks are tasks defined directly in your Git repository. PAC supports two ways to use local tasks:
 
-### Inline Task Definition (taskSpec)
+### Inline Task Definition (taskSpec) \{#inline-task-definition-taskspec}
 
 You can define tasks directly in your PipelineRun using `taskSpec`:
 
@@ -360,7 +354,7 @@ You can define tasks directly in your PipelineRun using `taskSpec`:
 - No external resolution is needed - tasks are part of the PipelineRun definition
 - Useful for simple, repository-specific tasks
 
-### Referencing Task Files in Repository
+### Referencing Task Files in Repository \{#referencing-task-files-in-repository}
 
 You can reference task files stored in your repository using PAC annotations with the special syntax for tasks within the repository.
 
@@ -406,7 +400,7 @@ PipelineRun definition using PAC annotations:
 - The task name in `taskRef.name` should match the task name defined in the YAML file
 - This method is simpler than using `resolver: git` syntax and is the recommended approach for PAC
 
-### When to Use Local Tasks
+### When to Use Local Tasks \{#when-to-use-local-tasks}
 
 Use local tasks when:
 - Tasks are specific to your project and not suitable for sharing
@@ -414,11 +408,11 @@ Use local tasks when:
 - Tasks change frequently with your codebase
 - You want to keep tasks and pipelines together in version control
 
-## Using Remote Task Annotations
+## Using Remote Task Annotations \{#using-remote-task-annotations}
 
 You can use PAC annotations to reference remote tasks from Tekton Hub or remote HTTP URLs. PAC will automatically fetch and embed these tasks into your PipelineRun.
 
-### Remote Tasks from Tekton Hub
+### Remote Tasks from Tekton Hub \{#remote-tasks-from-tekton-hub}
 
 Reference a single task from Tekton Hub:
 
@@ -449,7 +443,7 @@ Reference a single task from Tekton Hub:
 - PAC automatically embeds the task definition into your PipelineRun
 - You can then reference it using `taskRef.name: git-clone`
 
-### Remote Tasks from HTTP URLs
+### Remote Tasks from HTTP URLs \{#remote-tasks-from-http-urls}
 
 You can also reference tasks from remote HTTP URLs:
 
@@ -481,7 +475,7 @@ You can also reference tasks from remote HTTP URLs:
 - PAC automatically embeds the task into your PipelineRun
 - The task name in `taskRef.name` should match the task name defined in the remote YAML file
 
-### Multiple Task Annotations
+### Multiple Task Annotations \{#multiple-task-annotations}
 
 Reference multiple tasks using numbered annotations:
 
@@ -517,7 +511,7 @@ Reference multiple tasks using numbered annotations:
           runAfter: [lint]
     ```
 
-### Task List Syntax
+### Task List Syntax \{#task-list-syntax}
 
 You can also use bracket syntax to specify multiple tasks in a single annotation:
 
@@ -536,11 +530,11 @@ This is equivalent to:
         pipelinesascode.tekton.dev/task-2: "buildah"
     ```
 
-### Task Version Specification
+### Task Version Specification \{#task-version-specification}
 
 By default, PAC fetches the **latest version** of a task from Hub. To specify a specific version, use the format `task-name:version`.
 
-**Reference**: For more details on remote task resolution, see [Red Hat OpenShift Pipelines as Code documentation](https://docs.redhat.com/en/documentation/red_hat_openshift_pipelines/latest/html-single/pipelines_as_code/index).
+PAC resolves Hub tasks by name and can optionally pin a task version with `task-name:version`.
 
 **Latest version** (recommended for development):
 
@@ -568,7 +562,7 @@ By default, PAC fetches the **latest version** of a task from Hub. To specify a 
         pipelinesascode.tekton.dev/task-2: "buildah"  # Uses latest
     ```
 
-### Custom Hub URL
+### Custom Hub URL \{#custom-hub-url}
 
 The default `hub-url` points to the cluster-internal Tekton Hub service in the default namespace (`http://tekton-hub-api.tekton-pipelines:8000/v1`). If Tekton Hub is deployed in a different namespace, adjust the namespace in the URL accordingly. If you need to use a different Hub instance, configure it in the `OpenShiftPipelinesAsCode` CR:
 
@@ -591,7 +585,7 @@ The default `hub-url` points to the cluster-internal Tekton Hub service in the d
 
 **Note**: Only the PAC controller needs access to the Hub URL. If using a cluster-internal Hub, ensure the PAC controller can reach the Hub service.
 
-## Using Remote Pipeline Annotations
+## Using Remote Pipeline Annotations \{#using-remote-pipeline-annotations}
 
 :::warning Limited Use Case
 
@@ -626,13 +620,13 @@ You can reference remote pipelines from Tekton Hub, though this is less common t
 
 **Note**: In most cases, you should define your pipeline inline using `pipelineSpec` in your repository, rather than using remote pipelines. This gives you better version control and visibility of your pipeline definitions.
 
-## Combining Remote Tasks and Pipelines
+## Combining Remote Tasks and Pipelines \{#combining-remote-tasks-and-pipelines}
 
-## Comparison with Resolver Syntax
+## Comparison with Resolver Syntax \{#comparison-with-resolver-syntax}
 
 PAC annotations provide a simpler alternative to Tekton's resolver syntax:
 
-### Using PAC Annotations (Recommended)
+### Using PAC Annotations (Recommended) \{#using-pac-annotations-recommended}
 
     ```yaml
     metadata:
@@ -646,7 +640,7 @@ PAC annotations provide a simpler alternative to Tekton's resolver syntax:
             name: git-clone
     ```
 
-### Using Resolver Syntax
+### Using Resolver Syntax \{#using-resolver-syntax}
 
     ```yaml
     spec:
@@ -668,9 +662,9 @@ PAC annotations provide a simpler alternative to Tekton's resolver syntax:
 - No need to specify resolver parameters
 - Works seamlessly with PAC's task resolution
 
-## Troubleshooting
+## Troubleshooting \{#troubleshooting}
 
-### Task Not Found
+### Task Not Found \{#task-not-found}
 
 1. **Verify task name**: Check that the task name is correct in Tekton Hub
 2. **Check Hub URL**: Verify the hub URL is configured correctly
@@ -688,7 +682,7 @@ Example output:
     {"level":"info","ts":"2024-01-01T12:00:02Z","logger":"controller","msg":"Task embedded in PipelineRun","task":"git-clone","pipelineRun":"my-pipeline"}
     ```
 
-### Task Resolution Fails
+### Task Resolution Fails \{#task-resolution-fails}
 
 1. **Check network connectivity**: Ensure PAC controller can reach Tekton Hub
 
@@ -744,16 +738,15 @@ Example output (abbreviated):
     }
     ```
 
-### Task Not Embedded
+### Task Not Embedded \{#task-not-embedded}
 
 1. **Verify annotation syntax**: Check annotation key and value format
 2. **Check PipelineRun**: Ensure `taskRef.name` matches the task name in annotation
 3. **Review PAC controller logs** for embedding errors
 
-## Next Steps
+## Next Steps \{#next-steps}
 
-- [Maintain Pipeline Code](./maintain_pipeline_code.mdx) - Pipeline definition guide
+- [Define PipelineRuns in Git](./maintain_pipeline_code.mdx) - PipelineRun files and trigger annotations
 - [Advanced Repository Configuration](./advanced_repository_config.mdx) - Advanced Repository CR settings
 - [Manage PipelineRuns](./incoming_webhooks.mdx) - PipelineRun management
 - [Common Issues](../trouble_shooting/common_issues.mdx) - Troubleshooting guide
-

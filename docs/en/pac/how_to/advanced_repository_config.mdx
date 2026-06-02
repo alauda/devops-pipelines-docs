@@ -1,5 +1,5 @@
 ---
-weight: 45
+weight: 50
 ---
 
 # Advanced Repository Configuration
@@ -16,13 +16,13 @@ This guide explains advanced configuration options for Repository Custom Resourc
 - Source branch configuration
 - Custom parameter expansion
 
-## Prerequisites
+## Prerequisites \{#prerequisites}
 
 - PAC component deployed and running
-- A Repository CR created (see [Configure Repository](./configure_gitlab_repo.mdx))
+- A Repository CR created (see [Guides](../guides/index.mdx))
 - Cluster administrator or namespace-level permissions
 
-## Creating a Global Repository CR
+## Creating a Global Repository CR \{#creating-a-global-repository-cr}
 
 :::info Tech Preview Feature
 The global Repository CR feature is a **Technology Preview** feature that provides automatic configuration inheritance for all Repository CRs.
@@ -36,7 +36,7 @@ Alternatively, you can create a **global Repository CR** in the namespace where 
 - **Auto-apply**: Settings automatically apply to all Repository CRs
 - **Tech Preview**: This is a Technology Preview feature
 
-### Example: Global Repository CR
+### Example: Global Repository CR \{#example-global-repository-cr}
 
 Create a global Repository CR in the PAC namespace:
 
@@ -67,7 +67,7 @@ Apply the CR:
 - Individual Repository CRs can override these settings if needed
 - You still need to specify `url` and other repository-specific settings in each Repository CR
 
-### Example: Using Global Settings
+### Example: Using Global Settings \{#example-using-global-settings}
 
 With the global CR above, you can create individual Repository CRs with minimal configuration:
 
@@ -82,11 +82,11 @@ With the global CR above, you can create individual Repository CRs with minimal 
       # git_provider settings are inherited from the global CR
     ```
 
-## Setting Concurrency Limits
+## Setting Concurrency Limits \{#setting-concurrency-limits}
 
 Concurrency limits help prevent resource exhaustion when many events trigger pipelines simultaneously. You can set the maximum number of concurrent PipelineRuns that can run for a repository.
 
-### Configure Concurrency Limit
+### Configure Concurrency Limit \{#configure-concurrency-limit}
 
 Edit your Repository CR to add the `concurrency_limit` field:
 
@@ -115,7 +115,7 @@ Edit your Repository CR to add the `concurrency_limit` field:
 - If not specified, there is no limit on concurrent PipelineRuns
 - When the limit is reached, new events will queue until a PipelineRun completes
 
-### Example Use Cases
+### Example Use Cases \{#example-use-cases}
 
 **High-traffic repository**: Limit concurrent runs to prevent cluster overload:
 
@@ -138,7 +138,7 @@ Edit your Repository CR to add the `concurrency_limit` field:
       # concurrency_limit not specified
     ```
 
-### Verify Concurrency Limit
+### Verify Concurrency Limit \{#verify-concurrency-limit}
 
 Check the Repository CR:
 
@@ -172,13 +172,13 @@ Example output:
     test-pipeline-yyyyy     1 minute ago   45s        Running
     ```
 
-## Changing the Source Branch for Pipeline Definition
+## Changing the Source Branch for Pipeline Definition \{#changing-the-source-branch-for-pipeline-definition}
 
 By default, Pipelines-as-Code fetches the PipelineRun definition from the branch where the event has been triggered (for example, the branch of the push or pull request).
 
 You can change this behavior by using the `spec.settings.pipelinerun_provenance` field in the Repository custom resource. This setting controls from which branch the PipelineRun definition is fetched.
 
-### Configure PipelineRun definition source
+### Configure PipelineRun definition source \{#configure-pipelinerun-definition-source}
 
 ```yaml
 apiVersion: pipelinesascode.tekton.dev/v1alpha1
@@ -203,7 +203,7 @@ spec:
 - `source`: The default behavior. The PipelineRun definition is fetched from the branch where the event has been triggered.
 - `default_branch`: The PipelineRun definition is fetched from the repository default branch as configured on the Git provider (for example `main`, `master`, or `trunk`).
 
-### Security Benefits
+### Security Benefits \{#security-benefits}
 
 Letting the user specify the provenance of the PipelineRun definition to the default branch is another layer of security. It ensures that only the user who has the right to merge commits to the default branch can change the PipelineRun definition and gain access to the infrastructure.
 
@@ -211,20 +211,20 @@ Letting the user specify the provenance of the PipelineRun definition to the def
 - **Enforces review process**: All pipeline changes go through the standard merge/review process.
 - **Consistent pipeline behavior**: All runs use the same pipeline definitions from the default branch.
 
-### Configuration comparison
+### Configuration comparison \{#configuration-comparison}
 
 | Configuration                                      | Branch Source          | Security Level | Use Case                     |
 |---------------------------------------------------|------------------------|----------------|------------------------------|
 | `settings.pipelinerun_provenance: "source"`       | Triggering branch      | Standard       | Development, testing         |
 | `settings.pipelinerun_provenance: "default_branch"` | Repository default branch | High         | Production, security-focused |
 
-**Note**: According to the [Red Hat OpenShift Pipelines documentation](https://docs.redhat.com/zh-cn/documentation/red_hat_openshift_pipelines/1.20/html/pipelines_as_code/changing-source-branch-in-repository-crd_using-repository-crd), the `default_branch` setting is recommended as a security measure to ensure maximum validation of pipeline changes during the merge review process.
+**Note**: Use `default_branch` when pipeline definitions must pass the repository's merge review process before they can affect future runs.
 
 ## Custom Parameter Expansion \{#custom-parameter-expansion}
 
 You can define custom parameters in the Repository CR that will be expanded in all PipelineRuns created for that repository. This is useful for setting common values across all pipelines.
 
-### Define Custom Parameters
+### Define Custom Parameters \{#define-custom-parameters}
 
 Add parameters to the Repository CR `spec.params` field:
 
@@ -251,7 +251,7 @@ Add parameters to the Repository CR `spec.params` field:
           key: token
     ```
 
-### Use Custom Parameters in Pipelines
+### Use Custom Parameters in Pipelines \{#use-custom-parameters-in-pipelines}
 
 **Important**: Repository CR parameters use the PAC variable syntax `{{ param }}`, not Tekton's `$(params.param)` syntax.
 
@@ -306,7 +306,7 @@ Reference Repository CR parameters in your PipelineRun definitions using PAC var
 - PipelineRun created with: `- name: environment` / `value: "production"`
 - Task scripts use: `$(params.environment)` → Tekton resolves to `"production"`
 
-### Parameter Precedence
+### Parameter Precedence \{#parameter-precedence}
 
 Parameters are expanded in the following order (highest to lowest precedence):
 
@@ -314,7 +314,7 @@ Parameters are expanded in the following order (highest to lowest precedence):
 2. **Repository params**: Parameters defined in the Repository CR
 3. **Dynamic variables**: PAC dynamic variables (e.g., `{{ revision }}`, `{{ repo_url }}`)
 
-### Example: Environment-Specific Configuration
+### Example: Environment-Specific Configuration \{#example-environment-specific-configuration}
 
 Configure different environments using Repository params:
 
@@ -358,7 +358,7 @@ Configure different environments using Repository params:
 
 Both repositories can use the same pipeline definition, with parameters automatically filled from the Repository CR.
 
-## Combining Advanced Features
+## Combining Advanced Features \{#combining-advanced-features}
 
 You can combine all advanced features in a single Repository CR:
 
@@ -387,30 +387,30 @@ You can combine all advanced features in a single Repository CR:
           key: secret
     ```
 
-## Best Practices
+## Best Practices \{#best-practices}
 
-### 1. Concurrency Limits
+### 1. Concurrency Limits \{#1-concurrency-limits}
 
 - **Set appropriate limits**: Consider your cluster resources and pipeline resource requirements
 - **Monitor usage**: Watch for queued events when limits are too low
 - **Adjust dynamically**: Increase limits for high-traffic periods, decrease for resource conservation
 
-### 2. Source Branch Configuration
+### 2. Source Branch Configuration \{#2-source-branch-configuration}
 
 - **Use stable branches**: Fetch pipeline definitions from stable branches (e.g., `main`)
 - **Test pipeline changes**: Test pipeline changes in feature branches before merging to the source branch
 - **Document changes**: Clearly document which branch contains pipeline definitions
 
-### 3. Custom Parameters
+### 3. Custom Parameters \{#3-custom-parameters}
 
 - **Use meaningful names**: Choose clear, descriptive parameter names
 - **Keep values simple**: Use simple string values for parameters
 - **Document parameters**: Document what each parameter does and when it's used
 - **Avoid secrets**: Don't store secrets in Repository params; use Kubernetes Secrets instead
 
-## Troubleshooting
+## Troubleshooting \{#troubleshooting}
 
-### Concurrency Limit Not Working
+### Concurrency Limit Not Working \{#concurrency-limit-not-working}
 
 1. **Verify the limit is set**:
 
@@ -439,7 +439,7 @@ Example output:
     {"level":"info","ts":"2024-01-01T12:00:01Z","logger":"controller","msg":"PipelineRun queued","repository":"my-repo","reason":"concurrency_limit"}
     ```
 
-### Parameters Not Expanding
+### Parameters Not Expanding \{#parameters-not-expanding}
 
 1. **Verify parameters are defined**:
 
@@ -457,9 +457,9 @@ Example output:
 
 4. **Review PipelineRun**: Check if parameters are being overridden in the PipelineRun definition
 
-## Next Steps
+## Next Steps \{#next-steps}
 
-- [Configure Repository](./configure_gitlab_repo.mdx) - Basic repository setup
-- [Maintain Pipeline Code](./maintain_pipeline_code.mdx) - Pipeline definition guide
+- [Guides](../guides/index.mdx) - Basic repository setup walkthroughs
+- [Define PipelineRuns in Git](./maintain_pipeline_code.mdx) - PipelineRun files and trigger annotations
 - [Manage PipelineRuns](./incoming_webhooks.mdx) - PipelineRun management
 - [Common Issues](../trouble_shooting/common_issues.mdx) - Troubleshooting guide

@@ -1,60 +1,50 @@
 ---
-weight: 20
+weight: 10
 ---
 
-# PAC Core Concepts
+# Core Concepts
 
-:::info For All Users
+This page covers the resources, runtime components and trigger model that PAC introduces on top of Tekton. For a quick overview and audience map, see [Introduction](../intro.mdx).
 
-This document provides foundational concepts for both **administrators** and **regular users** to understand how PAC works.
+## Architecture \{#architecture}
 
-:::
-
-This document provides a detailed overview of the core concepts behind Pipelines-as-Code (PAC), its architecture, and how it integrates with Kubernetes and Git providers.
-
-## What is Pipelines as Code?
-
-Pipelines-as-Code (PAC) is a component that enables you to define and manage Tekton Pipeline workflows directly in your source code repository. Instead of maintaining pipelines in the Kubernetes cluster, you can:
-
-- Store pipeline definitions in Git alongside your code
-- Version control pipeline configurations
-- Review pipeline changes through Merge Requests
-- Trigger pipelines automatically from Git events
-
-## Architecture Overview
-
-PAC consists of several key components that work together:
+PAC runs three controllers in the cluster and reacts to events delivered by the Git provider:
 
     ```mermaid
-    flowchart TD
-    A[Git Provider<br/>GitHub/GitLab/Bitbucket] -->|Webhook Events| B[PAC Webhook<br/>Receiver]
-    B --> C[PAC Controller<br/>Processor]
-    C -->|Creates PipelineRuns| D[Tekton Pipeline<br/>Executor]
-    D --> E[PAC Watcher<br/>Status Reporter]
-    E -->|Reports Status| A
-    
-    style A fill:#e1f5ff
-    style B fill:#fff4e1
-    style C fill:#fff4e1
-    style D fill:#e8f5e9
-    style E fill:#fff4e1
+    flowchart LR
+        A[Git Provider<br/>GitHub / GitLab] -->|webhook| B[PAC Webhook]
+        B --> C[PAC Controller]
+        C -->|create PipelineRun| D[Tekton Pipelines]
+        D --> E[PAC Watcher]
+        E -->|commit status / check run| A
     ```
 
-## Core Components
+- **PAC Webhook** is the HTTP listener exposed to the Git provider. It verifies each incoming request against the shared webhook secret and forwards verified payloads to the controller. Anything that fails verification is dropped before it ever touches Tekton.
+- **PAC Controller** owns the logic of "what should run on this event". It looks up the matching `Repository` resource, fetches the `.tekton/` manifests from the ref the event refers to, filters them through the trigger annotations, expands variables, and creates `PipelineRun`s.
+- **PAC Watcher** follows the `PipelineRun`s that PAC created and reports their state back to the Git provider — as a GitHub Check Run, a commit status, or a comment, depending on the provider.
 
-### 1. Repository concept
+All three components live in the PAC namespace (default: `tekton-pipelines`) and are deployed by the Tekton Operator from the `OpenShiftPipelinesAsCode` CR.
 
-#### 1.1. Repository Custom Resource
+## The Repository resource \{#the-repository-resource}
 
-The Repository Custom Resource defines the connection between a Git repository and the PAC controller.
+`Repository` is the only resource you maintain per Git repository. It binds one Git URL to one Kubernetes namespace: events from that URL produce `PipelineRun`s in this namespace, and only in this namespace. Multiple `Repository` resources can point at the same Git URL only in different namespaces — typical for a "team namespace per environment" layout.
 
-**Key Fields**:
+A `Repository` does **not** carry any pipeline definition. The pipeline definitions live in the Git repository itself, under `.tekton/`. Deleting the `Repository` only stops PAC from creating new `PipelineRun`s; the runs already created are left in place.
 
-- `spec.url`: Git repository URL
-- `spec.git_provider`: Git provider configuration (type, URL, credentials)
-- `spec.webhook`: Webhook configuration (secret for validation)
+### Key spec fields \{#key-spec-fields}
 
-**Example**:
+| Field | Purpose |
+|---|---|
+| `spec.url` | The Git repository URL. PAC matches incoming events to this value. |
+| `spec.git_provider.type` | Provider type, for example `github` or `gitlab`. Can be omitted for GitHub.com — PAC detects it from the payload. |
+| `spec.git_provider.url` | Provider API base URL. Required for self-hosted GitLab; optional elsewhere. |
+| `spec.git_provider.secret` | Reference to the `Secret` holding the Git access token under `provider.token`. |
+| `spec.git_provider.webhook_secret` | Reference to the `Secret` holding the webhook signing secret under `webhook.secret`. |
+| `spec.concurrency_limit` | Optional cap on the number of `PipelineRun`s from this repository that may execute concurrently. |
+| `spec.params` | Repository-scoped parameters that any `PipelineRun` from this repo can read with `{{ name }}` placeholders. |
+| `spec.settings` | Authorization policies and provider-specific options, for example which users may trigger via comment. |
+
+Example (GitLab over Webhook):
 
     ```yaml
     apiVersion: pipelinesascode.tekton.dev/v1alpha1
@@ -63,258 +53,149 @@ The Repository Custom Resource defines the connection between a Git repository a
       name: my-repo
       namespace: project-pipelines
     spec:
-      url: "https://gitlab.com/user/repo"
+      url: https://gitlab.com/group/project
       git_provider:
         type: gitlab
-        url: "https://gitlab.com"
         secret:
-          name: gitlab-secret
-          key: token
+          name: my-repo-auth
         webhook_secret:
-          name: webhook-secret
-          key: secret
+          name: my-repo-auth
     ```
 
-### 2. PAC Controller
+In the GitHub App mode the entire `git_provider` block is omitted; PAC authenticates with the cluster-wide App credentials, so per-repository tokens and webhook secrets are not needed.
 
-The PAC Controller is the main component that:
+## Two integration modes \{#two-integration-modes}
 
-- Receives webhook events from Git providers
-- Fetches pipeline definitions from Git repositories
-- Creates PipelineRun resources in Kubernetes
-- Manages Repository CRs (Custom Resources)
+The Git provider has two ways to deliver events to PAC, and the `Repository` spec changes shape with each.
 
-**Deployment**: Deployed as a Kubernetes Deployment in a namespace (default: `tekton-pipelines`, but can be customized via `targetNamespace` in the `OpenShiftPipelinesAsCode` CR).
+- **GitHub App mode** — a GitHub App is installed once on the GitHub organization or user. The App owns the webhook and the credentials at the organization level. Every repository covered by the installation can be onboarded with a minimal `Repository` (`spec.url` only). Status is reported through the GitHub Checks API. Available only on GitHub.
+- **Webhook mode** — a Personal Access Token and a webhook are configured per repository. The `Repository` references a Kubernetes `Secret` carrying the token and the webhook secret. Status is reported as a commit status. This documentation covers GitHub Webhook mode and GitLab Webhook mode.
 
-### 3. PAC Watcher
+The two modes are mutually exclusive on a given `Repository`. The end-to-end procedures for each provider are in [Guides](../guides/index.mdx).
 
-The PAC Watcher monitors PipelineRun execution and:
+## `.tekton/` directory convention \{#tekton-directory-convention}
 
-- Tracks pipeline status (pending, running, success, failure)
-- Reports status back to the Git provider
-- Updates commit status and Pull Request/Merge Request checks
+PAC reads `PipelineRun` manifests from a `.tekton/` directory at the root of the Git repository. The convention:
 
-**Deployment**: Deployed as a Kubernetes Deployment in a namespace (default: `tekton-pipelines`, but can be customized via `targetNamespace` in the `OpenShiftPipelinesAsCode` CR).
+- Any `.yaml` or `.yml` file under `.tekton/` is scanned. There can be more than one PipelineRun per file and more than one file per repository.
+- Manifests are read **from the ref the event was raised on** — a pull request reads the source branch, a push reads the pushed branch, a tag push reads the tag's ref.
+- Each `PipelineRun` is evaluated independently. A single event can produce zero, one, or several `PipelineRun`s depending on how many manifests match.
+- The standard `PipelineRun` shape applies; PAC simply adds annotations and variables on top. Tasks can be inline (`pipelineSpec`), referenced from an existing `Pipeline` in the cluster (`pipelineRef`), or resolved at submission time from Tekton Hub or a remote URL.
 
-### 4. PAC Webhook
+## Event lifecycle \{#how-it-works}
 
-The PAC Webhook receives HTTP requests from Git providers:
+    ```mermaid
+    sequenceDiagram
+        participant Git as Git Provider
+        participant Webhook as PAC Webhook
+        participant Controller as PAC Controller
+        participant K8s as Kubernetes
+        participant Watcher as PAC Watcher
 
-- Validates webhook signatures
-- Processes webhook payloads
-- Forwards events to the PAC Controller
+        Git->>Webhook: Webhook event (push / PR / comment)
+        Webhook->>Webhook: Verify signature with webhook.secret
+        Webhook->>Controller: Forward verified event
+        Controller->>Controller: Match Repository by URL
+        Controller->>Git: Fetch .tekton/ manifests on event ref
+        Controller->>Controller: Filter manifests by annotations
+        Controller->>Controller: Expand {{ variables }} from event
+        Controller->>K8s: Create PipelineRun(s)
+        K8s-->>Watcher: PipelineRun status updates
+        Watcher->>Git: Report status (Checks / commit status)
+    ```
 
-**Deployment**: Deployed as a Kubernetes Service and optionally exposed via Ingress/NodePort.
+A few properties worth keeping in mind:
 
-## How It Works \{#how-it-works}
+- The verification step at the webhook is fail-closed: an event with an invalid signature does not reach the controller, the `Repository` controller, or the cluster.
+- The controller does the filtering and the variable expansion before any Kubernetes object is created, so a non-matching event produces no `PipelineRun` and leaves no trace beyond a log line.
+- Status reporting is asynchronous and happens whenever the `PipelineRun` state changes, including completion and individual step failures (where the provider supports per-step reporting).
 
-### 1. Repository Registration
+## Trigger model \{#trigger-model}
 
-When you configure a repository using `tkn pac create repo`:
+`PipelineRun` manifests advertise the events they care about through annotations on `metadata.annotations`. The controller filters manifests against the event using these annotations.
 
-1. A Repository CR is created in your Kubernetes cluster
-2. A webhook is configured in your Git provider pointing to the PAC controller
-3. A Kubernetes Secret is created with Git provider credentials
-4. A basic `.tekton/pipelinerun.yaml` template is generated
+### Event types \{#event-types}
 
-### 2. Event Flow
+| Event | Meaning | Notes |
+|---|---|---|
+| `push` | A commit was pushed to a branch | Includes tag pushes when the ref is a tag |
+| `pull_request` | A pull request / merge request was opened, updated or synchronized | Manifests are read from the PR source branch |
+| `pull_request_labeled` | A label was applied to a pull request | Useful to gate runs on a reviewer label |
+| `pull_request_closed` | A pull request was closed (merged or not) | |
+| `comment` | A comment was posted on a PR / commit | Combined with `on-comment` for custom commands |
+| `incoming` | An external incoming webhook fired the run | See [Incoming Webhooks](../how_to/incoming_webhooks.mdx) |
 
-[PAC Event Flow Diagram](https://pipelinesascode.com/docs/flows/diagram/)
+### Annotation grammar \{#annotation-grammar}
 
-When a Git event occurs (push, pull request, merge request, comment):
+| Annotation | Purpose |
+|---|---|
+| `pipelinesascode.tekton.dev/on-event` | Event kinds the run applies to, e.g. `[push, pull_request]`. |
+| `pipelinesascode.tekton.dev/on-target-branch` | Target branch filter; supports plain names, full refs and glob patterns, e.g. `[refs/heads/main]`, `[refs/tags/*]`. |
+| `pipelinesascode.tekton.dev/on-cel-expression` | A CEL expression. When set, it replaces `on-event` and `on-target-branch`. |
+| `pipelinesascode.tekton.dev/on-comment` | A regular expression matched against PR / MR comments — the basis for `/retest` and similar commands. |
+| `pipelinesascode.tekton.dev/on-path-change` | Only run when changed files match a glob, e.g. `[backend/***]`. |
+| `pipelinesascode.tekton.dev/on-path-change-ignore` | Skip when changed files match a glob — useful to ignore documentation-only changes. |
 
-1. **Git provider sends webhook** → PAC Webhook receives the event
-2. **Webhook validation** → PAC validates the webhook signature
-3. **Event processing** → PAC Controller processes the event
-4. **Repository lookup** → Controller finds matching Repository CR
-5. **Pipeline fetch** → Controller fetches pipeline definitions from Git
-6. **PipelineRun creation** → Controller creates PipelineRun in Kubernetes
-7. **Status monitoring** → PAC Watcher monitors PipelineRun execution
-8. **Status reporting** → Watcher reports status back to the Git provider
-
-### 3. Pipeline Execution
-
-1. PAC Controller creates a PipelineRun based on the pipeline definition
-2. Tekton Pipeline controller picks up the PipelineRun
-3. Pipeline tasks are executed in sequence
-4. PAC Watcher monitors the execution
-5. Status is reported back to the Git provider
-
-## Platform Support
-
-### Kubernetes
-
-PAC can be deployed on standard Kubernetes clusters through the Tekton Operator. Although the resource name contains "OpenShift", a patch enables PAC controller support on Kubernetes.
-
-**Deployment**: Create the `OpenShiftPipelinesAsCode` CR directly.
-
-## Git Provider Integration
-
-PAC supports multiple Git providers including GitHub, GitLab, Bitbucket Cloud, and Bitbucket Data Center. Each provider has specific integration features:
-
-**Webhook Configuration**:
-
-- URL: PAC controller endpoint
-- Secret: Webhook secret for validation
-- Events: Push, Pull Request/Merge Request, Comments
-
-**Status Reporting**:
-
-- Commit status updates
-- Pull Request/Merge Request status checks
-- Comment-based commands
-
-**Authentication**:
-
-- Personal Access Token or App tokens with appropriate scopes (varies by provider)
-- Stored in Kubernetes Secret
-
-For provider-specific configuration details, see:
-- [Configure Repository](../how_to/configure_gitlab_repo.mdx)
-- Provider-specific guides in the documentation
-
-## Pipeline Definition
-
-### File Location
-
-By default, PAC looks for pipeline definitions in:
-
-- `.tekton/pipelinerun.yaml` (all .tekton/\*.yaml manifests of PipelineRun will be processed)
-- All `.yaml` and `.yml` files in the `.tekton/` directory
-
-### Pipeline Structure
-
-A PAC pipeline is a standard Tekton PipelineRun with PAC-specific annotations:
+A pair of simple matchers (`on-event` + `on-target-branch`) is enough for most cases. For composite conditions ("only when the PR head matches `feature/*` AND the changed files include `api/**`") use a CEL expression instead:
 
     ```yaml
-    apiVersion: tekton.dev/v1
-    kind: PipelineRun
-    metadata:
-      name: my-pipeline
-      annotations:
-        pipelinesascode.tekton.dev/on-target-branch: "[refs/heads/main]"
-        pipelinesascode.tekton.dev/on-event: "[push]"
-    spec:
-      pipelineSpec:
-        tasks:
-        - name: hello
-          taskSpec:
-            steps:
-            - name: echo
-              image: alpine:latest
-              script: |
-                echo "Hello from PAC!"
+    annotations:
+      pipelinesascode.tekton.dev/on-cel-expression: |
+        event == "pull_request" &&
+        source_branch.startsWith("feature/") &&
+        files.modified.exists(f, f.startsWith("api/"))
     ```
 
-### Event Annotations
+CEL programs receive `event`, `event_title`, `target_branch`, `source_branch`, `body`, `headers`, and a `files` object with `all`, `added`, `deleted`, `modified` and `renamed` lists.
 
-PAC uses annotations to determine when to trigger pipelines:
+The full annotation grammar, more CEL examples and the conflict-resolution rules are in [Define PipelineRuns in Git](../how_to/maintain_pipeline_code.mdx#event-annotations).
 
-- `pipelinesascode.tekton.dev/on-target-branch`: Target branch for the event (e.g., `"[main]"` or `"[refs/heads/main]"`)
-- `pipelinesascode.tekton.dev/on-event`: Event type (e.g., `"[push]"` or `"[pull_request]"`)
-- `pipelinesascode.tekton.dev/on-comment`: Trigger on comment commands
+## Variables and resolution \{#variables-and-resolution}
 
-For more details, see [Event Annotations](../how_to/maintain_pipeline_code.mdx#event-annotations).
+At the moment the `PipelineRun` is created, PAC expands a small set of placeholders against the event payload. The values stick to the `PipelineRun` after creation; they are not re-evaluated.
 
-## Variables and Context
+| Variable | Value |
+|---|---|
+| `{{ repo_url }}` | The repository URL on the Git provider |
+| `{{ revision }}` | The commit SHA of the event |
+| `{{ source_branch }}` | Branch where the event originated (PR head) |
+| `{{ target_branch }}` | Branch the event targets (PR base) |
+| `{{ repo_owner }}`, `{{ repo_name }}` | Repository owner and name |
+| `{{ sender }}` | Username or account ID of the event sender |
+| `{{ pull_request_number }}` | PR / MR number, for pull request events |
+| `{{ git_auth_secret }}` | Name of the auto-created Secret carrying clone credentials for the run |
 
-PAC provides dynamic variables that can be used in pipeline definitions. Variables use the `{{<var>}}` format and are automatically expanded by PAC when creating PipelineRuns.
+PAC can also inline Task and Pipeline manifests at submission time — local files referenced through paths, Tekton Hub references via short names, or remote URLs. The resolver runs before the `PipelineRun` is created, so the resulting object is self-contained. See [PAC Resolver](../how_to/pac_resolver.mdx) for the syntax and the supported sources.
 
-For more details, see [Parameterizing Commits and URLs](../how_to/maintain_pipeline_code.mdx#parameterizing-commits-and-urls).
+## Status reporting \{#status-reporting}
 
-### Git Context Variables
+PAC reports `PipelineRun` state back to the Git provider through three channels, picked automatically based on the provider and the integration mode:
 
-- `{{repo_url}}`: Repository full URL
-- `{{revision}}`: Full SHA revision of a commit
-- `{{source_branch}}`: Branch name where the event originated
-- `{{target_branch}}`: Branch name that the event targets
-- `{{repo_owner}}`: Repository owner
-- `{{repo_name}}`: Repository name
+- **GitHub Checks API** — used in GitHub App mode. Each `PipelineRun` shows up as a Check Run with per-step output and an "in progress / success / failure" badge attached to the commit.
+- **Commit statuses** — used in GitHub Webhook mode and GitLab. A short status line is posted against the commit and (where relevant) the PR / MR.
+- **Comment** — for failures, a comment containing the `PipelineRun` name and a link to the cluster is added to the PR / MR. The exact format depends on the provider.
 
-### Event Context Variables
+The cluster-side URL embedded in those status reports can be customized through the `custom-console-url-*` settings in `OpenShiftPipelinesAsCode`; see [Manage PAC Component](../install/manage_pac.mdx#configure-custom-console-links).
 
-- `{{sender}}`: Username or account ID of the event sender
+## Concurrency and cancellation \{#concurrency-and-cancellation}
 
-### Pull Request / Merge Request Context Variables
+By default every matching event creates its `PipelineRun` immediately. Two settings shape that behaviour:
 
-- `{{pull_request_number}}`: Pull Request or Merge Request number (available for pull_request events only)
+- `Repository.spec.concurrency_limit` caps the number of `PipelineRun`s from this repository that run in parallel. Excess runs are queued and start when older ones finish.
+- The `pipelinesascode.tekton.dev/cancel-in-progress` annotation on a `PipelineRun` instructs PAC to cancel any older run that matches the same event group (for example, the same PR) before starting the new one — useful when a new push to a PR should invalidate the previous CI build.
 
-For a complete list of available variables and their usage, see [Parameterizing Commits and URLs](../how_to/maintain_pipeline_code.mdx#parameterizing-commits-and-urls).
+These are the basic knobs; the full set of advanced fields is documented in [Advanced Repository Configuration](../how_to/advanced_repository_config.mdx).
 
-## Task Resolution
+## Security and access \{#security-and-access}
 
-PAC can automatically resolve tasks from multiple sources:
+- Webhook payloads are verified against `webhook.secret`; the value lives only in the cluster `Secret` and never appears in events or logs.
+- The Git access token (Webhook mode) or the GitHub App private key (App mode) is also stored as a Kubernetes `Secret`; tokens never appear in `PipelineRun` specs.
+- `Repository` is a namespaced resource; standard Kubernetes RBAC governs who can create or modify it. Granting "read repositories" without "create" lets a user inspect what is integrated without changing it.
+- Status reporting back to the Git provider always uses the cluster-side identity (the App in App mode, the configured token in Webhook mode). Individual event senders are not delegated permissions.
 
-1. **Local Tasks**: Tasks defined in the repository
-2. **Tekton Hub**: Tasks from Tekton Hub catalog
-3. **Remote URLs**: Tasks from remote Git repositories or URLs
+## Next steps \{#next-steps}
 
-For more details, see [PAC Resolver](../how_to/pac_resolver.mdx).
-
-## Security Considerations
-
-### Webhook Security
-
-- Webhook secrets validate incoming requests
-- Secrets are stored in Kubernetes Secrets
-- Git providers validate webhook signatures
-
-### Access Control
-
-- Repository CRs are namespace-scoped
-- RBAC controls who can create Repository CRs
-- Git provider tokens have limited scopes for security
-
-### Pipeline Permissions
-
-- PipelineRuns run in specified namespaces
-- ServiceAccounts control pipeline permissions
-- Secrets are mounted as needed
-
-## Best Practices
-
-### 1. Repository Organization
-
-- Keep pipeline definitions in `.tekton/` directory
-- Use descriptive pipeline names
-- Version control all pipeline changes
-
-### 2. Event Filtering
-
-- Use specific branch patterns
-- Use path filtering to limit triggers
-- Separate merge request and push pipelines
-
-### 3. Task Management
-
-- Use Tekton Hub tasks when possible
-- Create reusable task definitions
-- Version control task definitions
-
-### 4. Security
-
-- Don't hardcode secrets in pipeline files
-- Use Kubernetes Secrets
-- Limit pipeline permissions
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Pipeline not triggering**: Check annotations and branch names
-2. **Webhook not received**: Verify webhook URL and secret
-3. **Tasks not found**: Check task references and network connectivity
-4. **Status not reported**: Verify Git provider token permissions
-
-For detailed troubleshooting, see [Common Issues](../trouble_shooting/common_issues.mdx).
-
-## Next Steps
-
-- [Quick Start](../quick_start.mdx) - Get started with PAC
-- [Manage PAC Component](../configure/manage_pac.mdx) - Deploy and manage PAC
-- [Configure Repository](../how_to/configure_gitlab_repo.mdx) - Set up repository integration
-- [Maintain Pipeline Code](../how_to/maintain_pipeline_code.mdx) - Define pipelines in code
-
-## Related Documentation
-
-- [Pipeline As Code](https://pipelinesascode.com/) - Pipelines As Code Official Documentation
+- [Quick Start](../quick_start.mdx) — end-to-end minimal example.
+- [Guides](../guides/index.mdx) — full configuration walkthrough per Git provider.
+- [Define PipelineRuns in Git](../how_to/maintain_pipeline_code.mdx) — annotation grammar and `PipelineRun` layout.
+- [Common Issues](../trouble_shooting/common_issues.mdx) — troubleshooting.
