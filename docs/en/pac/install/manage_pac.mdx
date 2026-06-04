@@ -155,7 +155,7 @@ This example uses:
     envoy-gateway-operator-cpaas-default   True
     ```
 
-**Step 2: Prepare LoadBalancer addresses.** The Envoy Gateway Service will be created as `type: LoadBalancer`, so `LoadBalancer` Services must be able to get an external IP. On ACP bare-metal clusters, install and configure **Alauda Container Platform Load Balancer for MetalLB**. Reference: <ExternalSiteLink name="acp" href="/networking/functions/configure_metallb" children="Configure MetalLB" />.
+**Step 2: Prepare LoadBalancer addresses.** The Envoy Gateway Service will be created as `type: LoadBalancer`, so `LoadBalancer` Services must be able to get an external IP. On ACP bare-metal clusters, install and configure **Alauda Container Platform Load Balancer for MetalLB**. Reference: <ExternalSiteLink name="acp" href="/configure/networking/functions/configure_metallb" children="Configure MetalLB" />.
 
     ```bash
     kubectl get ipaddresspool,l2advertisement -A
@@ -168,7 +168,7 @@ Expected result:
     metallb-system   ipaddresspool.metallb.io/default-pool   ["192.168.1.100-192.168.1.110"]
     ```
 
-**Step 3: Create Gateway API resources.** Create `gateway-api.yaml`. Replace `tekton-pipelines`, `envoy-gateway-operator-cpaas-default`, and `pac.example.com` as needed. References: <ExternalSiteLink name="acp" href="/networking/functions/configure_gatewayapi_gateway" children="Configure GatewayAPI Gateway" /> and <ExternalSiteLink name="acp" href="/networking/functions/configure_gatewayapi_route" children="Configure GatewayAPI Route" />.
+**Step 3: Create Gateway API resources.** Create `gateway-api.yaml`. Replace `tekton-pipelines`, `envoy-gateway-operator-cpaas-default`, and `pac.example.com` as needed. References: <ExternalSiteLink name="acp" href="/configure/networking/functions/configure_gatewayapi_gateway" children="Configure GatewayAPI Gateway" /> and <ExternalSiteLink name="acp" href="/configure/networking/functions/configure_gatewayapi_route" children="Configure GatewayAPI Route" />.
 
     ```yaml
     apiVersion: gateway.networking.k8s.io/v1
@@ -304,8 +304,8 @@ If you expose PAC through ACP ALB or another Ingress Controller instead, use [Us
 **Notes**:
 
 - `HTTPRoute` forwards to the existing `pipelines-as-code-controller` Service on port `8080`; do not point it at the admission webhook Service named `pipelines-as-code-webhook`.
-- If the generated Envoy Service remains `EXTERNAL-IP=<pending>`, check the cluster LoadBalancer provider. For MetalLB, see <ExternalSiteLink name="acp" href="/networking/functions/configure_metallb" children="Configure MetalLB" />.
-- For Gateway API options such as a reserved VIP, hostless routes, or HTTPS listeners, see <ExternalSiteLink name="acp" href="/networking/functions/configure_gatewayapi_gateway" children="Configure GatewayAPI Gateway" /> and <ExternalSiteLink name="acp" href="/networking/functions/configure_gatewayapi_route" children="Configure GatewayAPI Route" />.
+- If the generated Envoy Service remains `EXTERNAL-IP=<pending>`, check the cluster LoadBalancer provider. For MetalLB, see <ExternalSiteLink name="acp" href="/configure/networking/functions/configure_metallb" children="Configure MetalLB" />.
+- For Gateway API options such as a reserved VIP, hostless routes, or HTTPS listeners, see <ExternalSiteLink name="acp" href="/configure/networking/functions/configure_gatewayapi_gateway" children="Configure GatewayAPI Gateway" /> and <ExternalSiteLink name="acp" href="/configure/networking/functions/configure_gatewayapi_route" children="Configure GatewayAPI Route" />.
 
 #### Using Ingress \{#using-ingress-http}
 
@@ -316,7 +316,7 @@ This example uses:
 - Default PAC namespace: `tekton-pipelines`
 - Domain: `pac.example.com`
 
-**Step 1: Prepare an Ingress Controller.** Ensure an Ingress Controller is installed and ready. Reference: <ExternalSiteLink name="acp" href="/networking/functions/configure_ingress" children="Configure Ingress" />.
+**Step 1: Prepare an Ingress Controller.** Ensure an Ingress Controller is installed and ready. Reference: <ExternalSiteLink name="acp" href="/configure/networking/functions/configure_ingress" children="Configure Ingress" />.
 
 **Step 2: Create the Ingress resource.** Create `ingress.yaml`. Replace `tekton-pipelines` and `pac.example.com` as needed.
 
