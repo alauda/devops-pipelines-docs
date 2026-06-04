@@ -38,7 +38,7 @@ Expected result: the Gateway shows `PROGRAMMED=True`, and the `HTTPRoute` is acc
 
 Expected result: `EXTERNAL_IP` is not empty.
 
-If `EXTERNAL_IP` is empty, configure the cluster LoadBalancer provider first. On ACP bare-metal clusters, use **Alauda Container Platform Load Balancer for MetalLB**. Reference: <ExternalSiteLink name="acp" href="/networking/functions/configure_metallb" children="Configure MetalLB" />.
+If `EXTERNAL_IP` is empty, configure the cluster LoadBalancer provider first. On ACP bare-metal clusters, use **Alauda Container Platform Load Balancer for MetalLB**. Reference: <ExternalSiteLink name="acp" href="/configure/networking/functions/configure_metallb" children="Configure MetalLB" />.
 
 **Step 3: Verify and get the webhook URL.** Make sure the Git provider can resolve and access the PAC domain. For example, resolve `pac.example.com` to the Service `EXTERNAL_IP` from the Git provider network.
 
