@@ -249,6 +249,77 @@ securityContext:
 
    After relabeling the namespace, create a new `TaskRun` or `PipelineRun` that uses the `buildah` `Task` in that namespace. When the registry credentials, `Containerfile`, and workspaces are configured correctly, the `buildah` `Task` can run normally under the `baseline` standard.
 
+   **Optional:** Enable the Tekton Pipelines `ValidatingAdmissionPolicy` guardrail if the namespace must use `baseline` mode for `buildah`, but you still want to prevent other Pods in the same namespace from requesting broader privileges. This guardrail does not make the built-in `buildah` `Task` compatible with `restricted` mode. It applies to all Pods in namespaces labeled with `buildah.alauda.io/enabled=true`: it allows only the `SETFCAP` added capability required by `buildah`, and rejects privileged containers, host namespaces, hostPath volumes, and added capabilities other than `SETFCAP`.
+
+   Edit the `TektonConfig` resource to enable the policy:
+
+   ```bash
+   $ kubectl edit tektonconfig config
+   ```
+
+   Add or update the following entry under `spec.pipeline.params`. If `params` already contains other entries, keep them and only add or update `enable-validating-admission-policy`.
+
+   ```yaml
+   apiVersion: operator.tekton.dev/v1alpha1
+   kind: TektonConfig
+   metadata:
+     name: config
+   spec:
+     pipeline:
+       params:
+         - name: enable-validating-admission-policy
+           value: "true"
+   ```
+
+   Wait until `TektonConfig` is ready:
+
+   ```bash
+   $ kubectl get tektonconfig config \
+     -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}{"\n"}'
+
+   True
+   ```
+
+   Verify that the policy resources are installed:
+
+   ```bash
+   $ kubectl get validatingadmissionpolicy pipelines-restricted
+   $ kubectl get validatingadmissionpolicybinding pipelines-restricted
+   ```
+
+   Both commands should return a resource named `pipelines-restricted`.
+
+   ```bash
+   # Enable the guardrail for the build namespace.
+   $ kubectl label namespace build-ns \
+     buildah.alauda.io/enabled=true \
+     --overwrite
+
+   namespace/build-ns labeled
+   ```
+
+   Verify that the guardrail rejects workloads that request permissions beyond the `buildah` exception. The following server-side dry run does not create a `Pod`, but it still goes through admission. It should be denied because `NET_BIND_SERVICE` is allowed by the `baseline` standard but is not allowed by this guardrail:
+
+   ```bash
+   $ kubectl -n build-ns create -f - --dry-run=server <<'EOF'
+   apiVersion: v1
+   kind: Pod
+   metadata:
+     name: vap-extra-capability-check
+   spec:
+     restartPolicy: Never
+     containers:
+       - name: check
+         image: registry.example.com/pause:3.9
+         securityContext:
+           capabilities:
+             add:
+               - NET_BIND_SERVICE
+   EOF
+
+   Error from server (Forbidden): ... ValidatingAdmissionPolicy 'pipelines-restricted' with binding 'pipelines-restricted' denied request: only SETFCAP capability may be added
+   ```
+
 2. Explore alternative container image build methods that may have different security requirements.
 
 ### TaskRun fails with container user errors
