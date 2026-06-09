@@ -4,99 +4,64 @@ weight: 10
 
 # Get the PAC Webhook URL
 
-The PAC controller receives webhook events from Git providers through the `pipelines-as-code-controller` Service. This page shows how to query the webhook URL after an administrator exposes that Service.
+:::warning Important
 
-Examples use the default PAC namespace `tekton-pipelines`. If your `OpenShiftPipelinesAsCode` CR uses a different `targetNamespace`, replace `tekton-pipelines` in the commands.
+Before using this page, an administrator must expose the PAC controller as described in [Configure Access](../install/manage_pac.mdx#configure-access).
 
-The main sections below follow the same order as [Configure Access](../install/manage_pac.mdx#configure-access): Gateway API, Ingress, and NodePort. Use the section that matches how PAC was exposed.
+:::
+
+Use this page to get the webhook URL for PAC. This URL lets Git providers notify PAC about repository events, such as commits and merge requests, so PAC can trigger matching PipelineRuns.
+
+Choose the section that matches how PAC was exposed: Gateway API, Ingress, or NodePort. Examples use the default PAC namespace `tekton-pipelines`; replace it in the commands if your `OpenShiftPipelinesAsCode` CR uses a different `targetNamespace`.
 
 ## Using Gateway API \{#using-gateway-api}
 
 Use this section if PAC was exposed with Gateway API.
 
-**Step 1: Check Gateway API resources.** Confirm the Gateway is programmed and the route is accepted:
+Read the host from the `HTTPRoute` and print the webhook URL:
 
     ```bash
-    kubectl get gateway pipelines-as-code -n tekton-pipelines
-    kubectl get httproute pipelines-as-code -n tekton-pipelines
+    HOST=$(kubectl get httproute pipelines-as-code -n tekton-pipelines \
+      -o jsonpath='{.spec.hostnames[0]}')
+
+    if [ -z "${HOST}" ]; then
+      echo "HTTPRoute host is empty. Configure a hostname in the exposure manifest first."
+      exit 1
+    fi
+
+    WEBHOOK_URL="http://${HOST}"
+    echo "${WEBHOOK_URL}"
     ```
 
-Expected result: the Gateway shows `PROGRAMMED=True`, and the `HTTPRoute` is accepted.
+Expected result: the command prints the host-based PAC webhook URL.
 
-**Step 2: Get the external address.** Print the generated Envoy Service and its external IP:
-
-    ```bash
-    kubectl get svc -A \
-      -l gateway.envoyproxy.io/owning-gateway-name=pipelines-as-code,gateway.envoyproxy.io/owning-gateway-namespace=tekton-pipelines
-
-    EXTERNAL_IP=$(kubectl get svc -A \
-      -l gateway.envoyproxy.io/owning-gateway-name=pipelines-as-code,gateway.envoyproxy.io/owning-gateway-namespace=tekton-pipelines \
-      -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}')
-
-    echo "${EXTERNAL_IP}"
-    ```
-
-Expected result: `EXTERNAL_IP` is not empty.
-
-If `EXTERNAL_IP` is empty, configure the cluster LoadBalancer provider first. On ACP bare-metal clusters, use **Alauda Container Platform Load Balancer for MetalLB**. Reference: <ExternalSiteLink name="acp" href="/networking/functions/configure_metallb" children="Configure MetalLB" />.
-
-**Step 3: Verify and get the webhook URL.** Make sure the Git provider can resolve and access the PAC domain. For example, resolve `pac.example.com` to the Service `EXTERNAL_IP` from the Git provider network.
-
-If DNS is not ready yet, or you only want to test the route from your current machine, use `curl --resolve`:
-
-    ```bash
-    curl -i --resolve "pac.example.com:80:${EXTERNAL_IP}" http://pac.example.com/
-    ```
-
-After the domain is reachable from the Git provider network, print the URL:
-
-    ```bash
-    echo "WEBHOOK_URL=http://pac.example.com"
-    ```
-
-Register this URL in the Git provider or enter it when `tkn pac create repo` prompts for a webhook URL.
-
-Do not register the raw IP unless the `Gateway` listener `hostname` and `HTTPRoute` `hostnames` were removed from the exposure manifest.
-
-If the Gateway was configured with `envoyService.type: NodePort`, print the IP-based webhook URL:
-
-    ```bash
-    NODEPORT=$(kubectl get svc -A \
-      -l gateway.envoyproxy.io/owning-gateway-name=pipelines-as-code,gateway.envoyproxy.io/owning-gateway-namespace=tekton-pipelines \
-      -o jsonpath='{.items[0].spec.ports[?(@.port==80)].nodePort}')
-
-    NODE_IP=$(kubectl get nodes \
-      -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
-
-    echo "WEBHOOK_URL=http://${NODE_IP}:${NODEPORT}"
-    ```
+Use this URL when configuring the Git provider webhook or setting up a repository integration.
 
 ## Using Ingress \{#using-ingress}
 
 Use this section if PAC was exposed with an Ingress.
 
-**Step 1: Check the Ingress address.**
-
-    ```bash
-    kubectl get ingress pipelines-as-code -n tekton-pipelines
-    ```
-
-**Step 2: Get the webhook URL.** If the Ingress has a host, print the URL:
+Read the host from the `Ingress` and print the webhook URL:
 
     ```bash
     HOST=$(kubectl get ingress pipelines-as-code -n tekton-pipelines \
       -o jsonpath='{.spec.rules[0].host}')
 
-    echo "WEBHOOK_URL=http://${HOST}"
+    if [ -z "${HOST}" ]; then
+      echo "Ingress host is empty. Configure a host rule or use a reachable address from the Ingress controller."
+      exit 1
+    fi
+
+    WEBHOOK_URL="http://${HOST}"
+    echo "${WEBHOOK_URL}"
     ```
 
 Use `https://${HOST}` instead if the Ingress has TLS configured:
 
     ```bash
-    echo "WEBHOOK_URL=https://${HOST}"
+    WEBHOOK_URL="https://${HOST}"
+    echo "${WEBHOOK_URL}"
     ```
-
-If the Ingress is hostless, use the address shown by `kubectl get ingress` and register the reachable IP URL.
 
 ## Using NodePort \{#using-nodeport}
 
@@ -109,17 +74,19 @@ Use this section if PAC was exposed with a dedicated NodePort Service. Print the
     NODE_IP=$(kubectl get nodes \
       -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
 
-    echo "WEBHOOK_URL=http://${NODE_IP}:${NODEPORT}"
+    WEBHOOK_URL="http://${NODE_IP}:${NODEPORT}"
+    echo "${WEBHOOK_URL}"
     ```
 
 ## Verification \{#verification}
 
 The webhook URL must be reachable from your Git provider. For a public Git provider, the URL must be publicly reachable. For a self-hosted Git provider, network reachability from the provider host to the cluster is enough.
 
-Run a quick check from a host that can reach the PAC endpoint:
+If DNS is not ready yet, verify the route with the host resolved to the Gateway or Ingress external address from the Git provider network. Do not register a raw IP URL unless the PAC exposure is configured without a host requirement.
+
+After setting `WEBHOOK_URL`, run a quick check from a host that can reach the PAC endpoint:
 
     ```bash
-    WEBHOOK_URL="http://pac.example.com"
     curl -i "${WEBHOOK_URL}"
     ```
 

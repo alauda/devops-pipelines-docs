@@ -26,11 +26,7 @@ Before managing PAC, ensure you have:
 
 ## Deploy PAC Component \{#deploy-pac-component}
 
-PAC is deployed by creating the `OpenShiftPipelinesAsCode` CR. The operator picks it up and provisions all required resources.
-
-Examples in this document use the default PAC namespace `tekton-pipelines`. If you set a different `targetNamespace`, replace `tekton-pipelines` in the commands and manifests.
-
-### Step 1: Create the `OpenShiftPipelinesAsCode` CR \{#step-1-create-the-openshiftpipelinesascode-cr}
+Create the `OpenShiftPipelinesAsCode` CR to deploy PAC. The examples use the default PAC namespace `tekton-pipelines`; replace it in the commands and manifests if you set a different `targetNamespace`.
 
 Create a YAML file named `pac.yaml`:
 
@@ -48,34 +44,11 @@ Create a YAML file named `pac.yaml`:
       targetNamespace: tekton-pipelines  # Default namespace, you can customize this
     ```
 
-:::warning Important
-
-- The resource name must be `pipelines-as-code`, otherwise the operator will not deploy the PAC component.
-- The `targetNamespace` field specifies where PAC components will be deployed. The default is `tekton-pipelines`, but you can use any namespace name.
-
-:::
-
-**Create the namespace if it doesn't exist**:
-
-    ```bash
-    kubectl create namespace tekton-pipelines  # Or your custom namespace name
-    ```
-
-### Step 2: Apply the Configuration \{#step-2-apply-the-configuration}
-
 Apply the CR to your cluster:
 
     ```bash
     kubectl apply -f pac.yaml
     ```
-
-Example output:
-
-    ```
-    openshiftpipelinesascode.operator.tekton.dev/pipelines-as-code created
-    ```
-
-### Step 3: Verify Deployment \{#step-3-verify-deployment}
 
 Check the `OpenShiftPipelinesAsCode` CR status:
 
@@ -83,31 +56,12 @@ Check the `OpenShiftPipelinesAsCode` CR status:
     kubectl get openshiftpipelinesascodes.operator.tekton.dev
     ```
 
-The output should show the CR with `Ready` status:
+The output should show `READY=True`; `VERSION` varies by release and `REASON` is usually empty.
 
     ```
-    NAME                  VERSION   READY   REASON
-    pipelines-as-code    0.x.x     True    Ready
+    NAME                  VERSION     READY   REASON
+    pipelines-as-code    <version>   True
     ```
-
-Check the TektonInstallerSet status:
-
-    ```bash
-    kubectl get tektoninstallersets -n tekton-pipelines | grep pipelinesascode
-    ```
-
-Example output:
-
-    ```
-    NAME                              READY   REASON
-    pipelinesascode-installer-set     True    Ready
-    ```
-
-:::info TektonInstallerSet
-
-`TektonInstallerSet` is an internal resource the Tekton Operator uses to roll out PAC and its sub-resources (Deployments, Services, ConfigMaps, RBAC). It is created and deleted by the operator when you create or delete the `OpenShiftPipelinesAsCode` CR. Do not modify or delete it by hand; it is referenced here only as a status checkpoint.
-
-:::
 
 Verify the PAC pods are running:
 
@@ -115,7 +69,7 @@ Verify the PAC pods are running:
     kubectl get pods -n tekton-pipelines | grep pipelines-as-code
     ```
 
-Example output:
+Example output (the `controller`, `watcher`, and `webhook` pods must be `Running`):
 
     ```
     NAME                                      READY   STATUS    RESTARTS   AGE
@@ -124,11 +78,13 @@ Example output:
     pipelines-as-code-webhook-xxxxx           1/1     Running   0          5m
     ```
 
-Three pods (`controller`, `watcher`, `webhook`) must be `Running`.
-
 ### Configure Access \{#configure-access}
 
+:::warning Important
+
 The PAC controller must be reachable from the Git providers that will send webhook events to it. Expose it through one of the methods below before configuring any repository.
+
+:::
 
 #### Using Gateway API \{#using-gateway-api-acp}
 
@@ -762,4 +718,4 @@ When pods or Services linger after deletion:
 
 - [Guides](../guides/index.mdx)
 - [Define PipelineRuns in Git](../how_to/maintain_pipeline_code.mdx)
-- [Trigger Pipelines](../how_to/trigger_pipeline.mdx)
+- [Trigger PAC Pipelines](../how_to/trigger_pipeline.mdx)

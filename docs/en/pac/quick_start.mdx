@@ -55,8 +55,6 @@ Example output:
     0.39.2
     ```
 
-If the command fails, install the plugin from [tkn pac Command Reference](./how_to/tkn_pac_commands.mdx#installing-tkn-pac-plugin).
-
 ### Create GitLab Personal Access Token \{#create-gitlab-personal-access-token}
 
 1. Go to GitLab → Settings → Access Tokens
@@ -101,7 +99,7 @@ The `tkn pac create repo` command creates a basic template at `.tekton/pipeliner
       name: simple-pipeline
       annotations:
         pipelinesascode.tekton.dev/on-target-branch: "[refs/heads/main]"
-        pipelinesascode.tekton.dev/on-event: "[push]"
+        pipelinesascode.tekton.dev/on-event: "[push, pull_request]"
     spec:
       pipelineSpec:
         tasks:
@@ -200,4 +198,4 @@ Example output:
 - [Manage PAC Component](./install/manage_pac.mdx) - Deploy, update, and uninstall guide
 - [Guides](./guides/index.mdx) - End-to-end repository configuration walkthroughs
 - [Define PipelineRuns in Git](./how_to/maintain_pipeline_code.mdx) - PipelineRun files and trigger annotations
-- [Trigger Pipelines](./how_to/trigger_pipeline.mdx) - Event triggering guide
+- [Trigger PAC Pipelines](./how_to/trigger_pipeline.mdx) - Automatic events and comment commands

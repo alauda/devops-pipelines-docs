@@ -134,7 +134,7 @@ Example output:
 
 ### Step 4 (user): Add a PipelineRun and trigger it \{#step-4-user-add-a-pipelinerun-and-trigger-it}
 
-Add a PipelineRun manifest under `.tekton/` in the repository and push it. PAC will pick the event up and create a `PipelineRun` in the namespace. See [Define PipelineRuns in Git](../how_to/maintain_pipeline_code.mdx) for the file layout and the annotation grammar, and [Trigger Pipelines](../how_to/trigger_pipeline.mdx) for the Git operations that PAC reacts to.
+Add a PipelineRun manifest under `.tekton/` in the repository and push it. PAC will pick the event up and create a `PipelineRun` in the namespace. See [Define PipelineRuns in Git](../how_to/maintain_pipeline_code.mdx) for the file layout and annotation grammar, and [Trigger PAC Pipelines](../how_to/trigger_pipeline.mdx) for automatic and comment-based triggers.
 
 ## Integration mode 2: Webhook \{#integration-mode-2-webhook}
 
@@ -196,7 +196,7 @@ GitHub immediately sends a `ping` event. A green tick on the webhook entry confi
 
 ### Step 5: Add a PipelineRun and trigger it \{#step-5-add-a-pipelinerun-and-trigger-it}
 
-Same as the App mode: add a PipelineRun under `.tekton/` in the repository. See [Define PipelineRuns in Git](../how_to/maintain_pipeline_code.mdx) and [Trigger Pipelines](../how_to/trigger_pipeline.mdx).
+Same as the App mode: add a PipelineRun under `.tekton/` in the repository. See [Define PipelineRuns in Git](../how_to/maintain_pipeline_code.mdx) and [Trigger PAC Pipelines](../how_to/trigger_pipeline.mdx).
 
 ## Verification \{#verification}
 
@@ -231,6 +231,6 @@ For the full troubleshooting matrix, see [Common Issues](../trouble_shooting/com
 ## Next steps \{#next-steps}
 
 - [Define PipelineRuns in Git](../how_to/maintain_pipeline_code.mdx) — define and evolve pipelines under `.tekton/`.
-- [Trigger Pipelines](../how_to/trigger_pipeline.mdx) — push, pull request and comment-driven triggers.
+- [Trigger PAC Pipelines](../how_to/trigger_pipeline.mdx) — automatic events and comment commands.
 - [Advanced Repository Configuration](../how_to/advanced_repository_config.mdx) — concurrency, parameters, custom settings.
 - [Configure Custom Certificates](../install/configure_custom_certificates.mdx) — for GitHub Enterprise with a private CA.
