@@ -78,6 +78,44 @@ Example output (the `controller`, `watcher`, and `webhook` pods must be `Running
     pipelines-as-code-webhook-xxxxx           1/1     Running   0          5m
     ```
 
+Three pods (`controller`, `watcher`, `webhook`) must be `Running`.
+
+### Enable Repository UI Feature \{#enable-repository-ui-feature}
+
+If users need to create or manage PAC `Repository` resources from the UI, enable the Repository UI feature flag in the `tektoncd-enhancement-feature-flags` ConfigMap. PAC can still run without this flag, but the UI hides the Repository workflow when `enable-pac-repository` is not set to `"true"`.
+
+The ConfigMap is managed by `TektonConfig` through `spec.pipeline.options.configMaps`. Apply the following configuration, and replace `tekton-pipelines` if your `TektonConfig.spec.targetNamespace` uses a different namespace:
+
+    ```yaml
+    apiVersion: operator.tekton.dev/v1alpha1
+    kind: TektonConfig
+    metadata:
+      name: config
+    spec:
+      targetNamespace: tekton-pipelines
+      pipeline:
+        options:
+          disabled: false
+          configMaps:
+            tektoncd-enhancement-feature-flags:
+              data:
+                enable-pac-repository: "true"
+    ```
+
+Verify that the operator reconciled the ConfigMap:
+
+    ```bash
+    kubectl get configmap tektoncd-enhancement-feature-flags \
+      -n tekton-pipelines \
+      -o jsonpath='{.data.enable-pac-repository}'
+    ```
+
+Expected output:
+
+    ```text
+    true
+    ```
+
 ### Configure Access \{#configure-access}
 
 :::warning Important
