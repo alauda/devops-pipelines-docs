@@ -4,17 +4,17 @@ weight: 20
 
 # Configure GitLab Repository
 
-This guide connects a GitLab repository to PAC: prepare the credentials, create the `Repository` resource, register the webhook, and trigger a `PipelineRun`.
+This guide connects a GitLab repository to PAC: prepare the credentials, create the `Repository` resource, let the controller register the webhook, and trigger a `PipelineRun`.
 
-GitLab uses Webhook mode. A GitLab access token and a project webhook are configured per repository.
+GitLab uses Webhook mode. A GitLab access token and a project webhook are required. When automatic webhook registration is enabled, the webhook registration controller creates or updates the project webhook for you.
 
 This page uses manifests and the GitLab Web UI. For the CLI workflow, see [tkn pac Command Reference](../how_to/tkn_pac_commands.mdx#tkn-pac-create-repository).
 
 ## Prerequisites \{#prerequisites}
 
 - PAC component deployed and exposed to GitLab; see [Manage PAC Component](../install/manage_pac.mdx#configure-access).
-- The PAC webhook URL; see [Get the PAC Webhook URL](../how_to/get_pac_webhook_url.mdx).
-- Maintainer access to the GitLab project (required to add a webhook).
+- The PAC webhook URL is recorded in `pipelines-as-code-info.data.controller-url`. See [Get the PAC Webhook URL](../how_to/get_pac_webhook_url.mdx) for setup and verification.
+- Maintainer access to the GitLab project, or a token with permission to manage project webhooks.
 - A target Kubernetes namespace where the `Repository` resource and its `PipelineRun`s will live.
 - `kubectl` access to that namespace.
 
@@ -27,6 +27,10 @@ PAC needs a token to read project metadata, post merge request comments, and upd
    - **Name**: a descriptive name, for example `pac-integration`.
    - **Scopes**: `api`.
 3. Copy the token. GitLab shows it only once.
+
+This Repository-local token is used by PAC during normal pipeline processing. It does not need Maintainer/Owner access solely for webhook registration when a centralized webhook registration credential is configured.
+
+For automatic webhook registration, configure a matching centralized credential with the `api` scope. The token identity must be an instance administrator or have Maintainer/Owner access to the target project. See [Centralized webhook registration token](../how_to/create_git_secret.mdx#centralized-webhook-registration-token).
 
 ## Step 2: Create the Kubernetes Secret \{#step-2-create-the-kubernetes-secret}
 
@@ -91,7 +95,40 @@ Example output:
     my-repo   https://gitlab.com/group/project
     ```
 
-## Step 4: Register the webhook in GitLab \{#step-4-register-the-webhook-in-gitlab}
+## Step 4: Verify automatic webhook registration \{#step-4-verify-automatic-webhook-registration}
+
+After the `Repository` is created, the webhook registration controller watches it and registers a GitLab project webhook. Check the Repository annotations and events:
+
+    ```bash
+    kubectl describe repository my-repo -n project-pipelines
+    kubectl get repository my-repo -n project-pipelines \
+      -o jsonpath='{.metadata.annotations.pac\.tekton\.alauda\.io/webhook-registration-status}'
+    ```
+
+Expected status is `Registered`. The controller creates or updates a GitLab webhook with:
+
+- URL: the public PAC webhook URL
+- Secret token: the `webhook.secret` value referenced by `spec.git_provider.webhook_secret`
+- Events: push, tag push, comments, and merge requests
+- SSL verification: enabled by default
+
+The controller records the GitLab hook ID in `pac.tekton.alauda.io/webhook-managed-ref`. If the PAC webhook URL changes later, the controller updates the recorded hook by ID instead of creating a duplicate hook for the same project.
+
+:::info
+The controller uses the token from `spec.git_provider.secret` first. Keep that Repository-local token scoped for normal PAC access. If it is missing or lacks webhook management permission, the controller can use one matching labeled credential Secret in the webhook registration controller namespace. The centralized GitLab credential needs the `api` scope, and the token identity must be an instance administrator or have Maintainer/Owner access to the target project. See [Create a Git Secret for PAC](../how_to/create_git_secret.mdx#centralized-webhook-registration-token).
+:::
+
+To exclude one Repository from automatic webhook registration, add this label to the `Repository` metadata:
+
+    ```yaml
+    metadata:
+      labels:
+        pac.tekton.alauda.io/webhook-registration-disabled: "true"
+    ```
+
+### Manual fallback \{#manual-fallback}
+
+If automatic registration is disabled or cannot be used, register the webhook manually:
 
 1. Open the GitLab project, then **Settings → Webhooks**.
 2. Click **Add new webhook**.
@@ -138,7 +175,7 @@ GitLab displays the commit status set by PAC on the relevant pipeline / merge re
 | Webhook test returns `Hook executed successfully` but no PipelineRun appears | A PipelineRun manifest exists under `.tekton/` and its annotations match the event. See [Define PipelineRuns in Git](../how_to/maintain_pipeline_code.mdx). |
 | Webhook test fails with `connection refused` | The PAC webhook URL is reachable from GitLab. See [Get the PAC Webhook URL](../how_to/get_pac_webhook_url.mdx#verification). |
 | Webhook test fails with `401` or `403` | The `webhook.secret` configured in GitLab matches the one in the Kubernetes Secret. |
-| `repositories` status shows `failed` | Run `kubectl describe repository <name> -n <ns>`; common causes are an unreachable `git_provider.url` or an expired token. |
+| Repository annotation `webhook-registration-status=Failed` | Run `kubectl describe repository <name> -n <ns>` and check `pac.tekton.alauda.io/webhook-registration-reason`. Common causes are missing token, insufficient token permission, wrong `git_provider.url`, or untrusted certificates. |
 | Self-hosted GitLab events are not received | `git_provider.url` is set to the GitLab base URL, not to the project URL. |
 | Status checks are not posted back to GitLab | The token has the `api` scope and has not expired. |
 

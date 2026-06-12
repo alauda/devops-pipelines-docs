@@ -36,7 +36,7 @@ A `Repository` does **not** carry any pipeline definition. The pipeline definiti
 | Field | Purpose |
 |---|---|
 | `spec.url` | The Git repository URL. PAC matches incoming events to this value. |
-| `spec.git_provider.type` | Provider type, for example `github` or `gitlab`. Can be omitted for GitHub.com — PAC detects it from the payload. |
+| `spec.git_provider.type` | Provider type, for example `github` or `gitlab`. Required for Webhook mode and automatic webhook registration. |
 | `spec.git_provider.url` | Provider API base URL. Required for self-hosted GitLab; optional elsewhere. |
 | `spec.git_provider.secret` | Reference to the `Secret` holding the Git access token under `provider.token`. |
 | `spec.git_provider.webhook_secret` | Reference to the `Secret` holding the webhook signing secret under `webhook.secret`. |
@@ -62,14 +62,14 @@ Example (GitLab over Webhook):
           name: my-repo-auth
     ```
 
-In the GitHub App mode the entire `git_provider` block is omitted; PAC authenticates with the cluster-wide App credentials, so per-repository tokens and webhook secrets are not needed.
+In GitHub App mode, the entire `git_provider` block is omitted. PAC authenticates with the cluster-wide App credentials, so per-repository tokens and webhook secrets are not needed. Automatic webhook registration is not used in this mode because the GitHub App owns webhook delivery.
 
 ## Two integration modes \{#two-integration-modes}
 
 The Git provider has two ways to deliver events to PAC, and the `Repository` spec changes shape with each.
 
 - **GitHub App mode** — a GitHub App is installed once on the GitHub organization or user. The App owns the webhook and the credentials at the organization level. Every repository covered by the installation can be onboarded with a minimal `Repository` (`spec.url` only). Status is reported through the GitHub Checks API. Available only on GitHub.
-- **Webhook mode** — a Personal Access Token and a webhook are configured per repository. The `Repository` references a Kubernetes `Secret` carrying the token and the webhook secret. Status is reported as a commit status. This documentation covers GitHub Webhook mode and GitLab Webhook mode.
+- **Webhook mode** — a Personal Access Token and a webhook are configured per repository. The `Repository` references a Kubernetes `Secret` carrying the token and the webhook secret, and must set `spec.git_provider.type` to `github` or `gitlab` for automatic webhook registration. Status is reported as a commit status. This documentation covers GitHub Webhook mode and GitLab Webhook mode.
 
 The two modes are mutually exclusive on a given `Repository`. The end-to-end procedures for each provider are in [Guides](../guides/index.mdx).
 

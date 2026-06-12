@@ -25,8 +25,9 @@ You will:
 
 - PAC is deployed and exposed to the Git provider network. See [Manage PAC Component](./install/manage_pac.mdx#configure-access).
 - If you use the UI to create or manage PAC `Repository` resources, the administrator has enabled the Repository UI feature flag. See [Enable Repository UI Feature](./install/manage_pac.mdx#enable-repository-ui-feature).
-- You have the PAC webhook URL. See [Get the PAC Webhook URL](./how_to/get_pac_webhook_url.mdx).
-- You know the PAC namespace. The default is `tekton-pipelines`.
+- The `pipelines-as-code-info` ConfigMap has the public PAC `controller-url`.
+- You know the PAC namespace if you use `tkn pac`. The default is `tekton-pipelines`.
+- You have the PAC webhook URL when automatic registration is disabled or fails. See [Get the PAC Webhook URL](./how_to/get_pac_webhook_url.mdx).
 - `kubectl` is configured for the target cluster.
 - [`tkn` CLI](https://github.com/tektoncd/cli/releases) is installed with the `pac` plugin. See [tkn pac Command Reference](./how_to/tkn_pac_commands.mdx#installing-tkn-pac-plugin).
 - You have administrator or maintainer access to the Git repository.
@@ -34,6 +35,8 @@ You will:
 ## Step 1: Configure Repository \{#step-1-configure-repository}
 
 The steps below use the `tkn pac` CLI and GitLab as an example. For GitHub or manifest-based setup, see [Configure GitHub Repository](./guides/configure_github_repo.mdx) or [Configure GitLab Repository](./guides/configure_gitlab_repo.mdx).
+
+When a `Repository` has `spec.git_provider.type` set to `github` or `gitlab`, `spec.git_provider.webhook_secret`, and either a usable Repository-local provider token or a matching centralized webhook registration credential, the webhook registration controller automatically registers or updates the Git provider webhook. Repositories without a supported `spec.git_provider.type` are skipped, with the reason recorded as a Repository Event and status annotations.
 
 :::info Namespace Parameters
 
@@ -78,7 +81,7 @@ Follow the interactive prompts:
 2. Enter namespace for pipelines, for example `project-pipelines`. The namespace must already exist.
 3. Repository CR will be created at this point
 4. Enter GitLab project ID (found in project settings → General)
-5. Enter the PAC webhook URL from [Get the PAC Webhook URL](./how_to/get_pac_webhook_url.mdx)
+5. Enter the PAC webhook URL if prompted. In clusters with automatic registration enabled, this URL is read from `pipelines-as-code-info`.
 6. Enter webhook secret (or press Enter to use auto-generated default)
 7. Enter GitLab access token (the Personal Access Token you created)
 8. Enter GitLab API URL (default: `https://gitlab.com`, or enter your self-hosted GitLab URL)

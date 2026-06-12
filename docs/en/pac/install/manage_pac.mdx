@@ -291,7 +291,7 @@ After the domain is reachable from the Git provider network, print the URL:
     WEBHOOK_URL=http://pac.example.com
     ```
 
-`WEBHOOK_URL` is the PAC webhook URL. Register this value in the Git provider or enter it when `tkn pac create repo` prompts for a webhook URL.
+`WEBHOOK_URL` is the PAC webhook URL. Record this value in `pipelines-as-code-info.data.controller-url` through `OpenShiftPipelinesAsCode` or `TektonConfig`; see [Get the PAC Webhook URL](../how_to/get_pac_webhook_url.mdx#record-the-webhook-url). Use the same value when manually configuring a Git provider webhook or when `tkn pac create repo` prompts for a webhook URL.
 
 If you expose PAC through ACP ALB or another Ingress Controller instead, use [Using Ingress](#using-ingress-http).
 
@@ -368,7 +368,7 @@ Expected result:
     echo "WEBHOOK_URL=http://${HOST}"
     ```
 
-`WEBHOOK_URL` is the PAC webhook URL. Register this value in the Git provider or enter it when `tkn pac create repo` prompts for a webhook URL.
+`WEBHOOK_URL` is the PAC webhook URL. Record this value in `pipelines-as-code-info.data.controller-url` through `OpenShiftPipelinesAsCode` or `TektonConfig`; see [Get the PAC Webhook URL](../how_to/get_pac_webhook_url.mdx#record-the-webhook-url). Use the same value when manually configuring a Git provider webhook or when `tkn pac create repo` prompts for a webhook URL.
 
 If you do not have a DNS name, remove the `host` field and use the reachable Ingress IP URL instead.
 
@@ -452,7 +452,7 @@ Print the URL from a reachable node IP and the generated NodePort:
     echo "WEBHOOK_URL=http://${NODE_IP}:${NODEPORT}"
     ```
 
-`WEBHOOK_URL` is the PAC webhook URL. Register this value in the Git provider or enter it when `tkn pac create repo` prompts for a webhook URL.
+`WEBHOOK_URL` is the PAC webhook URL. Record this value in `pipelines-as-code-info.data.controller-url` through `OpenShiftPipelinesAsCode` or `TektonConfig`; see [Get the PAC Webhook URL](../how_to/get_pac_webhook_url.mdx#record-the-webhook-url). Use the same value when manually configuring a Git provider webhook or when `tkn pac create repo` prompts for a webhook URL.
 
 ### Configuration Settings \{#configuration-settings}
 

@@ -35,7 +35,7 @@ Read the host from the `HTTPRoute` and print the webhook URL:
 
 Expected result: the command prints the host-based PAC webhook URL.
 
-Use this URL when configuring the Git provider webhook or setting up a repository integration.
+Use this URL when configuring the Git provider webhook or setting up a repository integration. For automatic webhook registration, also record this URL in `pipelines-as-code-info` as described below.
 
 ## Using Ingress \{#using-ingress}
 
@@ -77,6 +77,47 @@ Use this section if PAC was exposed with a dedicated NodePort Service. Print the
     WEBHOOK_URL="http://${NODE_IP}:${NODEPORT}"
     echo "${WEBHOOK_URL}"
     ```
+
+## Record the Webhook URL \{#record-the-webhook-url}
+
+Automatic webhook registration reads the public PAC webhook URL from `pipelines-as-code-info.data.controller-url`. After choosing and verifying `WEBHOOK_URL`, update the PAC component options so the Tekton Operator manages that ConfigMap.
+
+If PAC is managed through `OpenShiftPipelinesAsCode`, update the resource like this:
+
+    ```yaml
+    apiVersion: operator.tekton.dev/v1alpha1
+    kind: OpenShiftPipelinesAsCode
+    metadata:
+      name: pipelines-as-code
+    spec:
+      targetNamespace: tekton-pipelines
+      options:
+        configMaps:
+          pipelines-as-code-info:
+            data:
+              controller-url: https://pac.example.com
+    ```
+
+If PAC is managed through `TektonConfig`, update the `platforms.openshift.pipelinesAsCode` options instead:
+
+    ```yaml
+    apiVersion: operator.tekton.dev/v1alpha1
+    kind: TektonConfig
+    metadata:
+      name: config
+    spec:
+      platforms:
+        openshift:
+          pipelinesAsCode:
+            enable: true
+            options:
+              configMaps:
+                pipelines-as-code-info:
+                  data:
+                    controller-url: https://pac.example.com
+    ```
+
+Replace `https://pac.example.com` with the value printed as `WEBHOOK_URL`. When this value changes, the webhook registration controller reconciles all PAC `Repository` resources so their provider-side webhooks use the new URL.
 
 ## Verification \{#verification}
 

@@ -25,11 +25,17 @@ Before configuring custom certificates, ensure you have:
 
 ## Overview \{#overview}
 
-When your Git hosting service uses self-signed certificates or certificates signed by a custom CA, PAC's controller pods need to trust these certificates to successfully connect to the Git service. This requires:
+When your Git hosting service uses self-signed certificates or certificates signed by a custom CA, two controller clients may need to trust the CA:
+
+- `pipelines-as-code-controller`, which fetches repository content and reports status after webhook delivery.
+- The automatic webhook registration controller, which registers or updates GitLab/GitHub webhooks by calling the Git provider API.
+
+This requires:
 
 1. Creating a ConfigMap with the CA certificate
 2. Mounting the certificate in PAC controller pods
-3. Configuring Git to use the certificate
+3. Mounting the same certificate in the automatic webhook registration controller when automatic webhook registration is used
+4. Configuring Git and HTTPS clients to use the certificate
 
 ## Step 1: Prepare the CA Certificate \{#step-1-prepare-the-ca-certificate}
 
@@ -180,6 +186,45 @@ If you're using `TektonConfig` CR (for OpenShift deployments):
 - The certificate is mounted at `/etc/ssl/certs/git-ca.crt` in the container
 - Environment variables `GIT_SSL_CAINFO` and `SSL_CERT_FILE` tell Git to use this certificate
 - After updating the CR, the Operator will automatically restart the PAC controller pods
+
+### For automatic webhook registration \{#for-automatic-webhook-registration}
+
+If you use automatic webhook registration for GitLab or GitHub Webhook mode, mount the same CA bundle into the automatic webhook registration controller and set `SSL_CERT_FILE`. This controller is managed by `TektonConfig`, so update `spec.pipeline.options.deployments` instead of patching the Deployment directly. The controller also honors `GIT_SSL_CAINFO` when `SSL_CERT_FILE` is not set.
+
+Example `TektonConfig` patch:
+
+    ```yaml
+    apiVersion: operator.tekton.dev/v1alpha1
+    kind: TektonConfig
+    metadata:
+      name: config
+    spec:
+      pipeline:
+        options:
+          deployments:
+            tektoncd-enhancement-controller:
+              spec:
+                template:
+                  spec:
+                    containers:
+                    - name: manager
+                      volumeMounts:
+                      - name: git-ca-cert
+                        mountPath: /etc/ssl/certs/git-ca.crt
+                        subPath: ca.crt
+                        readOnly: true
+                      env:
+                      - name: SSL_CERT_FILE
+                        value: /etc/ssl/certs/git-ca.crt
+                    volumes:
+                    - name: git-ca-cert
+                      configMap:
+                        name: git-ca-cert
+    ```
+
+The CA is needed only for the controller-to-Git-provider API connection. It does not change webhook payload validation.
+
+If your PAC webhook URL itself uses a self-signed certificate, the Git provider must also trust that certificate when it calls PAC. By default automatic registration enables provider-side TLS verification. For non-production environments, administrators can set `pac-webhook-registration.webhook-target-tls-verify: false` through `TektonConfig`; keep it enabled in production.
 
 ## Step 4: Apply Configuration \{#step-4-apply-configuration}
 

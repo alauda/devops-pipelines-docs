@@ -8,16 +8,16 @@ This guide connects a GitHub repository to PAC, end to end: choosing an integrat
 
 PAC supports two ways to integrate with GitHub:
 
-- **GitHub App** — a single GitHub App is installed on the GitHub organization (or user) once by an administrator. Each repository that belongs to the installation is then represented by a `Repository` resource with only the URL; no per-repository token or webhook needs to be configured.
-- **Webhook** — a Personal Access Token and a webhook are configured per repository. Suitable when you do not own the GitHub organization or cannot install an App.
+- **GitHub App** — a single GitHub App is installed on the GitHub organization (or user) once by an administrator. Each repository that belongs to the installation is then represented by a `Repository` resource with only the URL; no per-repository token or webhook needs to be configured because the App owns webhook delivery.
+- **Webhook** — a Personal Access Token and a webhook are configured per repository. Suitable when you do not own the GitHub organization or cannot install an App. When automatic webhook registration is enabled, the webhook registration controller creates or updates the repository webhook for you.
 
 The two modes are mutually exclusive for a given `Repository` resource.
 
 ## Prerequisites \{#prerequisites}
 
 - PAC component deployed and exposed; see [Manage PAC Component](../install/manage_pac.mdx).
-- The PAC webhook URL; see [Get the PAC Webhook URL](../how_to/get_pac_webhook_url.mdx).
-- Admin access to the GitHub repository (to add a webhook) or to the GitHub organization (to install an App).
+- The PAC webhook URL is recorded in `pipelines-as-code-info.data.controller-url`. See [Get the PAC Webhook URL](../how_to/get_pac_webhook_url.mdx) for setup and verification.
+- Admin access to the GitHub repository, a token with permission to manage repository webhooks, or access to the GitHub organization to install an App.
 - A target Kubernetes namespace where the `Repository` resource and its `PipelineRun`s will live.
 - `kubectl` access to that namespace.
 - [`tkn` CLI](https://github.com/tektoncd/cli/releases) with the `pac` plugin installed if you use `tkn pac bootstrap`; see [tkn pac Command Reference](../how_to/tkn_pac_commands.mdx#installing-tkn-pac-plugin).
@@ -101,7 +101,7 @@ PAC reads this Secret on every incoming event. No controller restart is required
 
 ### Step 3 (user): Create the `Repository` resource \{#step-3-user-create-the-repository-resource}
 
-Once the App is installed on the GitHub repository, a regular user creates a minimal `Repository` resource in their namespace. Only the repository URL is required; no `git_provider` block is needed.
+Once the App is installed on the GitHub repository, a regular user creates a minimal `Repository` resource in their namespace. In GitHub App mode, only the repository URL is required because the App-level webhook delivers events to PAC.
 
     ```yaml
     apiVersion: pipelinesascode.tekton.dev/v1alpha1
@@ -112,6 +112,10 @@ Once the App is installed on the GitHub repository, a regular user creates a min
     spec:
       url: https://github.com/<owner>/<repo>
     ```
+
+:::info
+This `spec.url`-only shape is for GitHub App mode. It is not used by the automatic webhook registration controller. For GitHub Webhook mode, set `spec.git_provider.type: github` as shown in the next section.
+:::
 
 Apply it:
 
@@ -144,7 +148,9 @@ A Personal Access Token and a webhook are configured directly on a single GitHub
 
 ### Step 1: Create a Personal Access Token \{#step-1-create-a-personal-access-token}
 
-Follow [Create a Git Secret for PAC](../how_to/create_git_secret.mdx#step-1-create-the-git-access-token) for the scopes required by GitHub. In short, a classic Personal Access Token with the `repo` scope (or `public_repo` for public repositories only) is enough.
+Follow [Create a Git Secret for PAC](../how_to/create_git_secret.mdx#step-1-create-the-git-access-token) for the Repository-local token permissions required by GitHub. This token is used by PAC to read repository data and report pipeline results. It does not need webhook management permission when a centralized webhook registration credential is configured.
+
+For automatic webhook registration, configure a matching centralized credential with `admin:repo_hook` for a classic PAT, or target repository `Webhooks` write permission for a fine-grained PAT. See [Centralized webhook registration token](../how_to/create_git_secret.mdx#centralized-webhook-registration-token).
 
 ### Step 2: Create the Kubernetes Secret \{#step-2-create-the-kubernetes-secret}
 
@@ -165,6 +171,7 @@ Reference the Secret from the `Repository`:
     spec:
       url: https://github.com/<owner>/<repo>
       git_provider:
+        type: github
         secret:
           name: github-webhook-config
         webhook_secret:
@@ -177,7 +184,55 @@ Apply it:
     kubectl apply -f repository.yaml
     ```
 
-### Step 4: Register the webhook in GitHub \{#step-4-register-the-webhook-in-github}
+For GitHub Enterprise, set `git_provider.url` to the Enterprise API URL:
+
+    ```yaml
+    spec:
+      url: https://github.example.com/<owner>/<repo>
+      git_provider:
+        type: github
+        url: https://github.example.com/api/v3
+        secret:
+          name: github-webhook-config
+        webhook_secret:
+          name: github-webhook-config
+    ```
+
+### Step 4: Verify automatic webhook registration \{#step-4-verify-automatic-webhook-registration}
+
+After the `Repository` is created, the webhook registration controller watches it and registers a GitHub repository webhook. Check the Repository annotations and events:
+
+    ```bash
+    kubectl describe repository my-repo -n project-pipelines
+    kubectl get repository my-repo -n project-pipelines \
+      -o jsonpath='{.metadata.annotations.pac\.tekton\.alauda\.io/webhook-registration-status}'
+    ```
+
+Expected status is `Registered`. The controller creates or updates a GitHub `web` hook with:
+
+- Payload URL: the public PAC webhook URL
+- Content type: `application/json`
+- Secret: the `webhook.secret` value referenced by `spec.git_provider.webhook_secret`
+- Events: commit comments, issue comments, pull requests, and pushes
+- SSL verification: enabled by default
+
+The controller records the GitHub hook ID in `pac.tekton.alauda.io/webhook-managed-ref`. If the PAC webhook URL changes later, the controller updates the recorded hook by ID instead of creating a duplicate hook for the same repository.
+
+:::info
+The controller uses the token from `spec.git_provider.secret` first. Keep that Repository-local token scoped for normal PAC access. If it is missing or lacks webhook management permission, the controller can use one matching labeled credential Secret in the webhook registration controller namespace. The centralized GitHub credential needs `admin:repo_hook` for a classic PAT, or target repository `Webhooks` write permission for a fine-grained PAT. See [Create a Git Secret for PAC](../how_to/create_git_secret.mdx#centralized-webhook-registration-token).
+:::
+
+To exclude one Repository from automatic webhook registration, add this label to the `Repository` metadata:
+
+    ```yaml
+    metadata:
+      labels:
+        pac.tekton.alauda.io/webhook-registration-disabled: "true"
+    ```
+
+### Manual fallback \{#manual-fallback}
+
+If automatic registration is disabled or cannot be used, register the webhook manually:
 
 1. Open the GitHub repository, then **Settings → Webhooks → Add webhook**.
 2. Fill in the form:
@@ -223,6 +278,7 @@ For status reporting, GitHub displays:
 |---|---|
 | Webhook deliveries fail with `connection refused` | The PAC webhook URL is reachable from GitHub. See [Get the PAC Webhook URL](../how_to/get_pac_webhook_url.mdx#verification). |
 | Webhook deliveries return `401` or `403` | The `webhook.secret` configured in GitHub matches the one in the Kubernetes Secret. |
+| Repository annotation `webhook-registration-status=Failed` | Run `kubectl describe repository <name> -n <ns>` and check `pac.tekton.alauda.io/webhook-registration-reason`. Common causes are missing token, insufficient token permission, wrong GitHub Enterprise API URL, or untrusted certificates. |
 | No `PipelineRun` is created on push | A PipelineRun manifest exists under `.tekton/` and its `on-target-branch` / `on-event` annotations match the event. See [Define PipelineRuns in Git](../how_to/maintain_pipeline_code.mdx). |
 | Status checks are not reported back | The token scopes include `repo` (Webhook mode), or the App permissions include **Checks: Read & Write** (App mode). |
 

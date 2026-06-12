@@ -254,6 +254,87 @@ Example output:
         memory: 128Mi
     ```
 
+## Automatic Webhook Registration Fails \{#automatic-webhook-registration-fails}
+
+### Symptom \{#symptom-automatic-webhook-registration-fails}
+
+The GitLab/GitHub webhook is not created after applying a `Repository`, or the Repository has:
+
+```yaml
+metadata:
+  annotations:
+    pac.tekton.alauda.io/webhook-registration-status: Failed
+```
+
+### Troubleshooting Steps \{#troubleshooting-steps-automatic-webhook-registration-fails}
+
+1. **Check Repository annotations and events**:
+
+    ```bash
+    kubectl describe repository <repo-name> -n <namespace>
+    kubectl get repository <repo-name> -n <namespace> \
+      -o jsonpath='{.metadata.annotations.pac\.tekton\.alauda\.io/webhook-registration-reason}{"\n"}'
+    kubectl get repository <repo-name> -n <namespace> \
+      -o jsonpath='{.metadata.annotations.pac\.tekton\.alauda\.io/webhook-registration-message}{"\n"}'
+    ```
+
+2. **Check webhook registration controller logs**:
+
+    ```bash
+    kubectl logs -n <pac-namespace> \
+      -l app=tektoncd-enhancement-controller \
+      --tail=100
+    ```
+
+3. **Verify the PAC webhook URL source**:
+
+    ```bash
+    kubectl get configmap pipelines-as-code-info -n <pac-namespace> \
+      -o jsonpath='{.data.controller-url}{"\n"}'
+    ```
+
+    If it is empty, configure the PAC public URL and record it in `pipelines-as-code-info.data.controller-url`. See [Get the PAC Webhook URL](../how_to/get_pac_webhook_url.mdx#record-the-webhook-url).
+
+4. **Verify token and webhook Secret references**:
+
+    ```bash
+    kubectl get repository <repo-name> -n <namespace> -o yaml
+    kubectl get secret <secret-name> -n <namespace> -o json | jq '.data | keys'
+    ```
+
+5. **Check centralized credential Secret labels** when you use a shared webhook management token:
+
+    ```bash
+    kubectl get secret -n <controller-namespace> \
+      -l pac.tekton.alauda.io/provider-credential=true \
+      --show-labels
+    ```
+
+### Common Causes \{#common-causes-automatic-webhook-registration-fails}
+
+| Reason annotation | Meaning | Fix |
+|---|---|---|
+| `WebhookURLUnavailable` | The controller cannot find the public PAC webhook URL. | Populate `pipelines-as-code-info.data.controller-url` through `OpenShiftPipelinesAsCode` or `TektonConfig`. |
+| `MissingWebhookSecret` | The effective `spec.git_provider.webhook_secret` is missing or points to a missing/empty key. | Add `webhook_secret.name` and key `webhook.secret` in the Repository namespace, or inherit it from the PAC global Repository. Inherited Secrets are read from the global Repository namespace. |
+| `MissingCredential` | No usable provider token was found. | Add `spec.git_provider.secret` in the Repository namespace, inherit it from the PAC global Repository, or add one matching centralized Secret in the webhook registration controller namespace. Inherited Secrets are read from the global Repository namespace. |
+| `AmbiguousCredential` | More than one centralized Secret matches the same provider type and URL. | Keep exactly one matching Secret, or adjust `pac.tekton.alauda.io/provider-url`. |
+| `ProviderAPIError` | GitLab/GitHub API returned an error. | Check token permission, `git_provider.url`, provider reachability, and CA trust. For centralized webhook registration, GitHub needs `admin:repo_hook` or `Webhooks` write permission, and GitLab needs `api` scope with administrator or Maintainer/Owner project access. |
+| `NoGitProvider` | The Repository has no local `spec.git_provider`, or the effective provider type is empty and cannot be inferred. | Add a local `spec.git_provider` block for Webhook mode. Set `type` to `github` or `gitlab`, inherit it from the PAC global Repository, or provide an unambiguous public GitHub/GitLab URL or `/api/v3` or `/api/v4` API URL. GitHub App mode does not use automatic webhook registration. |
+| `UnsupportedProvider` | The controller only supports GitLab and GitHub Webhook mode. | Use manual registration or another supported integration mode. |
+
+### Notes \{#notes-automatic-webhook-registration}
+
+- Repository-local token is tried first. If it returns `401` or `403`, the controller retries with a matching centralized Secret.
+- Centralized credential Secrets are read from the webhook registration controller namespace; the controller does not search each Repository namespace for centralized credentials.
+- Direct Repository Secrets do not need labels. The controller watches only the Secret namespace/name pairs referenced by the effective Repository spec and reconciles related Repositories when those Secrets change.
+- Keep Repository-local tokens scoped for normal PAC access. Store webhook management permissions in a centralized credential when automatic webhook registration is enabled.
+- PAC global Repository `git_provider` settings only apply to Repositories that have a local `spec.git_provider` block. A `spec.url`-only Repository is skipped by automatic webhook registration.
+- The annotation `pac.tekton.alauda.io/webhook-managed-ref` stores the provider hook ID. When the PAC webhook URL changes but the provider and repository identity stay the same, the controller updates the recorded hook by ID instead of creating a duplicate.
+- Updating `spec.url` registers a webhook for the new repository but does not delete the webhook from the old repository. Delete the old provider webhook manually if it is no longer needed.
+- Deleting the Repository attempts best-effort cleanup of the recorded managed webhook. Cleanup failures are logged and emitted as events, but they do not block Repository finalizer removal. Check the provider-side webhook manually if credentials were removed or the provider API was unreachable.
+- Disabling automatic registration globally, or adding `pac.tekton.alauda.io/webhook-registration-disabled: "true"` to a Repository, removes recorded managed webhooks before the controller marks the Repository inactive. If cleanup fails because credentials are missing or provider access is unavailable, the controller keeps the managed annotations and finalizer and retries after the credential or provider access is fixed.
+- Add label `pac.tekton.alauda.io/webhook-registration-disabled: "true"` to a Repository to skip automatic webhook registration for that Repository.
+
 ## Webhook Not Receiving Events \{#webhook-not-receiving-events}
 
 ### Symptom \{#symptom-3}
@@ -336,6 +417,7 @@ Example output (abbreviated):
       name: my-repo
     spec:
       git_provider:
+        type: gitlab
         webhook_secret:
           name: webhook-secret
           key: secret
@@ -542,7 +624,9 @@ Example output (abbreviated):
     metadata:
       name: my-repo
     spec:
-    # ......
+      git_provider:
+        type: gitlab
+      # ......
     ```
 
 3. **Verify Namespace Exists**:
@@ -1025,6 +1109,7 @@ Example output (abbreviated):
       name: my-repo
     spec:
       git_provider:
+        type: gitlab
         secret:
           name: gitlab-secret
           key: token

@@ -48,6 +48,7 @@ Create a global Repository CR in the PAC namespace:
       namespace: tekton-pipelines  # PAC installation namespace
     spec:
       git_provider:
+        type: gitlab
         secret:
           name: gitlab-webhook-config
           key: provider.token
@@ -80,6 +81,8 @@ With the global CR above, you can create individual Repository CRs with minimal 
     spec:
       url: "https://gitlab.com/user/my-app"
       # git_provider settings are inherited from the global CR
+      git_provider:
+        type: gitlab
     ```
 
 ## Setting Concurrency Limits \{#setting-concurrency-limits}

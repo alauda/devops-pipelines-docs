@@ -2,9 +2,9 @@
 weight: 14
 ---
 
-# Configure tektoncd-enhancement ConfigMap via TektonConfig
+# Configure Enhancement Features via TektonConfig
 
-This guide shows how to manage `tektoncd-enhancement-config` through `TektonConfig` using `spec.pipeline.options.configMaps`.
+This guide shows how to manage enhancement feature configuration through `TektonConfig` using `spec.pipeline.options.configMaps`.
 
 > **Namespace Note**: Throughout this guide, `<tekton-pipelines>` is used as a placeholder for your `Tekton` namespace. Replace it with your actual namespace name. The default installation uses `tekton-pipelines` namespace.
 
@@ -35,12 +35,19 @@ spec:
         tektoncd-enhancement-config:
           data:
             config: |
-              # Shared configuration for tektoncd-enhancement features.
+              # Shared configuration for enhancement features.
               template-render:
                 # Template to build the details URL.
                 details-url-template: "{{- if .isPipelineRun -}}{{ .platformURL }}/console-acp/workspace/{{ .project }}~{{ .cluster }}~{{ .namespace }}/pipeline/pipelineRuns/detail/{{ .pipelineRunName }}{{- else -}}{{ .platformURL }}/console-acp/workspace/{{ .project }}~{{ .cluster }}~{{ .namespace }}/pipeline/taskRuns/detail/{{ .taskRunName }}{{- end -}}"
                 # Empty value means using the container local time zone.
                 time-zone: ""
+              pac-webhook-registration:
+                # Register GitLab/GitHub webhooks for PAC Repository resources.
+                # The default is true. Setting this to false deletes webhooks
+                # previously managed by tektoncd-enhancement.
+                enabled: true
+                # Keep enabled in production.
+                webhook-target-tls-verify: true
 ```
 
 ### 2. Parameter reference and defaults \{#2-parameter-reference-and-defaults}
@@ -49,26 +56,38 @@ spec:
 |--------------------------------------------|------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `template-render.details-url-template`     | Go template used to render `detailsURL` for mail/template rendering context. | `{{- if .isPipelineRun -}}{{ .platformURL }}/console-acp/workspace/{{ .project }}~{{ .cluster }}~{{ .namespace }}/pipeline/pipelineRuns/detail/{{ .pipelineRunName }}{{- else -}}{{ .platformURL }}/console-acp/workspace/{{ .project }}~{{ .cluster }}~{{ .namespace }}/pipeline/taskRuns/detail/{{ .taskRunName }}{{- end -}}` |
 | `template-render.time-zone`                | Global time zone setting for template rendering.                             | `""` (use container local time zone)                                                                                                                                                                                                                                                                                             |
+| `pac-webhook-registration.enabled`         | Enables automatic GitLab/GitHub webhook registration for PAC `Repository` resources. When set to `false`, the controller deletes provider webhooks it previously managed and marks the Repository as `Disabled`. | `true` |
+| `pac-webhook-registration.webhook-target-tls-verify` | Whether Git providers verify the PAC webhook URL certificate when delivering events. | `true` |
+
+PAC webhook registration reads the public webhook URL from `pipelines-as-code-info.data.controller-url`. Configure that value through the PAC component options; see [Get the PAC Webhook URL](../pac/how_to/get_pac_webhook_url.mdx#record-the-webhook-url).
+
+To use automatic webhook registration, set each PAC `Repository` `spec.git_provider.type` to `github` or `gitlab`. Repositories without a supported type are skipped, with the reason recorded as a Repository Event and status annotations.
+
+:::warning
+
+Setting `pac-webhook-registration.enabled` to `false` is not only a pause for future registrations. It also removes Git provider webhooks that were previously created or updated by the enhancement controller. Set it back to `true` to let the controller reconcile eligible PAC `Repository` resources again and recreate or update their webhooks.
+
+For active `Repository` resources, cleanup must complete before the controller removes the managed webhook annotations and finalizer. If credentials are missing or the provider API is temporarily unreachable, fix the credential or provider access and the controller retries. Deleting a `Repository` is different: provider cleanup is best-effort so the Kubernetes finalizer can be removed after the cleanup warning is recorded.
+
+:::
 
 ### 3. Verify ConfigMap update
 
-After updating `TektonConfig`, check whether `tektoncd-enhancement-config` has been reconciled:
+After updating `TektonConfig`, check whether the managed ConfigMap has been reconciled:
 
 ```bash
 kubectl get configmap tektoncd-enhancement-config -n <tekton-pipelines> -o yaml
 ```
 
-### 4. Restart tektoncd-enhancement
+The Tekton Operator applies the configuration from `TektonConfig`. Do not update the managed Deployment or ConfigMap directly because those changes can be overwritten by the next reconciliation.
 
-Restart the `tektoncd-enhancement` workload in namespace `<tekton-pipelines>`:
+### 4. Restart the controller for startup-loaded settings
+
+`pac-webhook-registration.*` settings are hot-reloaded after the ConfigMap is updated. `template-render.*` settings are loaded when the enhancement controller starts, so restart `tektoncd-enhancement-controller` after changing `template-render.details-url-template` or `template-render.time-zone`:
 
 ```bash
-kubectl rollout restart deployment/tektoncd-enhancement -n <tekton-pipelines>
-# deployment.apps/tektoncd-enhancement restarted
-
-kubectl rollout status deployment/tektoncd-enhancement -n <tekton-pipelines>
-# Waiting for deployment "tektoncd-enhancement" rollout to finish: 1 old replica is pending termination...
-# deployment "tektoncd-enhancement" successfully rolled out
+kubectl rollout restart deployment tektoncd-enhancement-controller -n <tekton-pipelines>
+kubectl rollout status deployment tektoncd-enhancement-controller -n <tekton-pipelines>
 ```
 
 ## FAQ
@@ -79,5 +98,5 @@ Check in this order:
 
 1. `TektonConfig` was updated successfully.
 2. `tektoncd-enhancement-config` in namespace `<tekton-pipelines>` has the expected `data.config`.
-3. `tektoncd-enhancement` has been restarted and rollout is complete.
-
+3. The Tekton Operator has reconciled the latest `TektonConfig`.
+4. If you changed any `template-render.*` setting, `tektoncd-enhancement-controller` was restarted after the ConfigMap update.
