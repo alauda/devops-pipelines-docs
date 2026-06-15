@@ -83,6 +83,10 @@ The `Alauda DevOps Pipelines` Operator provides the option to select which compo
 - **Basic**: Installs Tekton Pipelines and Tekton Triggers.
 - **All**: This is the default preset used when installing the `TektonConfig` CR. This preset installs all Tekton components, including Tekton Pipelines, Tekton Triggers.
 
+:::note
+Starting from `v4.12.0`, the built-in `Tekton Hub` is not deployed by any preset by default — Tekton catalog artifacts are delivered by the platform's standalone `ArtifactHub` component instead. To deploy the built-in `Tekton Hub` as a transitional option, see [Enabling the Built-in Tekton Hub](./hub/configure/enabling-tekton-hub.mdx).
+:::
+
 **Channel quick reference**
 
 - `stable` (default): Installs the latest LTS version. Recommended for production environments.
@@ -125,7 +129,7 @@ The `Alauda DevOps Pipelines` Operator provides the option to select which compo
   Additionally, check the versions of the components by running the following command:
 
   ```bash
-  $ kubectl get tektonpipeline,tektontrigger,tektonhub,tektonchain
+  $ kubectl get tektonpipeline,tektontrigger,tektonchain
   ```
 
   **Example Output**
@@ -133,16 +137,15 @@ The `Alauda DevOps Pipelines` Operator provides the option to select which compo
   ```bash
   NAME                                          VERSION           READY   REASON
   tektonpipeline.operator.tekton.dev/pipeline   v0.65.5-c96b8b8   True
-  
+
   NAME                                        VERSION           READY   REASON
   tektontrigger.operator.tekton.dev/trigger   v0.30.1-f53d05d   True
-  
-  NAME                                VERSION   READY   REASON   APIURL   UIURL
-  tektonhub.operator.tekton.dev/hub   1.19.2    True
-  
+
   NAME                                    VERSION           READY   REASON
   tektonchain.operator.tekton.dev/chain   v0.23.0-927681d   True
   ```
+
+  If you have enabled the built-in `Tekton Hub` (not deployed by default since `v4.12.0`), also check its status with `kubectl get tektonhub`.
 
 ### Installing Alauda DevOps Pipelines Using CLI
 

@@ -21,6 +21,10 @@ Before upgrading the `Alauda DevOps Pipelines` Operator, ensure you:
 - Upload a new version of the Operator, refer to the installation guide for [operator upload instructions
 ](../install.mdx#prerequisites).
 
+:::warning
+Starting from `v4.12.0`, the built-in `Tekton Hub` is no longer deployed by default. When you upgrade to `v4.12.0` or later, an existing built-in `Tekton Hub` deployment is **removed** by the operator. If you still rely on the built-in `Tekton Hub`, **record the catalog image before the upgrade**, then re-enable the hub and pin the catalog to that image after the upgrade. For details, see [Enabling the Built-in Tekton Hub](../hub/configure/enabling-tekton-hub.mdx).
+:::
+
 ### Confirm Target Channel First
 
 Before you approve an upgrade, confirm which channel your `Subscription` uses:
@@ -72,7 +76,7 @@ If you are currently on a non-LTS version in `latest`, switching to `stable` doe
      $ kubectl get pods -n tekton-operator
      ```
      When all pods are in `Running` state, the operator upgrade is complete.
-     The operator will then automatically upgrade components such as `Pipelines`, `Triggers`, `Hub`, `Chains`, etc.
+     The operator will then automatically upgrade components such as `Pipelines`, `Triggers`, `Chains`, etc. (and `Hub`, if you have enabled the built-in `Tekton Hub`).
    - Check the components upgrade status:
      ```bash
      $ kubectl get tektoninstallerset -A

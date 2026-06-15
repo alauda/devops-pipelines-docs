@@ -95,8 +95,9 @@ After installing the Tekton Operator, you should verify that it's running proper
 ### Install Tekton Components
 
 The Tekton Operator uses custom resources to manage Tekton components.
-By default, the Operator will install Pipeline, Triggers, Chains, and Hub automatically.
+By default, the Operator will install Pipeline, Triggers, and Chains automatically.
 You can install Results, Pipelines-as-Code by creating these custom resources.
+Starting from `v4.12.0`, the built-in `Tekton Hub` is not installed by default; to deploy it as a transitional option, see [Enabling the Built-in Tekton Hub](../hub/configure/enabling-tekton-hub.mdx).
 
 
 ### Verify Component Installation
@@ -132,22 +133,20 @@ After installing the Tekton components, you should verify that they are running 
     pipeline-main-deployment-9d9cc      True
     pipeline-main-static-c7zlz          True
     result-j74p5                        True
-    tekton-hub-api-jl9xj                True
-    tekton-hub-db-5g89c                 True
-    tekton-hub-db-migration-q7m8l       True
-    tekton-hub-ui-jn6bw                 True
     tektoncd-pruner-fgzfh               True
     trigger-main-deployment-q8zkd       True
     trigger-main-static-8x5w6           True
     validating-mutating-webhook-ksz2k   True
     ```
 
+    If you have enabled the built-in `Tekton Hub`, additional `tekton-hub-*` entries are listed as well.
+
 ### Expected Results
 
 After completing all steps, the `TektonConfig` and `TektonInstallerSet` resources should be ready, you should have:
 
 - A running Tekton Operator in the `tekton-operator` namespace
-- One or more installed Tekton components (Pipeline, Triggers, Hub, Chains) in the `tekton-pipelines` namespace
+- One or more installed Tekton components (Pipeline, Triggers, Chains) in the `tekton-pipelines` namespace
 - Custom Resource Definitions (CRDs) for managing Tekton resources
 
 ## Next Steps

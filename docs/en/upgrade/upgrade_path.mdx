@@ -18,7 +18,7 @@ The `Alauda DevOps Pipelines` Operator follows specific upgrade path principles 
 ### Version Types
 
 - **LTS (Long-Term Support) versions**: `4.0.x`, `4.2.x`, `4.6.x`, `4.10.x` - Recommended for production environments
-- **Non-LTS (Short-term) versions**: `4.1.x`, `4.3.x`, `4.5.x`, `4.7.x`, `4.8.x` - For early feature access
+- **Non-LTS (Short-term) versions**: `4.1.x`, `4.3.x`, `4.5.x`, `4.7.x`, `4.8.x`, `4.11.x`, `4.12.x` - For early feature access
 - **Release sequencing note**: `v4.9` is intentionally skipped. The next release after `v4.8` is `v4.10 (LTS)`.
 
 ### Upgrade Principles
@@ -33,6 +33,25 @@ The `Alauda DevOps Pipelines` Operator follows specific upgrade path principles 
 - **Component Cohesion**: All Tekton components are upgraded together to maintain compatibility
 
 ## Upgrade Paths
+### `Alauda DevOps Pipelines` v4.12
+
+The table below contains the complete upgrade path.
+
+| Channel version | ACP version | Kubernetes version |
+| :-------------: | :---------: | :----------------: |
+|  pipelines-4.0  |     4.1     |        1.32        |
+|                 |     4.2     |        1.33        |
+|                 |     4.3     |        1.34        |
+|  pipelines-4.2  |     4.1     |        1.32        |
+|                 |     4.2     |        1.33        |
+|  pipelines-4.6  |     4.1     |        1.32        |
+|                 |     4.2     |        1.33        |
+|  pipelines-4.8  |     4.1     |        1.32        |
+|                 |     4.2     |        1.33        |
+| pipelines-4.10  |     4.1     |        1.32        |
+|                 |     4.2     |        1.33        |
+|                 |     4.3     |        1.34        |
+
 ### `Alauda DevOps Pipelines` v4.11
 
 The table below contains the complete upgrade path.
@@ -208,7 +227,7 @@ When upgrading to a non-LTS release, the following paths are available for envir
 - **Primary Path**: **Previous LTS → Current non-LTS**
   - *Description*: A direct upgrade from the latest LTS version.
   - *Testing Status*: All patch versions tested; latest patch versions receive comprehensive regression testing.
-  - *Example*: `4.10.x (LTS)` → `4.11.x (non-LTS)`
+  - *Example*: `4.10.x (LTS)` → `4.12.x (non-LTS)`
 
 - **Extended Path**: **Two LTS versions back → Current non-LTS**
   - *Description*: A direct upgrade path skipping up to two intermediate LTS versions.

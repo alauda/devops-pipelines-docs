@@ -5,7 +5,7 @@ weight: 40
 # Release Notes
 
 ::: tip
-The maintenance period for version **v4.11.x** is from 26 May, 2026 to 26 Sep, 2026.
+The maintenance period for version **v4.12.x** is from 16 Jun, 2026 to 16 Oct, 2026.
 :::
 
 :::note
@@ -19,6 +19,7 @@ The following table shows the compatibility and support matrix between the `Alau
 | Alauda DevOps Pipelines Version | Component Version | | | | | | | | | ACP Version |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **Operator** | **Pipelines** | **Triggers** | **CLI** | **Chains** | **Hub** | **Results** | **Pipelines as Code** | **Manual Approval Gate** | **Pruner** | |
+| 4.12.x | 1.6.x | 0.34.x | 0.43.x | 0.26.x | 1.23.x | 0.17.x | 0.39.x | 0.7.x | 0.3.x | 4.1, 4.2, 4.3 |
 | 4.11.x | 1.6.x | 0.34.x | 0.43.x | 0.26.x | 1.23.x | 0.17.x | 0.39.x | 0.7.x | 0.3.x | 4.1, 4.2, 4.3 |
 | 4.10.x (LTS) | 1.6.x | 0.34.x | 0.43.x | 0.26.x | 1.23.x | 0.17.x | 0.39.x | 0.7.x | 0.3.x | 4.0, 4.1, 4.2, 4.3 |
 | 4.8.x | 1.6.x | 0.34.x | 0.43.x | 0.26.x | 1.23.x | 0.17.x | 0.39.x | 0.7.x | 0.3.x | 4.0, 4.1, 4.2 |
@@ -34,6 +35,7 @@ The following table shows the recommended version mapping between `Alauda DevOps
 
 | Alauda DevOps Pipelines Version | Recommended Alauda DevOps Connectors Version |
 | :--- | :--- |
+| 4.12.x | >= 1.10 |
 | 4.11.x | >= 1.10 |
 | 4.10.x (LTS) | >= 1.10 |
 | 4.8.x | >= 1.7 |
@@ -49,41 +51,47 @@ The following table shows the recommended version mapping between `Alauda DevOps
 
 For details about channel behavior and upgrade targeting, see [Upgrade Path](../upgrade/upgrade_path.mdx) and [Lifecycle Policy](./lifecycle_policy.mdx).
 
-## v4.11.0
+## v4.12.0
 
 ### New and Optimized Features
 
+**Operator**
+
+- With this update, Tekton catalog artifacts are delivered by the platform's standalone `ArtifactHub` component. `ArtifactHub` has its own lifecycle, so catalog updates — new tools, Task fixes, version upgrades — can be delivered quickly, independently of the operator release cadence.
+- With this update, the Kubernetes API client QPS and Burst settings of the operator are overridable, and the CPU limits of the operator lifecycle controller are raised to improve reconcile stability in large clusters.
+
 **Pipelines**
 
-- With this update, catalog Task versions are upgraded. Previous versions remain available and can continue to be used, but users are recommended to migrate to the new versions as early as possible. For detailed change descriptions, refer to the Task READMEs.
+- With this update, the pipeline `set-security-context` feature flag defaults to `true` for newly created `TektonConfig` and `TektonPipeline` instances, so Tekton-injected containers run with a hardened non-root security context and work in namespaces enforcing the `restricted` Pod Security Admission level. Existing instances are not changed. For details, see [Comply with Pod Security Restricted Standard](../pipelines/how_to/comply_with_pod_security_restricted.mdx).
+- With this update, a new `enable-validating-admission-policy` parameter is added under `TektonConfig` `spec.pipeline.params` to control the deployment of `ValidatingAdmissionPolicy` guardrail resources. The parameter is disabled by default. For details, see [Comply with Pod Security Restricted Standard](../pipelines/how_to/comply_with_pod_security_restricted.mdx).
 
-  **Task Version Upgrades**
+**Pipelines as Code**
 
-  | Task | Version Upgrade Path |
-  | :--- | :--- |
-  | `Trivy Scanner` | `v0.5 -> v0.6` |
-  | `SonarQube Scanner` | `v0.6 -> v0.7` |
+- With this update, PAC `Repository` resources can be created and managed from the web console, including onboarding repositories through a GitLab App or GitHub App. Enable the feature through the `enable-pac-repository` flag in the `tektoncd-enhancement-feature-flags` ConfigMap. For details, see [Enable Repository UI Feature](../pac/install/manage_pac.mdx#enable-repository-ui-feature).
+- With this update, PAC can automatically retrieve and register the webhook URL when onboarding a repository, removing the manual webhook configuration step.
+- With this update, custom console links support namespace-derived template variables through the `custom-console-url-namespace-vars` setting, resolving values such as `{{ project }}` and `{{ cluster }}` from namespace labels or annotations. For details, see [Manage PAC Component](../pac/install/manage_pac.mdx#configure-custom-console-links).
 
-- With this update, the new `nexus-upload` Task is added to upload build artifacts to a Nexus raw repository. It supports direct upload, packaged upload, and checksum generation.
-- With this update, a new `Skopeo Copy` Task is added for image copy and promotion workflows across registries.
-- With this update, an artifact promotion solution based on `Skopeo Copy` is provided. It supports approval-gated promotion of one or more container images across registries and provides a reusable pattern for promoting artifacts from build or test environments to release environments. For details, see [Promote Artifacts with Skopeo Copy](../pipelines/how_to/promote-artifacts-with-skopeo-copy.mdx).
-- With this update, dynamic form descriptors are enhanced with field-level documentation links (`productDoc` and `external`) through `docLink`. For configuration details, see [Link Configuration](../pipelines/how_to/configure_dynamic_forms.mdx#link-configuration).
-- With this update, dynamic forms support advanced fallback rendering for descriptor-only fields (for example `label`, `description`, `tooltip`, `preview`, `docLink`, and `disabled`) without requiring explicit component capability. For configuration details, see [Metadata-only Configuration Without a Component](../pipelines/how_to/configure_dynamic_forms.mdx#metadata-only-configuration-without-a-component).
-- With this update, Java/Python image build-scan-deploy pipelines add optional `ca-bundle` workspace support for private or self-signed CA registry scenarios.
-- With this update, `trivy-scanner`, `cosign`, and `syft` Tasks add `ca-bundle` workspace support for custom CA trust in registry access.
-- With this update, documentation is added for updating existing ACP `Application` resources by reusing the built-in `run-script` Task and `kubectl-app-manager` image, including runnable TaskRun/PipelineRun examples, validation, and rollback guidance. For details, see [Update ACP Application with Existing Image and Run Script Task](../pipelines/how_to/manage-acp-application-with-run-script.mdx).
-- With this update, the Pipeline UI supports copying an existing Pipeline from the namespace Pipeline list or copying a Hub Pipeline into the current namespace, then editing and saving it as a new Pipeline.
-- With this update, the Pipeline Integration UI supports editing prefix and suffix transforms for Integration-bound image parameters. For OCI image scenarios, users can select an image repository address from an Integration and append a static value or Task result as the image tag.
-- With this update, PipelineRun and TaskRun pages add explicit archive-state indicators in list and detail views to make archived records easier to identify.
+**Results**
+
+- With this update, the Tekton Results API and agent components no longer expose database credentials as container environment variables; credentials are read from mounted Secret files instead.
+
+**Web Console**
+
+- With this update, after a TaskRun is retried, the logs of each previous execution can be viewed by switching between retries.
+- With this update, the Task list and the Hub Task list show the catalog source of each Task and support filtering by source in the pipeline editor.
+- With this update, multiple UI details are refined, including the graphical Pipeline editor, the PipelineRun loading state, advanced-parameter visibility control, Integration selection, workspace binding, and label filtering.
 
 ### Breaking Changes
 
-No breaking changes in this release.
+- Starting from this release, the built-in `Tekton Hub` is **no longer deployed by default**, and future releases (including LTS versions) will not deploy it by default either. A new operator-level switch `AUTOINSTALL_TEKTONHUB` (default `"false"`) controls the behavior; the `TektonConfig` CRD/API is not changed.
+
+  - On **upgrade**, an environment that previously ran the built-in `Tekton Hub` will have it **removed**: with the switch off, the operator actively deletes the `TektonHub` CR. If you still rely on the built-in `Tekton Hub`, record the catalog image before the upgrade, then re-enable it afterwards. For details, see [Enabling the Built-in Tekton Hub](../hub/configure/enabling-tekton-hub.mdx).
+  - The operator bundle **no longer ships the catalog tool images** (`buildah`, `golang`, `maven`, and so on). The tool image versions referenced by the new catalog may therefore not exist in your environment, which is why pinning the catalog to the pre-upgrade catalog image is the recommended way to keep the built-in `Tekton Hub` working after an upgrade. For details, see [Pinning the Catalog to the Pre-Upgrade Image](../hub/configure/enabling-tekton-hub.mdx#pinning-the-catalog).
 
 ### Fixed Issues
 
-{/* release-notes-for-bugs?template=fixed&project=DEVOPS&version=v4.11.0 */}
+{/* release-notes-for-bugs?template=fixed&project=DEVOPS&version=v4.12.0 */}
 
 ### Known Issues
 
-{/* release-notes-for-bugs?template=unfixed&project=DEVOPS&version=v4.11.0 */}
+{/* release-notes-for-bugs?template=unfixed&project=DEVOPS&version=v4.12.0 */}

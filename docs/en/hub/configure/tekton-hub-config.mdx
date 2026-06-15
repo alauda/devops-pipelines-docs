@@ -8,6 +8,8 @@ weight: 5
 
 This guide covers the basic configuration of `Tekton Hub` instances, including installation and core system settings. Learn how to configure the fundamental aspects of your `Tekton Hub` deployment.
 
+> **Prerequisite**: Starting from `v4.12.0`, the built-in `Tekton Hub` is no longer deployed by default. This guide assumes it has been enabled first; see [Enabling the Built-in Tekton Hub](./enabling-tekton-hub.mdx).
+
 > **Important**: If you deployed `Tekton Hub` through `TektonConfig`, modify the catalog configuration in the `TektonConfig` resource instead of directly editing the `ConfigMap`. Direct `ConfigMap` modifications will be overridden by the `Tekton Operator` controller.
 
 > **Namespace Note**: Throughout this guide, `<tekton-pipelines>` is used as a placeholder for your `Tekton Hub` namespace. Replace it with your actual namespace name. The default installation uses `tekton-pipelines` namespace.

@@ -1,0 +1,178 @@
+---
+weight: 10
+---
+
+# Disable Live Collection of Incomplete Runs
+
+## Feature Overview
+
+By default, the `tekton-results-watcher` stores `TaskRun` and `PipelineRun` records when the runs are created, and then continuously upserts those records whenever the resources change. This gives live visibility into running resources, but it also increases write load on the Results API and database.
+
+You can reduce this write load by setting the `--disable_storing_incomplete_runs=true` flag on the `tekton-results-watcher` controller. When this flag is enabled, incomplete runs are not stored in Tekton Results. The watcher stores a run only after it reaches a completed state.
+
+## Use Cases
+
+- Reduce Results database writes in clusters with many short-lived or frequently updated runs.
+- Improve watcher and database performance when live visibility for running resources is not required.
+- Store only final execution records while keeping completed run history available through Tekton Results.
+
+## Prerequisites
+
+- Tekton Results is installed through `TektonConfig`.
+- You have permission to update the `TektonConfig` resource.
+- You know the namespace where Results is installed. The examples below use the default `tekton-pipelines` namespace.
+
+## Steps
+
+### 1. Configure the watcher flag
+
+Update `TektonConfig.spec.result.options.deployments.tekton-results-watcher` and add the flag to the `watcher` container:
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  result:
+    options:
+      deployments:
+        tekton-results-watcher:
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: watcher
+                    args:
+                      - "--disable_storing_incomplete_runs=true"
+```
+
+The operator merges container arguments by flag key. You do not need to copy the existing watcher arguments such as `-api_addr`, `-auth_mode`, or `-logs_api`; the new flag is added to the existing argument list.
+
+### 2. Apply the configuration
+
+Apply the updated `TektonConfig` manifest:
+
+```bash
+$ kubectl apply -f tekton-config-disable-incomplete-runs.yaml
+
+tektonconfig.operator.tekton.dev/config configured
+```
+
+Wait for the watcher Deployment to roll out:
+
+```bash
+$ kubectl rollout status -n tekton-pipelines deployment/tekton-results-watcher
+
+deployment "tekton-results-watcher" successfully rolled out
+```
+
+### 3. Verify the watcher arguments
+
+Check that the watcher pod template includes the flag:
+
+```bash
+$ kubectl get deployment -n tekton-pipelines tekton-results-watcher \
+  -o jsonpath='{range .spec.template.spec.containers[?(@.name=="watcher")].args[*]}{.}{"\n"}{end}'
+
+-api_addr
+$(TEKTON_RESULTS_API_SERVICE)
+-auth_mode
+$(AUTH_MODE)
+-logs_api=true
+--disable_storing_incomplete_runs=true
+```
+
+## Operation Results
+
+After the rollout finishes:
+
+- Running `TaskRun` and `PipelineRun` resources are not stored in Tekton Results while their status is still incomplete.
+- Completed `TaskRun` and `PipelineRun` resources are stored after they finish.
+- The Results API and database receive fewer updates because intermediate resource status changes are not continuously upserted.
+
+## Functional Verification
+
+Create or trigger a `TaskRun` or `PipelineRun` that takes long enough to inspect while it is running.
+
+While the run is still incomplete, query Results records:
+
+```bash
+$ tkn results records list default/results/-
+```
+
+The running resource should not appear in the Results records.
+
+After the run completes, query the records again:
+
+```bash
+$ tkn results records list default/results/-
+```
+
+The completed resource should now appear in the Results records.
+
+:::note
+The exact `tkn results` address and authentication options depend on your Results installation. For CLI setup and port-forwarding examples, see [Quick Start](../quick_start.mdx).
+:::
+
+## Roll Back
+
+To restore live collection, set the flag to `false`:
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  result:
+    options:
+      deployments:
+        tekton-results-watcher:
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: watcher
+                    args:
+                      - "--disable_storing_incomplete_runs=false"
+```
+
+Apply the updated `TektonConfig` and wait for the watcher Deployment to roll out again:
+
+```bash
+$ kubectl apply -f tekton-config-enable-live-collection.yaml
+$ kubectl rollout status -n tekton-pipelines deployment/tekton-results-watcher
+```
+
+## Troubleshooting
+
+### The flag is not visible in the watcher Deployment
+
+Check whether the `TektonConfig` update was accepted:
+
+```bash
+$ kubectl get tektonconfig config -o yaml
+```
+
+Confirm that the configuration is under `spec.result.options.deployments.tekton-results-watcher` and that the container name is `watcher`.
+
+### Running resources still appear in Results
+
+Check whether the new watcher pod is running:
+
+```bash
+$ kubectl get pods -n tekton-pipelines -l app.kubernetes.io/name=tekton-results-watcher
+```
+
+If an older pod is still running, wait for the rollout to finish. Also verify that the run you are checking was created after the new watcher pod started.
+
+### Completed resources do not appear in Results
+
+Check the watcher logs for storage or API errors:
+
+```bash
+$ kubectl logs -n tekton-pipelines deployment/tekton-results-watcher
+```
+
+Also confirm that the Results API and database are healthy. For installation and basic verification steps, see [Quick Start](../quick_start.mdx).
