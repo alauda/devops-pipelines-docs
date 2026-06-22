@@ -6,11 +6,11 @@ weight: 55
 
 :::info For Regular Users
 
-This guide is for **regular users** to use PAC resolver for automatically resolving and embedding tasks and pipelines from local repositories, Tekton Hub, and remote URLs.
+This guide is for **regular users** to use PAC resolver for automatically resolving and embedding tasks and pipelines from local repositories, the DevOps Hub catalog, and remote URLs.
 
 :::
 
-This guide explains how to use the Pipelines as Code (PAC) resolver to automatically resolve and embed tasks and pipelines from three sources: local tasks defined in your repository, remote tasks from Tekton Hub, and tasks from remote Git repositories or HTTP URLs.
+This guide explains how to use the Pipelines as Code (PAC) resolver to automatically resolve and embed tasks and pipelines from three sources: local tasks defined in your repository, remote tasks from the DevOps Hub catalog served by `artifacthub-shim`, and tasks from remote Git repositories or HTTP URLs.
 
 ## Prerequisites \{#prerequisites}
 
@@ -24,20 +24,20 @@ The PAC resolver automatically fetches and embeds remote tasks and pipelines int
 
 :::info How Task Embedding Works
 
-When PAC resolves a task from Tekton Hub:
+When PAC resolves a task from the DevOps Hub catalog:
 1. PAC fetches the task definition (YAML) from the Hub
 2. PAC converts `taskRef` to `taskSpec` and embeds the task definition inline within your PipelineRun
 3. The embedded task becomes part of the PipelineRun definition
 4. The task doesn't need to exist as a separate Task resource in your cluster
 
-This means you can use tasks from Tekton Hub without manually copying their definitions or creating Task resources in your cluster.
+This means you can use catalog tasks without manually copying their definitions or creating Task resources in your cluster.
 
 :::
 
 ### Supported Sources \{#supported-sources}
 
 - **Local Tasks**: Tasks defined in your Git repository (using taskSpec or resolver syntax)
-- **Tekton Hub**: Tasks and pipelines from the Tekton Hub catalog
+- **DevOps Hub catalog**: Tasks and pipelines from the in-cluster `artifacthub-shim` catalog
 - **Remote URLs**: Tasks and pipelines from remote Git repositories or HTTP URLs
 
 ## How PAC Resolver Works \{#how-pac-resolver-works}
@@ -55,7 +55,7 @@ When PAC processes a PipelineRun with resolver annotations, it follows these ste
    - `pipelinesascode.tekton.dev/task-1: "task-name"`
    - `pipelinesascode.tekton.dev/pipeline: "pipeline-name"`
 4. **Task Resolution**: For each task annotation:
-   - PAC controller queries Tekton Hub API (or configured hub URL)
+   - PAC controller queries the configured Hub API. ACP DevOps defaults this to the in-cluster `artifacthub-shim` Service.
    - Fetches the task definition (YAML)
    - Validates the task structure
 5. **Task Embedding**: PAC embeds the resolved task definitions into the PipelineRun:
@@ -110,8 +110,10 @@ When a push event occurs, PAC controller:
      - Version specified (format: `task-name:version`) → PAC fetches that exact version
      - Version format follows semantic versioning (e.g., `0.1`, `0.9`, `1.2.3`)
 
-4. **Queries Tekton Hub API**:
-   - **Hub URL**: Defaults to cluster-internal Hub (`http://tekton-hub-api.tekton-pipelines:8000/v1`) or public Hub (`https://api.hub.tekton.dev/v1`)
+4. **Queries the Hub API**:
+   - **Hub URL**: Defaults to `http://artifacthub-shim-api.artifacthub-shim-system.svc.cluster.local`
+   - **Catalog type**: Defaults to `artifacthub`
+   - **Catalog name**: Defaults to `catalog`
    - **Query for latest**: PAC queries Hub for the latest available version
    - **Query for specific version**: PAC requests the exact version specified in the annotation
    - **Example queries**:
@@ -410,11 +412,11 @@ Use local tasks when:
 
 ## Using Remote Task Annotations \{#using-remote-task-annotations}
 
-You can use PAC annotations to reference remote tasks from Tekton Hub or remote HTTP URLs. PAC will automatically fetch and embed these tasks into your PipelineRun.
+You can use PAC annotations to reference remote tasks from the DevOps Hub catalog or remote HTTP URLs. PAC will automatically fetch and embed these tasks into your PipelineRun.
 
-### Remote Tasks from Tekton Hub \{#remote-tasks-from-tekton-hub}
+### Remote Tasks from DevOps Hub \{#remote-tasks-from-tekton-hub}
 
-Reference a single task from Tekton Hub:
+Reference a single task from DevOps Hub:
 
     ```yaml
     apiVersion: tekton.dev/v1
@@ -439,7 +441,7 @@ Reference a single task from Tekton Hub:
     ```
 
 **How it works**:
-- The annotation `pipelinesascode.tekton.dev/task: "git-clone"` tells PAC to fetch the `git-clone` task from Tekton Hub
+- The annotation `pipelinesascode.tekton.dev/task: "git-clone"` tells PAC to fetch the `git-clone` task from the configured Hub catalog
 - PAC automatically embeds the task definition into your PipelineRun
 - You can then reference it using `taskRef.name: git-clone`
 
@@ -564,7 +566,7 @@ PAC resolves Hub tasks by name and can optionally pin a task version with `task-
 
 ### Custom Hub URL \{#custom-hub-url}
 
-The default `hub-url` points to the cluster-internal Tekton Hub service in the default namespace (`http://tekton-hub-api.tekton-pipelines:8000/v1`). If Tekton Hub is deployed in a different namespace, adjust the namespace in the URL accordingly. If you need to use a different Hub instance, configure it in the `OpenShiftPipelinesAsCode` CR:
+The default `hub-url` points to the cluster-internal `artifacthub-shim` Service (`http://artifacthub-shim-api.artifacthub-shim-system.svc.cluster.local`). If `artifacthub-shim` is deployed in a different namespace, adjust the namespace in the URL accordingly. If you need to use a different Hub instance, configure it in the `OpenShiftPipelinesAsCode` CR:
 
     ```yaml
     apiVersion: operator.tekton.dev/v1alpha1
@@ -573,17 +575,19 @@ The default `hub-url` points to the cluster-internal Tekton Hub service in the d
       name: pipelines-as-code
     spec:
       settings:
-        # For cluster-internal Hub in different namespace
-        hub-url: "http://tekton-hub-api.<your-namespace>:8000/v1"
+        # For cluster-internal artifacthub-shim in a different namespace
+        hub-url: "http://artifacthub-shim-api.<your-namespace>.svc.cluster.local"
+        hub-catalog-type: "artifacthub"
+        hub-catalog-name: "catalog"
         
         # Or for external/public Hub
-        hub-url: "https://api.hub.tekton.dev/v1"
+        # hub-url: "https://api.hub.tekton.dev/v1"
         
         # Or for custom Hub instance
-        hub-url: "https://custom-hub.example.com/v1"
+        # hub-url: "https://custom-hub.example.com/v1"
     ```
 
-**Note**: Only the PAC controller needs access to the Hub URL. If using a cluster-internal Hub, ensure the PAC controller can reach the Hub service.
+**Note**: Only the PAC controller needs access to the Hub URL. For Artifact Hub providers, do not append `/api/v1`; PAC adds that path internally. Keep `hub-catalog-type: artifacthub` so PAC does not probe `/api/v1/stats` and fall back to Tekton Hub behavior.
 
 ## Using Remote Pipeline Annotations \{#using-remote-pipeline-annotations}
 
@@ -593,7 +597,7 @@ Remote pipeline annotations are rarely used in practice. Most users define pipel
 
 :::
 
-You can reference remote pipelines from Tekton Hub, though this is less common than using inline pipeline definitions:
+You can reference remote pipelines from DevOps Hub, though this is less common than using inline pipeline definitions:
 
     ```yaml
     apiVersion: tekton.dev/v1
@@ -603,7 +607,7 @@ You can reference remote pipelines from Tekton Hub, though this is less common t
       annotations:
         pipelinesascode.tekton.dev/on-target-branch: "[refs/heads/main]"
         pipelinesascode.tekton.dev/on-event: "[push]"
-        # Reference remote pipeline from Tekton Hub
+        # Reference remote pipeline from DevOps Hub
         pipelinesascode.tekton.dev/pipeline: "pipeline-name"
     spec:
       pipelineRef:
@@ -614,7 +618,7 @@ You can reference remote pipelines from Tekton Hub, though this is less common t
     ```
 
 **How it works**:
-- The annotation `pipelinesascode.tekton.dev/pipeline: "pipeline-name"` tells PAC to fetch the pipeline from Tekton Hub
+- The annotation `pipelinesascode.tekton.dev/pipeline: "pipeline-name"` tells PAC to fetch the pipeline from the configured Hub catalog. PAC uses one `hub-catalog-name` setting, so `artifacthub-shim` keeps a Pipeline fallback from `catalog` to `catalog-pipelines`.
 - PAC automatically embeds the pipeline definition
 - You reference it using `pipelineRef.name`
 
@@ -666,7 +670,7 @@ PAC annotations provide a simpler alternative to Tekton's resolver syntax:
 
 ### Task Not Found \{#task-not-found}
 
-1. **Verify task name**: Check that the task name is correct in Tekton Hub
+1. **Verify task name**: Check that the task name is correct in DevOps Hub
 2. **Check Hub URL**: Verify the hub URL is configured correctly
 3. **Review PAC logs**:
 
@@ -684,13 +688,13 @@ Example output:
 
 ### Task Resolution Fails \{#task-resolution-fails}
 
-1. **Check network connectivity**: Ensure PAC controller can reach Tekton Hub
+1. **Check network connectivity**: Ensure PAC controller can reach `artifacthub-shim`
 
     ```bash
     # Test Hub connectivity from PAC controller pod
     kubectl exec -n <pac-namespace> \
       $(kubectl get pod -n <pac-namespace> -l app=pipelines-as-code-controller -o jsonpath='{.items[0].metadata.name}') \
-      -- curl -I https://api.hub.tekton.dev/v1/resource/task/git-clone
+      -- curl -I http://artifacthub-shim-api.artifacthub-shim-system.svc.cluster.local/api/v1/packages/tekton-task/catalog/git-clone
     ```
 
 Example output (if accessible):
@@ -709,14 +713,14 @@ Example output (if accessible):
 Example output:
 
     ```
-    http://tekton-hub-api.tekton-pipelines:8000/v1
+    http://artifacthub-shim-api.artifacthub-shim-system.svc.cluster.local
     ```
 
 3. **Review task version**: Ensure the specified version exists
 
     ```bash
-    # Query Tekton Hub for available versions
-    curl https://api.hub.tekton.dev/v1/resource/task/git-clone
+    # Query artifacthub-shim for the latest package detail
+    curl http://artifacthub-shim-api.artifacthub-shim-system.svc.cluster.local/api/v1/packages/tekton-task/catalog/git-clone
     ```
 
 Example output (abbreviated):

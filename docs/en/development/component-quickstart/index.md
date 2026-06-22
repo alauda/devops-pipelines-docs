@@ -320,13 +320,12 @@ All components follow a unified branch management strategy:
 - Use `release-{major}.{minor}` format to align with upstream community versions
 - Example: `release-0.65` branch corresponds to upstream `release-v0.65.x` version
 
-**Self-Developed Components** (e.g., `catalog`, `hubs-wrapper`):
+**Self-Developed Components**:
 
-- Use `release-{feature-milestone}` format based on functional milestones
-- `catalog`
-  - Examples: `release-4.0`, `release-4.1` (follows tektoncd-operator release branch naming)
-- `hubs-wrapper`
-  - Examples: `release-1.0` for core functionality, `release-1.1` for new features
+- Use `release-{feature-milestone}` format based on functional milestones.
+- `tektoncd-operator` follows this strategy because it is the orchestration component for the ACP DevOps Tekton stack.
+- The catalog is now maintained as part of the `artifacthub-shim` delivery path instead of being treated as a Tekton Operator built-in runtime component.
+- `hubs-wrapper` and Tekton Hub runtime are no longer new component templates for ACP DevOps 4.13 and later.
 
 **Exception Cases:**
 
@@ -376,7 +375,7 @@ The tag strategy varies between community components and self-developed componen
 - Version prefixes use community versions defined in the `Makefile`
 - Artifact versioning is managed through the community version numbers
 
-**Self-Developed Components** (e.g., `catalog`, `hubs-wrapper`, `tektoncd-operator`):
+**Self-Developed Components** (e.g., `tektoncd-operator`):
 
 - **Strict tag management** is required
 - Tags are created on the next commit in `main` branch after creating a release branch
@@ -444,4 +443,3 @@ git push origin v4.1.0
 2. **Clear Development Progress**: Alpha tags clearly indicate development milestones
 3. **Stable Release Marking**: Release tags only appear after thorough validation
 4. **Artifact Reusability**: Prevents unnecessary rebuilds of identical commits
-

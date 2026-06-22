@@ -110,7 +110,7 @@ spec:
     resolver: hub
     params:
     - name: catalog # optional
-      value: tekton-catalog-tasks
+      value: catalog
     - name: type # optional
       value: artifact
     - name: kind
@@ -158,21 +158,23 @@ The Git Resolver:
 
 ### Hub Resolver
 
-The Hub Resolver fetches resources from the Tekton Hub.
+The Hub Resolver fetches resources from the DevOps Hub catalog. In ACP DevOps
+4.13 and later, the default Hub backend is the in-cluster
+`artifacthub-shim` service using Artifact Hub-compatible APIs.
 
 #### Use Cases
 
-- Discovering and using community-contributed Tasks and Pipelines
-- Accessing a curated catalog of CI/CD resources
+- Discovering and using curated Tasks and Pipelines in air-gapped clusters
+- Accessing a catalog served by `artifacthub-shim`
 - Standardizing on well-tested and maintained resources
 
 #### Principles
 
 The Hub Resolver:
-- Connects to the Tekton Hub API
+- Connects to the configured Artifact Hub API endpoint
 - Retrieves the specified resource by name and version
 - Supports different catalogs and versions
-- Provides access to community-contributed resources
+- Uses `catalog` for built-in Tasks and `catalog-pipelines` for built-in Pipelines
 
 ### HTTP Resolver
 

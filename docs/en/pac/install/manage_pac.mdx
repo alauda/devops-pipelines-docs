@@ -38,7 +38,9 @@ Create a YAML file named `pac.yaml`:
     spec:
       settings:
         application-name: Pipelines as Code CI
-        hub-url: http://tekton-hub-api.tekton-pipelines:8000/v1
+        hub-url: http://artifacthub-shim-api.artifacthub-shim-system.svc.cluster.local
+        hub-catalog-type: artifacthub
+        hub-catalog-name: catalog
         remote-tasks: "true"
         secret-auto-create: "true"
       targetNamespace: tekton-pipelines  # Default namespace, you can customize this
@@ -461,7 +463,9 @@ You can customize PAC behavior through the `settings` field in the `OpenShiftPip
 | Setting | Description | Default |
 |---------|-------------|---------|
 | `application-name` | Name displayed in Git provider UI | `Pipelines as Code CI` |
-| `hub-url` | Tekton Hub API URL | `http://tekton-hub-api.tekton-pipelines:8000/v1` (cluster-internal, default namespace) |
+| `hub-url` | Hub API URL used for PAC remote task and pipeline annotations | `http://artifacthub-shim-api.artifacthub-shim-system.svc.cluster.local` |
+| `hub-catalog-type` | Hub provider type | `artifacthub` |
+| `hub-catalog-name` | Default Artifact Hub repository name for PAC remote annotations | `catalog` |
 | `remote-tasks` | Enable remote task resolution | `true` |
 | `secret-auto-create` | Automatically create secrets | `true` |
 | `error-detection-from-container-logs` | Detect errors from container logs | `false` |
@@ -473,7 +477,7 @@ You can customize PAC behavior through the `settings` field in the `OpenShiftPip
 | `custom-console-url-namespace` | URL template for namespace page. Supports variable: `{{namespace}}` | `` (empty) |
 | `custom-console-url-namespace-vars` | Extra template variables resolved from the PipelineRun namespace labels or annotations, for example `{{ project }}` and `{{ cluster }}` | `` (empty) |
 
-**`hub-url`** addresses the Tekton Hub the PAC controller queries when resolving remote tasks. The default in-cluster URL is `http://tekton-hub-api.tekton-pipelines:8000/v1`; for a Hub in another namespace, use the same service DNS format with that namespace.
+**`hub-url`** addresses the Hub backend the PAC controller queries when resolving remote tasks. ACP DevOps defaults this to the in-cluster `artifacthub-shim` Service. For Artifact Hub providers, do not append `/api/v1`; PAC adds that path internally.
 
 **`custom-console-*`** settings rewrite the cluster-side links PAC posts back to the Git provider so they point at the platform console rather than at the OpenShift Console. `custom-console-url-namespace-vars` can add variables resolved from namespace labels or annotations. The walkthrough is in [Configure Custom Console Links](#configure-custom-console-links).
 
@@ -493,7 +497,9 @@ You can customize PAC behavior through the `settings` field in the `OpenShiftPip
     spec:
       settings:
         application-name: "My Custom PAC"
-        hub-url: http://tekton-hub-api.tekton-pipelines:8000/v1
+        hub-url: http://artifacthub-shim-api.artifacthub-shim-system.svc.cluster.local
+        hub-catalog-type: artifacthub
+        hub-catalog-name: catalog
         remote-tasks: "true"
         error-detection-from-container-logs: "true"
     ```
@@ -587,30 +593,32 @@ Effect: PAC scans failed task logs and adds a short error snippet to the Git pro
 
 #### Update Hub URL \{#update-hub-url}
 
-If your Tekton Hub is deployed in a different namespace or you want to use an external Hub:
+If `artifacthub-shim` is deployed in a different namespace or you want to use an external Hub:
 
     ```yaml
     spec:
       settings:
-        # For a cluster-internal Hub in another namespace
-        hub-url: "http://tekton-hub-api.devops-system:8000/v1"
+        # For a cluster-internal artifacthub-shim in another namespace
+        hub-url: "http://artifacthub-shim-api.devops-system.svc.cluster.local"
+        hub-catalog-type: "artifacthub"
+        hub-catalog-name: "catalog"
 
         # Or for external/public Hub
-        hub-url: "https://api.hub.tekton.dev/v1"
+        # hub-url: "https://api.hub.tekton.dev/v1"
     ```
 
-Effect: PAC resolves remote tasks from the specified Tekton Hub API instead of the default in-cluster Hub.
+Effect: PAC resolves remote tasks from the specified Hub API instead of the default in-cluster shim Service.
 
-**To find your Tekton Hub service**:
+**To find your artifacthub-shim service**:
 
     ```bash
-    kubectl get svc -A | grep tekton-hub-api
+    kubectl get svc -A | grep artifacthub-shim-api
     ```
 
 Example output:
 
     ```
-    tekton-pipelines   tekton-hub-api   ClusterIP   10.96.123.45   <none>   8000/TCP   10m
+    artifacthub-shim-system   artifacthub-shim-api   ClusterIP   10.96.123.45   <none>   80/TCP   10m
     ```
 
 #### Disable Remote Tasks \{#disable-remote-tasks}

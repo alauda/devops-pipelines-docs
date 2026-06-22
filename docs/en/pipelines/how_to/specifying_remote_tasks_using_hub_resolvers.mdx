@@ -7,8 +7,9 @@ weight: 10
 ## Feature Overview
 
 Tasks are reusable blocks for your CI/CD processes.
-When creating a pipeline run or task run, you can specify a remote task from the Catalog available on Hub.
-A default Hub instance is provided, you can use it directly.
+When creating a pipeline run or task run, you can specify a remote task from
+the Catalog available on DevOps Hub. ACP DevOps serves the built-in Hub catalog
+through `artifacthub-shim`.
 
 ## Steps
 
@@ -27,6 +28,8 @@ To specify a remote task, use the following reference format in the `taskRef`:
   taskRef:
     resolver: hub
     params:
+    - name: type
+      value: artifact
     - name: catalog
       value: catalog
     - name: kind
@@ -40,7 +43,8 @@ To specify a remote task, use the following reference format in the `taskRef`:
 
 | Parameter | Description                                                                                           | Example value |
 |-----------|-------------------------------------------------------------------------------------------------------|---------------|
-| `catalog` | The catalog for pulling the resource.                                                                 | `catalog`     |
+| `type`    | Hub backend type. Use `artifact` for `artifacthub-shim`.                                               | `artifact`    |
+| `catalog` | The catalog for pulling the resource. Use `catalog` for built-in Tasks.                                | `catalog`     |
 | `kind`    | Either task or pipeline.                                                                              | `task`        |
 | `name`    | The name of the task or pipeline to fetch from the hub.                                               | `git-cli`     |
 | `version` | The version of the task or pipeline to fetch from the hub. You must use quotes (") around the number. | `"0.4"`       |
@@ -63,6 +67,8 @@ spec:
     taskRef:
       resolver: hub
       params:
+      - name: type
+        value: artifact
       - name: catalog
         value: catalog
       - name: kind
@@ -87,6 +93,8 @@ spec:
   taskRef:
     resolver: hub
     params:
+    - name: type
+      value: artifact
     - name: catalog
       value: catalog
     - name: kind

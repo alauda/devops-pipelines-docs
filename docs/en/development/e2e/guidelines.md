@@ -114,7 +114,8 @@ Use component-specific tags to identify which part of the system is being tested
 - `@tektoncd-chains` - Tekton Chains component
 - `@tektoncd-results` - Tekton Results component
 - `@tektoncd-enhancement` - Enhancement features
-- `@hubs-wrapper` - Hubs wrapper functionality
+- `@artifacthub-shim` - DevOps Hub catalog compatibility provided by artifacthub-shim
+- `@hubs-wrapper` - Legacy Hubs wrapper functionality. Do not add new operator e2e coverage with this tag.
 - `@pac` - Pipeline as Code
 
 ### Test Type Tags
@@ -590,8 +591,8 @@ Put namespaced test data in dedicated testing namespaces unless the test objecti
 ✅ **Good** - Moving helper resources out of `default`:
 ```gherkin
 背景:
-    假定 命名空间 "testing-hubs-wrapper-<template.{{randNumeric 6}}>" 已存在
-    并且 已导入 "测试访问权限" 资源: "./testdata/hubs-wrapper/rbac.yaml"
+    假定 命名空间 "testing-artifacthub-shim-<template.{{randNumeric 6}}>" 已存在
+    并且 已导入 "测试访问权限" 资源: "./testdata/artifacthub-shim/rbac.yaml"
 ```
 
 This pattern allows the helper `ServiceAccount`, `RoleBinding`, `Secret`, and similar resources to be cleaned together with the testing namespace.
@@ -1234,4 +1235,3 @@ spec:
 - [Gherkin Syntax](https://cucumber.io/docs/gherkin/reference/) - Language reference
 - [AlaudaDevops BDD](https://github.com/AlaudaDevops/bdd) - BDD framework used in this project
 - [Allure Reports](https://docs.qameta.io/allure/) - Test reporting framework
-

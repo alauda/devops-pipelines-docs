@@ -188,7 +188,10 @@ Follow the catalog tagging strategy above for custom builds (minor-only tags plu
 
 #### Image Path
 
-It is recommended to uniformly use `/devops/tektoncd/hub/` as the image path prefix for convenient image management in the future.
+The current released catalog images still use `/devops/tektoncd/hub/`. Keep
+that prefix until the dedicated artifacthub-shim catalog ownership migration is
+scheduled; do not rename image repositories as part of the metadata-only
+artifacthub-shim migration.
 
 ### 5. Not Recommended to Specify `runAsUser` in Task Definitions that Support User Custom Images
 
@@ -265,21 +268,23 @@ For catalog contributors, we adopt the following conventions:
 
 - **ConfigMap location and labels**
 
-  - ConfigMaps that contain EJS overview templates MUST be stored under the [catalog](https://github.com/AlaudaDevops/catalog) repository's `config/catalog/` directory, and be shipped together with other catalog manifests.
+  - ConfigMaps that contain EJS overview templates MUST be stored under the [catalog](https://github.com/AlaudaDevops/catalog) repository's `config/templates/overview/` directory, and be shipped together with other catalog manifests.
   - Templates are deployed into the `kube-public` namespace so any dashboard instance can read them.
   - Each ConfigMap corresponds to one Task (and version) that owns the overview template and MUST carry the following labels so the UI can discover it:
 
     ```yaml
-    # config/catalog/sonarqube-scanner-0.5-overview-template.yaml
+    # config/templates/overview/sonarqube-scanner-0.5.yaml
     apiVersion: v1
     kind: ConfigMap
     metadata:
-      name: sonarqube-scanner-0.5-overview-template
+      name: sonarqube-scanner-0.5
       namespace: kube-public
       annotations:
         # keep namespace hardcoded to kube-public even when InstallerSets perform ReplaceNamespace
         operator.tekton.dev/preserve-namespace: "true"
+        artifacthub-shim.alauda.io/resource-policy: keep
       labels:
+        artifacthub-shim.alauda.io/import: "true"
         # task name
         style.tekton.dev/overview-template-task: sonarqube-scanner
         # task version

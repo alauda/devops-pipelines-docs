@@ -7,8 +7,9 @@ weight: 10
 ## Feature Overview
 
 Pipelines are reusable blocks for your CI/CD processes.
-When creating a pipeline run, you can specify a remote pipeline from the Catalog available on Hub.
-We supply a default Hub instance for you to use.
+When creating a pipeline run, you can specify a remote pipeline from the
+Catalog available on DevOps Hub. ACP DevOps serves the built-in Hub catalog
+through `artifacthub-shim`.
 
 ## Steps
 
@@ -29,8 +30,10 @@ spec:
   pipelineRef:
     resolver: hub
     params:
+    - name: type
+      value: artifact
     - name: catalog
-      value: catalog
+      value: catalog-pipelines
     - name: kind
       value: pipeline
     - name: name
@@ -42,7 +45,8 @@ spec:
 
 | Parameter | Description                                                                                           | Example value                  |
 |-----------|-------------------------------------------------------------------------------------------------------|--------------------------------|
-| `catalog` | The catalog for pulling the resource.                                                                 | `catalog`                      |
+| `type`    | Hub backend type. Use `artifact` for `artifacthub-shim`.                                               | `artifact`                     |
+| `catalog` | The catalog for pulling the resource. Use `catalog-pipelines` for built-in Pipelines.                  | `catalog-pipelines`           |
 | `kind`    | Either task or pipeline.                                                                              | `pipeline`                     |
 | `name`    | The name of the task or pipeline to fetch from the hub.                                               | `java-image-build-scan-deploy` |
 | `version` | The version of the task or pipeline to fetch from the hub. You must use quotes (") around the number. | `"0.1"`                        |
@@ -63,8 +67,10 @@ spec:
   pipelineRef:
     resolver: hub
     params:
+    - name: type
+      value: artifact
     - name: catalog
-      value: catalog
+      value: catalog-pipelines
     - name: kind
       value: pipeline
     - name: name

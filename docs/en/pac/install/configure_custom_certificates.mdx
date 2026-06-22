@@ -118,7 +118,9 @@ If you're using the `OpenShiftPipelinesAsCode` CR:
     spec:
       settings:
         application-name: Pipelines as Code CI
-        hub-url: http://tekton-hub-api.tekton-pipelines:8000/v1
+        hub-url: http://artifacthub-shim-api.artifacthub-shim-system.svc.cluster.local
+        hub-catalog-type: artifacthub
+        hub-catalog-name: catalog
       targetNamespace: tekton-pipelines  # Default namespace, you can customize this
       options:
         deployments:

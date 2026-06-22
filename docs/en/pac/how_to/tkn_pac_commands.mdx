@@ -265,7 +265,7 @@ Executes a pipeline run as if it is owned by the Pipelines as Code service. This
 
 The `resolve` command processes your PipelineRun definition and:
 - Replaces PAC variables (like `{{repo_url}}`, `{{revision}}`) with actual values
-- Resolves task annotations (fetches tasks from Tekton Hub if needed)
+- Resolves task annotations (fetches tasks from the configured DevOps Hub catalog if needed)
 - Validates the pipeline structure
 - Shows you what the final PipelineRun would look like
 

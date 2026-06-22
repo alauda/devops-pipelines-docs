@@ -16,7 +16,7 @@ Refer to the [catalog convention](./convention.md) and the existing `maven` proj
 
 ### 1. Initialize the Main Directory `task/maven/{version}/`
 
-> The directory name `task` is a convention of `TektonHub` and cannot be modified.
+> The directory name `task` is the catalog layout consumed by `artifacthub-shim` and cannot be modified.
 
 ```yaml
 ./task/maven/0.5
@@ -64,16 +64,17 @@ Pay special attention to the following areas:
     - Can be used to automatically update the image version numbers used in the `Task`
 
 :::tip
-Currently, only the `catalog` image build pipeline needs to configure `upstreams` for automatically updating the upstream `tektoncd-hub` repository.
-
-See the [Update catalog to hub process](#update_catalog_to_hub) below for details.
+The catalog image build pipeline now feeds the `artifacthub-shim` delivery
+path. Do not add new `tektoncd-hub` upstream update steps for ACP DevOps 4.13
+and later.
 :::
 
 c. Register new dependent images in `values.yaml`
 
 > The purpose of this file is to record all images that this component depends on in the product.
 >
-> This information will be automatically synchronized to `tektoncd-hub` -> `tektoncd-operator` as needed.
+> This information is packaged with the catalog and `artifacthub-shim` release
+> artifacts as needed.
 >
 > This will ultimately ensure that the `spec.relatedImages` field in the `ClusterServiceVersion` of `Tektoncd-Operator` contains this information.
 
@@ -102,15 +103,20 @@ global:
     - Manually trigger `e2e` integration test pipeline
 - Merge PR
     - Automatically triggers `catalog` image build pipeline
-    - Automatically triggers `tektoncd-hub` pipeline, automatically updates `values.yaml`
+    - Automatically triggers the `artifacthub-shim` packaging path as needed
 
-## Update Catalog to Hub Process \{#update_catalog_to_hub}
+## Update Catalog to artifacthub-shim Process \{#update_catalog_to_hub}
 
 The `catalog` image will contain all dependent `Task`s. It will automatically trigger the build pipeline when there are changes in the `task` directory.
 
-In its image build pipeline, there is a step called `upstreams` that is used to automatically update the upstream `tektoncd-hub` repository.
+The catalog repository must keep Artifact Hub annotations on formal
+Task/Pipeline/StepAction manifests and must mark synchronized ConfigMaps with
+`artifacthub-shim.alauda.io/import: "true"`. The release gate should run:
 
-It will actively trigger the upstream `tektoncd-hub` pipeline [hub-fetch-catalog-values](https://github.com/AlaudaDevops/tektoncd-hub/blob/main/.tekton/pr-catalog-update.yaml) when there are changes in the `main` and `release` branches to automatically fetch the latest configuration file `values.yaml`.
+```bash
+make verify-artifacthub-shim-metadata
+```
 
-The purpose of this step is to ensure that the `values.yaml` file in the `tektoncd-hub` repository also contains the latest dependent image information from `catalog`.
-
+The purpose of this gate is to ensure that `artifacthub-shim` can serve catalog
+resources and synchronize tool-image, overview-template, and mail-template
+ConfigMaps without relying on the old Tekton Hub runtime.

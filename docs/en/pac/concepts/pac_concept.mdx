@@ -80,7 +80,7 @@ PAC reads `PipelineRun` manifests from a `.tekton/` directory at the root of the
 - Any `.yaml` or `.yml` file under `.tekton/` is scanned. There can be more than one PipelineRun per file and more than one file per repository.
 - Manifests are read **from the ref the event was raised on** — a pull request reads the source branch, a push reads the pushed branch, a tag push reads the tag's ref.
 - Each `PipelineRun` is evaluated independently. A single event can produce zero, one, or several `PipelineRun`s depending on how many manifests match.
-- The standard `PipelineRun` shape applies; PAC simply adds annotations and variables on top. Tasks can be inline (`pipelineSpec`), referenced from an existing `Pipeline` in the cluster (`pipelineRef`), or resolved at submission time from Tekton Hub or a remote URL.
+- The standard `PipelineRun` shape applies; PAC simply adds annotations and variables on top. Tasks can be inline (`pipelineSpec`), referenced from an existing `Pipeline` in the cluster (`pipelineRef`), or resolved at submission time from the DevOps Hub catalog served by `artifacthub-shim` or a remote URL.
 
 ## Event lifecycle \{#how-it-works}
 
@@ -165,7 +165,7 @@ At the moment the `PipelineRun` is created, PAC expands a small set of placehold
 | `{{ pull_request_number }}` | PR / MR number, for pull request events |
 | `{{ git_auth_secret }}` | Name of the auto-created Secret carrying clone credentials for the run |
 
-PAC can also inline Task and Pipeline manifests at submission time — local files referenced through paths, Tekton Hub references via short names, or remote URLs. The resolver runs before the `PipelineRun` is created, so the resulting object is self-contained. See [PAC Resolver](../how_to/pac_resolver.mdx) for the syntax and the supported sources.
+PAC can also inline Task and Pipeline manifests at submission time — local files referenced through paths, DevOps Hub references via short names, or remote URLs. The resolver runs before the `PipelineRun` is created, so the resulting object is self-contained. See [PAC Resolver](../how_to/pac_resolver.mdx) for the syntax and the supported sources.
 
 ## Status reporting \{#status-reporting}
 

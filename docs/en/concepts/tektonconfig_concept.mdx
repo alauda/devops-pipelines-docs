@@ -14,7 +14,7 @@ TektonConfig is the top-level custom resource provided by the Tekton Operator th
 | TektonPipeline | Component that provides the core pipeline functionality for defining and running CI/CD workflows. |
 | TektonTrigger | Component that allows events to trigger pipeline executions. |
 | TektonChain | Component that provides supply chain security features like signing and verification. |
-| TektonHub | Component that hosts a catalog of reusable Tasks and Pipelines. |
+| DevOps Hub | Catalog experience for reusable Tasks and Pipelines. In current releases the runtime data source is the `artifacthub-shim` plugin, not a Tekton Operator-managed Tekton Hub runtime. |
 | TektonResult | Component that stores and enables querying of TaskRun and PipelineRun results. |
 | Profile | Configuration option that determines which components to install. |
 | Target Namespace | The namespace where Tekton components will be installed. |
@@ -131,11 +131,6 @@ spec:
   trigger:
     enable-api-fields: stable
 
-  hub:
-    params:
-      - name: enable-devconsole-integration
-        value: "false"
-
   result:
     enable: false
 
@@ -157,7 +152,7 @@ spec:
 3. **Component Configurations**: Specific settings for each component
    - **pipeline**: Configuration for the Pipeline controller
    - **trigger**: Configuration for the Triggers controller
-   - **hub**: Configuration for Tekton Hub
+   - **DevOps Hub catalog**: Provided by the separate `artifacthub-shim` plugin; configure resolver defaults under `pipeline.hub-resolver-config` when custom install locations are used.
    - **result**: Configuration for Tekton Results
    - **chain**: Configuration for Tekton Chains
 
@@ -208,9 +203,6 @@ spec:
 
   trigger:
     enable-api-fields: stable
-
-  hub:
-    enable: true
 
   result:
     enable: true

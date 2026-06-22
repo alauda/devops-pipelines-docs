@@ -17,6 +17,7 @@ For example, the Send Mail Task can render `subject`, `body`, and `contentType` 
 ## Prerequisites
 
 - Your Task supports `renderTemplateName` and `renderTemplateNamespace`.
+- `artifacthub-shim-extension` is installed and its template-render webhook is enabled.
 - The target template `ConfigMap` exists in the referenced namespace.
 - You are familiar with Go template (gotemplate) syntax.
 
@@ -56,9 +57,9 @@ Besides `.values`, the renderer also injects built-in variables:
 | Variable | Type | Description | Pipeline only |
 |---|---|---|---|
 | `platformURL` | string | Base URL of the platform. It is read from `data.platformURL` in the `global-info` ConfigMap under the `kube-public` namespace. For example: `https://devops.example.com`. | No |
-| `detailsURL` | string | URL to the run details page. For example: `https://devops.example.com/console-acp/workspace/demo~cluster-a~dev/pipeline/pipelineRuns/detail/pr-abc123`. To adjust this value, update `template-render.details-url-template` in [configure-tektoncd-enhancement-configmap](../../configure/configure-tektoncd-enhancement-configmap.mdx#2-parameter-reference-and-defaults). | No |
+| `detailsURL` | string | URL to the run details page. For example: `https://devops.example.com/console-acp/workspace/demo~cluster-a~dev/pipeline/pipelineRuns/detail/pr-abc123`. To adjust this value, update `extension.templateRender.detailsURLTemplate` in the `artifacthub-shim` chart values. | No |
 | `startsAt` | time | Start time of the current execution. | No |
-| `timeZone` | string | Global time zone configured for template rendering. The value must be the name of a valid [time zone](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). To adjust this value, update `template-render.time-zone` in [configure-tektoncd-enhancement-configmap](../../configure/configure-tektoncd-enhancement-configmap.mdx#2-parameter-reference-and-defaults). | No |
+| `timeZone` | string | Global time zone configured for template rendering. The value must be the name of a valid [time zone](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). To adjust this value, update `extension.templateRender.timeZone` in the `artifacthub-shim` chart values. | No |
 | `creator` | string | User who triggered the execution. | No |
 | `project` | string | Project name of the execution context. | No |
 | `cluster` | string | Cluster name of the execution context. | No |
@@ -161,14 +162,14 @@ spec:
 ### What is the default value of `timeZone`, and how can I change it?
 
 The default value is `UTC`.
-If you want to change it, update `template-render.time-zone` in [configure-tektoncd-enhancement-configmap](../../configure/configure-tektoncd-enhancement-configmap.mdx#2-parameter-reference-and-defaults).
+If you want to change it, update `extension.templateRender.timeZone` in the `artifacthub-shim` chart values.
 
 ### What should I do if `platformURL` or `detailsURL` is not as expected?
 
 `platformURL` is determined during cluster deployment.
 If it is not as expected, update `data.platformURL` in the `global-info` ConfigMap under the `kube-public` namespace.
 
-If `detailsURL` is not as expected, update `template-render.details-url-template` in [configure-tektoncd-enhancement-configmap](../../configure/configure-tektoncd-enhancement-configmap.mdx#2-parameter-reference-and-defaults).
+If `detailsURL` is not as expected, update `extension.templateRender.detailsURLTemplate` in the `artifacthub-shim` chart values.
 
 ### What is the difference between `renderTemplateValues` and built-in variables?
 
@@ -190,4 +191,3 @@ For example, `subject.tpl` becomes the `subject` param in TaskRun.
 Generally, only namespaces created via the UI automatically inject `project` and `cluster` variables.
 This is because they are retrieved from the `cpaas.io/cluster` and `cpaas.io/project` labels on the `Namespace` resource.
 You can also manually add these labels to the namespace yourself.
-
