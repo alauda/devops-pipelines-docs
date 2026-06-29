@@ -7,3 +7,6 @@
 - name: connectors
   base: /alauda-devops-connectors
   version: "1.10"
+- name: artifacthub-shim
+  base: /artifacthub-shim
+  version: "main"

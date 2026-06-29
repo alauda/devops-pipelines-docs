@@ -84,7 +84,7 @@ The `Alauda DevOps Pipelines` Operator provides the option to select which compo
 - **All**: This is the default preset used when installing the `TektonConfig` CR. This preset installs all Tekton components, including Tekton Pipelines, Tekton Triggers.
 
 :::note
-Starting from `v4.12.0`, the built-in `Tekton Hub` is not deployed by any preset by default — Tekton catalog artifacts are delivered by the platform's standalone `ArtifactHub` component instead. To deploy the built-in `Tekton Hub` as a transitional option, see [Enabling the Built-in Tekton Hub](./hub/configure/enabling-tekton-hub.mdx).
+Starting from `v4.12.0`, the built-in `Tekton Hub` is not deployed by any preset by default. Tekton catalog artifacts are delivered by the platform's standalone `ArtifactHub` component instead. For catalog publishing and consumption, see <ExternalSiteLink name="artifacthub-shim" href="/catalog/index.html" children="ArtifactHub Shim Catalog" />.
 :::
 
 **Channel quick reference**
@@ -393,4 +393,3 @@ After successfully installing the `Alauda DevOps Pipelines` Operator:
 - [Adjusting Optional Configuration Items of Subcomponents](../configure/customize_options)
 - [Configuring Resource Quotas for Pipeline Components](../configure/customize_tekton_pipeline)
 - [Regular Cleanup of TaskRun and PipelineRun Resources](../configure/pruner_resources)
-

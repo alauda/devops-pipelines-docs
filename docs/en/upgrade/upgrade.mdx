@@ -22,7 +22,7 @@ Before upgrading the `Alauda DevOps Pipelines` Operator, ensure you:
 ](../install.mdx#prerequisites).
 
 :::warning
-Starting from `v4.12.0`, the built-in `Tekton Hub` is no longer deployed by default. When you upgrade to `v4.12.0` or later, an existing built-in `Tekton Hub` deployment is **removed** by the operator. If you still rely on the built-in `Tekton Hub`, **record the catalog image before the upgrade**, then re-enable the hub and pin the catalog to that image after the upgrade. For details, see [Enabling the Built-in Tekton Hub](../hub/configure/enabling-tekton-hub.mdx).
+Starting from `v4.12.0`, the built-in `Tekton Hub` is no longer deployed by default. When you upgrade to `v4.12.0` or later, an existing built-in `Tekton Hub` deployment is **removed** by the operator. Migrate catalog publishing and consumption to the standalone `ArtifactHub` component before upgrading whenever possible. For details, see <ExternalSiteLink name="artifacthub-shim" href="/catalog/index.html" children="ArtifactHub Shim Catalog" />.
 :::
 
 ### Confirm Target Channel First

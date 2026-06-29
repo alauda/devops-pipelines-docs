@@ -85,8 +85,8 @@ For details about channel behavior and upgrade targeting, see [Upgrade Path](../
 
 - Starting from this release, the built-in `Tekton Hub` is **no longer deployed by default**, and future releases (including LTS versions) will not deploy it by default either. A new operator-level switch `AUTOINSTALL_TEKTONHUB` (default `"false"`) controls the behavior; the `TektonConfig` CRD/API is not changed.
 
-  - On **upgrade**, an environment that previously ran the built-in `Tekton Hub` will have it **removed**: with the switch off, the operator actively deletes the `TektonHub` CR. If you still rely on the built-in `Tekton Hub`, record the catalog image before the upgrade, then re-enable it afterwards. For details, see [Enabling the Built-in Tekton Hub](../hub/configure/enabling-tekton-hub.mdx).
-  - The operator bundle **no longer ships the catalog tool images** (`buildah`, `golang`, `maven`, and so on). The tool image versions referenced by the new catalog may therefore not exist in your environment, which is why pinning the catalog to the pre-upgrade catalog image is the recommended way to keep the built-in `Tekton Hub` working after an upgrade. For details, see [Pinning the Catalog to the Pre-Upgrade Image](../hub/configure/enabling-tekton-hub.mdx#pinning-the-catalog).
+  - On **upgrade**, an environment that previously ran the built-in `Tekton Hub` will have it **removed**: with the switch off, the operator actively deletes the `TektonHub` CR. Migrate catalog publishing and consumption to the standalone `ArtifactHub` component whenever possible. For catalog guidance, see <ExternalSiteLink name="artifacthub-shim" href="/catalog/index.html" children="ArtifactHub Shim Catalog" />.
+  - The operator bundle **no longer ships the catalog tool images** (`buildah`, `golang`, `maven`, and so on). Tool image inventory and catalog Task usage are documented with the standalone `ArtifactHub` component.
 
 ### Fixed Issues
 

@@ -97,7 +97,7 @@ After installing the Tekton Operator, you should verify that it's running proper
 The Tekton Operator uses custom resources to manage Tekton components.
 By default, the Operator will install Pipeline, Triggers, and Chains automatically.
 You can install Results, Pipelines-as-Code by creating these custom resources.
-Starting from `v4.12.0`, the built-in `Tekton Hub` is not installed by default; to deploy it as a transitional option, see [Enabling the Built-in Tekton Hub](../hub/configure/enabling-tekton-hub.mdx).
+Starting from `v4.12.0`, the built-in `Tekton Hub` is not installed by default. Catalog resources are delivered by the standalone `ArtifactHub` component; see <ExternalSiteLink name="artifacthub-shim" href="/catalog/index.html" children="ArtifactHub Shim Catalog" />.
 
 
 ### Verify Component Installation
