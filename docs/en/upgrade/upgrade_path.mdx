@@ -17,9 +17,9 @@ The `Alauda DevOps Pipelines` Operator follows specific upgrade path principles 
 
 ### Version Types
 
-- **LTS (Long-Term Support) versions**: `4.0.x`, `4.2.x`, `4.6.x`, `4.10.x` - Recommended for production environments
+- **LTS (Long-Term Support) versions**: `4.0.x`, `4.2.x`, `4.6.x`, `4.10.x`, `4.14.x` - Recommended for production environments
 - **Non-LTS (Short-term) versions**: `4.1.x`, `4.3.x`, `4.5.x`, `4.7.x`, `4.8.x`, `4.11.x`, `4.12.x` - For early feature access
-- **Release sequencing note**: `v4.9` is intentionally skipped. The next release after `v4.8` is `v4.10 (LTS)`.
+- **Release sequencing note**: `v4.9` and `v4.13` are intentionally skipped. The next release after `v4.8` is `v4.10 (LTS)`, and the next release after `v4.12` is `v4.14 (LTS)`.
 
 ### Upgrade Principles
 
@@ -33,6 +33,25 @@ The `Alauda DevOps Pipelines` Operator follows specific upgrade path principles 
 - **Component Cohesion**: All Tekton components are upgraded together to maintain compatibility
 
 ## Upgrade Paths
+### `Alauda DevOps Pipelines` v4.14
+
+The table below contains the upgrade paths covered by this release's regression testing.
+
+| Channel version | ACP version | Kubernetes version |
+| :-------------: | :---------: | :----------------: |
+|  pipelines-4.0  |     4.1     |        1.32        |
+|                 |     4.2     |        1.33        |
+|                 |     4.3     |        1.34        |
+|  pipelines-4.2  |     4.1     |        1.32        |
+|                 |     4.2     |        1.33        |
+| pipelines-4.10  |     4.1     |        1.32        |
+|                 |     4.2     |        1.33        |
+|                 |     4.3     |        1.34        |
+
+:::note
+`pipelines-4.6`, `pipelines-4.11`, and `pipelines-4.12` are still within their maintenance period when `v4.14.0` ships, and upgrading from them to `v4.14.x` is supported as well: `4.6.x (LTS)` through the LTS-to-LTS extended path, and the non-LTS `4.11.x` and `4.12.x` through the maintenance path. They are not listed in the table above because they were not part of this release's upgrade regression. See [Upgrade Path Guidelines](#upgrade-path-guidelines) for the testing status that applies to each path.
+:::
+
 ### `Alauda DevOps Pipelines` v4.12
 
 The table below contains the complete upgrade path.
@@ -200,7 +219,7 @@ Before initiating an upgrade, please ensure the following:
 2. **Component Health**: All Tekton components are in a `Ready` state.
 3. **Resource Availability**: The cluster has sufficient resources to support the upgrade process.
 
-## Upgrade Path Guidelines
+## Upgrade Path Guidelines \{#upgrade-path-guidelines}
 
 ### LTS-to-LTS Upgrade Paths
 
@@ -209,7 +228,7 @@ Upgrading between Long-Term Support (LTS) versions is recommended for production
 - **Primary Path**: **Previous LTS → Current LTS**
   - *Description*: A direct upgrade from the immediately preceding LTS version.
   - *Testing Status*: All patch versions tested; latest patch versions receive comprehensive regression testing.
-  - *Example*: `4.0.x (LTS)` → `4.2.x (LTS)`
+  - *Example*: `4.10.x (LTS)` → `4.14.x (LTS)`
 
 - **Extended Path**: **Up to two LTS versions back → Current LTS**
   - *Description*: A direct upgrade path skipping up to two intermediate LTS versions.

@@ -22,7 +22,11 @@ Before upgrading the `Alauda DevOps Pipelines` Operator, ensure you:
 ](../install.mdx#prerequisites).
 
 :::warning
-Starting from `v4.12.0`, the built-in `Tekton Hub` is no longer deployed by default. When you upgrade to `v4.12.0` or later, an existing built-in `Tekton Hub` deployment is **removed** by the operator. Migrate catalog publishing and consumption to the standalone `ArtifactHub` component before upgrading whenever possible. For details, see <ExternalSiteLink name="artifacthub-shim" href="/catalog/index.html" children="ArtifactHub Shim Catalog" />.
+Starting from `v4.12.0`, the built-in `Tekton Hub` is no longer deployed by default, and upgrading to `v4.12.0` or later **removes** an existing built-in `Tekton Hub` deployment. Starting from `v4.14.0`, the built-in `Tekton Hub` runtime is no longer shipped at all: the operator carries no Tekton Hub manifests and the `AUTOINSTALL_TEKTONHUB` switch is gone, so it cannot be re-enabled after the upgrade. Migrate catalog publishing and consumption to <ExternalSiteLink name="artifacthub-shim" href="/" children="ArtifactHub Shim" /> before upgrading. For catalog details, see <ExternalSiteLink name="artifacthub-shim" href="/catalog/index.html" children="ArtifactHub Shim Catalog" />.
+:::
+
+:::note
+Starting from `v4.14.0`, legacy `TektonHub` custom catalog settings are automatically migrated to <ExternalSiteLink name="artifacthub-shim" href="/" children="ArtifactHub Shim" /> before the old Tekton Hub runtime is cleaned up. The operator reads `TektonHub.spec.catalogs[]` and the old `tekton-hub-api` ConfigMap `CATALOGS` data, then creates `artifacthub-shim-legacy-tekton-hub-catalogs` in the ArtifactHub Shim namespace. The migration does not fetch `TektonHub.spec.api.hubConfigUrl`. For details about migrated repository configuration, see <ExternalSiteLink name="artifacthub-shim" href="/how_to/configure_custom_git_repositories.mdx" children="Configure Custom Git Repositories" />.
 :::
 
 ### Confirm Target Channel First
@@ -31,7 +35,7 @@ Before you approve an upgrade, confirm which channel your `Subscription` uses:
 
 - `stable` (default): Tracks LTS releases only, recommended for production.
 - `latest`: Tracks all releases, including non-LTS.
-- `pipelines-4.10`: Tracks patch updates in the `v4.10` LTS line only.
+- `pipelines-4.14`: Tracks patch updates in the `v4.14` LTS line only. A `pipelines-x.y` channel exists for every LTS version, so `pipelines-4.10` still tracks the previous LTS line.
 
 :::warning
 If you are currently on a non-LTS version in `latest`, switching to `stable` does not downgrade. You might stay on the current version without a new upgrade prompt until a newer LTS is published.
@@ -114,7 +118,7 @@ You can also upgrade the `Alauda DevOps Pipelines` Operator using the command li
      ```bash
      $ kubectl patch subscriptions.operators.coreos.com tektoncd-operator --type merge -p '{"spec":{"channel": "<target-channel>"}}' -n tekton-operator
      ```
-     Replace `<target-channel>` with the desired channel (e.g., `stable`, `latest`, `pipelines-4.10`).
+     Replace `<target-channel>` with the desired channel (e.g., `stable`, `latest`, `pipelines-4.14`).
 
 3. **Wait for UpgradePending State**
    - Monitor the subscription status until it shows `UpgradePending`:
@@ -196,6 +200,39 @@ After the upgrade completes successfully:
 3. **Update Custom Resources if Needed**
    - If the new version introduces changes to CRDs, you may need to update your custom resources
    - Refer to the release notes for specific migration steps
+
+### Verify migrated TektonHub custom catalogs
+
+If the cluster had `TektonHub.spec.catalogs[]` or custom `CATALOGS` data in the old `tekton-hub-api` ConfigMap, verify that the generated ArtifactHub Shim repository ConfigMap exists:
+
+```bash
+kubectl get configmap artifacthub-shim-legacy-tekton-hub-catalogs \
+  -n artifacthub-shim-system \
+  -o yaml
+```
+
+If ArtifactHub Shim is installed in a different namespace, use the namespace in `TektonConfig.spec.pipeline.hub-resolver-config.artifact-hub-api`. For the repository ConfigMap format and credential options, see <ExternalSiteLink name="artifacthub-shim" href="/how_to/configure_custom_git_repositories.mdx" children="Configure Custom Git Repositories" />.
+
+Generated entries use this naming pattern:
+
+| Legacy catalog | Generated kind | Generated ArtifactHub Shim repository |
+| --- | --- | --- |
+| `<catalog>` | `task` | `<catalog>` |
+| `<catalog>` | `pipeline` | `<catalog>-pipelines` |
+| `<catalog>` | `stepaction` | `<catalog>-stepactions` |
+
+The generated entries set `optional: true`. Pipeline and StepAction entries set `legacyCatalogAliases: ["<catalog>"]`, so old hub resolver references can keep using the original catalog name while new references should use the generated canonical repository names.
+
+If the legacy SSH Secret existed, verify the copied Secret:
+
+```bash
+kubectl get secret artifacthub-shim-legacy-tekton-hub-ssh-creds \
+  -n artifacthub-shim-system
+```
+
+The copied Secret is normalized for ArtifactHub Shim and contains `sshPrivateKey` plus `known_hosts`. If the legacy Secret does not include `known_hosts`, has no private key, or has multiple private key candidates such as both `id_rsa` and `id_ed25519`, the operator leaves the migrated SSH catalog without `credentialRef`. The ArtifactHub Shim source will then report the Git credential problem during refresh.
+
+The operator skips entries that conflict with existing ArtifactHub Shim repositories or aliases, and it does not overwrite a same-name ConfigMap or Secret that was not generated by this migration. Review the operator logs if an expected migrated catalog is missing.
 
 ## Rollback Procedure
 

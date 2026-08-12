@@ -84,14 +84,14 @@ The `Alauda DevOps Pipelines` Operator provides the option to select which compo
 - **All**: This is the default preset used when installing the `TektonConfig` CR. This preset installs all Tekton components, including Tekton Pipelines, Tekton Triggers.
 
 :::note
-Starting from `v4.12.0`, the built-in `Tekton Hub` is not deployed by any preset by default. Tekton catalog artifacts are delivered by the platform's standalone `ArtifactHub` component instead. For catalog publishing and consumption, see <ExternalSiteLink name="artifacthub-shim" href="/catalog/index.html" children="ArtifactHub Shim Catalog" />.
+Starting from `v4.14.0`, the built-in `Tekton Hub` is no longer shipped and cannot be deployed by any preset. Tekton catalog artifacts are delivered by the platform's standalone `ArtifactHub` component instead. For catalog publishing and consumption, see <ExternalSiteLink name="artifacthub-shim" href="/catalog/index.html" children="ArtifactHub Shim Catalog" />.
 :::
 
 **Channel quick reference**
 
 - `stable` (default): Installs the latest LTS version. Recommended for production environments.
 - `latest`: Installs the latest available version, including non-LTS releases. Recommended for development and testing environments.
-- `pipelines-4.10`: Locks upgrades to `v4.10.z` patch releases only.
+- `pipelines-4.14`: Locks upgrades to `v4.14.z` patch releases only. A `pipelines-x.y` channel is published for every LTS version, so `pipelines-4.10` remains available for the previous LTS line.
 
 **Steps**
 
@@ -145,7 +145,7 @@ Starting from `v4.12.0`, the built-in `Tekton Hub` is not deployed by any preset
   tektonchain.operator.tekton.dev/chain   v0.23.0-927681d   True
   ```
 
-  If you have enabled the built-in `Tekton Hub` (not deployed by default since `v4.12.0`), also check its status with `kubectl get tektonhub`.
+  The built-in `Tekton Hub` is not part of this release, so there is no `tektonhub` resource to check.
 
 ### Installing Alauda DevOps Pipelines Using CLI
 
@@ -171,7 +171,7 @@ spec:
 ```
 
 <Callouts>
-  1. The channel name you want to subscribe to. `stable` is the default and installs the latest LTS version. Use `latest` to receive every release, or `pipelines-4.10` to stay on `v4.10.z` patch updates.
+  1. The channel name you want to subscribe to. `stable` is the default and installs the latest LTS version. Use `latest` to receive every release, or `pipelines-4.14` to stay on `v4.14.z` patch updates.
   2. The name of the Operator to subscribe to.
   3. The name of the `CatalogSource` object providing the Operator.
   4. The namespace of the `CatalogSource` object. This may vary depending on your cluster configuration.

@@ -54,7 +54,7 @@ spec:
 ### 1. Choose the cadence and time zone
 
 - Use standard cron syntax (minute hour day-of-month month day-of-week). Example: `15 1 * * 1-5` runs at 01:15 Monday through Friday.
-- Set `spec.timeZone` to an Olson time zone string (for example `Europe/Paris`). If omitted, the controller uses its own time zone.
+- Set `spec.timeZone` to an Olson time zone string (for example `Europe/Paris`). If omitted, the controller renders in its own time zone (UTC by default — see [Time Zone Resolution for Context Parameters](#time-zone-resolution-for-context-parameters)).
 - Prefer explicit time zones when business hours differ from the cluster default or when daylight-saving changes matter.
 
 ### 2. Point to the TriggerTemplate
@@ -97,6 +97,48 @@ kubectl describe scheduledtrigger <scheduled-trigger-name> -n <namespace>
 Check the `LAST SCHEDULETIME` column (or the `.status.lastScheduleTime` field) to confirm the controller is firing. Kubernetes events surfaced by `kubectl describe` will indicate successful runs or scheduling errors (for example invalid cron expressions or missing templates).
 
 If executions still do not start as expected, review the [ScheduledTrigger troubleshooting guide](../trouble_shooting/scheduledtrigger_not_triggered) for detailed investigation steps.
+
+## Time Zone Resolution for Context Parameters \{#time-zone-resolution-for-context-parameters}
+
+The `$(context.date)` and `$(context.datetime)` placeholders are rendered using the schedule's effective time zone. The same effective zone is used both to evaluate the cron `schedule` and to render the placeholders, so a trigger's firing time and its injected timestamps always agree. The zone is resolved in this order:
+
+1. **`spec.timeZone`** on the ScheduledTrigger, when set. This takes precedence over everything else and is the recommended way to control an individual trigger.
+2. **The controller's process time zone**, when `spec.timeZone` is omitted.
+3. **UTC**, which is the controller's default out of the box.
+
+For example, with no `spec.timeZone` and the default controller zone, `$(context.datetime)` resolves to a UTC timestamp such as `2025-11-25T07:42:00Z`.
+
+### Set the controller default time zone cluster-wide
+
+Out of the box the ScheduledTrigger controller runs in **UTC**. To change the default for every ScheduledTrigger that does not set its own `spec.timeZone`, inject a `TZ` environment variable into the controller through `TektonConfig` options. The operator applies this additively and does not revert it on reconcile:
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  pipeline:
+    options:
+      deployments:
+        tektoncd-enhancement-controller:
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: manager
+                    env:
+                      - name: TZ
+                        value: Asia/Shanghai
+```
+
+After you apply the change, the operator rolls out the controller. Subsequent runs render the context placeholders in the configured zone — for example `$(context.datetime)` becomes `2025-11-25T15:42:00+08:00` for `Asia/Shanghai`.
+
+:::note
+- Editing the controller Deployment directly (for example with `kubectl set env`) is reverted by the operator within minutes. Always configure `TZ` through `TektonConfig` so the change is persistent.
+- A per-trigger `spec.timeZone` always overrides this cluster-wide default. Prefer `spec.timeZone` for individual schedules and reserve the controller `TZ` for setting an organization-wide default.
+- `TZ` accepts IANA/Olson time zone names (for example `UTC`, `Asia/Shanghai`, `Asia/Kolkata`). An invalid name leaves the controller on its previous zone.
+:::
 
 ## Managing ScheduledTrigger Over Time
 

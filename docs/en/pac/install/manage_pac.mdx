@@ -26,33 +26,44 @@ Before managing PAC, ensure you have:
 
 ## Deploy PAC Component \{#deploy-pac-component}
 
-Create the `OpenShiftPipelinesAsCode` CR to deploy PAC. The examples use the default PAC namespace `tekton-pipelines`; replace it in the commands and manifests if you set a different `targetNamespace`.
+PAC is deployed by the Tekton Operator through the cluster-scoped `TektonConfig` CR named `config`. On the default `spec.profile: all` the operator derives an `OpenShiftPipelinesAsCode` CR from it and keeps that CR in sync, so `TektonConfig` is the only resource you edit. This guide assumes that profile; on `basic` or `lite` the operator does not reconcile PAC at all, and any `OpenShiftPipelinesAsCode` CR on the cluster is yours to manage directly — see [How the Operator Manages PAC](#how-the-operator-manages-pac). The examples use the default PAC namespace `tekton-pipelines`; replace it in the commands and manifests if your `TektonConfig.spec.targetNamespace` is different.
 
-Create a YAML file named `pac.yaml`:
+Enable PAC and set its configuration under `spec.platforms.kubernetes.pipelinesAsCode`:
 
     ```yaml
     apiVersion: operator.tekton.dev/v1alpha1
-    kind: OpenShiftPipelinesAsCode
+    kind: TektonConfig
     metadata:
-      name: pipelines-as-code
+      name: config
     spec:
-      settings:
-        application-name: Pipelines as Code CI
-        hub-url: http://artifacthub-shim-api.artifacthub-shim-system.svc.cluster.local
-        hub-catalog-type: artifacthub
-        hub-catalog-name: catalog
-        remote-tasks: "true"
-        secret-auto-create: "true"
+      profile: all
       targetNamespace: tekton-pipelines  # Default namespace, you can customize this
+      platforms:
+        kubernetes:
+          pipelinesAsCode:
+            enable: true
+            settings:
+              application-name: Pipelines as Code CI
+              hub-url: http://artifacthub-shim-api.artifacthub-shim-system.svc.cluster.local
+              hub-catalog-type: artifacthub
+              hub-catalog-name: catalog
+              remote-tasks: "true"
+              secret-auto-create: "true"
     ```
 
-Apply the CR to your cluster:
+Apply the change:
 
     ```bash
-    kubectl apply -f pac.yaml
+    kubectl edit tektonconfig config
     ```
 
-Check the `OpenShiftPipelinesAsCode` CR status:
+:::warning Use `platforms.kubernetes`, not `platforms.openshift`
+
+The operator rejects anything under `spec.platforms.openshift` — `pipelinesAsCode` and `scc` alike — with a validation error. If an older configuration still carries that subtree, remove it before applying.
+
+:::
+
+Check the derived `OpenShiftPipelinesAsCode` CR status:
 
     ```bash
     kubectl get openshiftpipelinesascodes.operator.tekton.dev
@@ -81,6 +92,14 @@ Example output (the `controller`, `watcher`, and `webhook` pods must be `Running
     ```
 
 Three pods (`controller`, `watcher`, `webhook`) must be `Running`.
+
+### How the Operator Manages PAC \{#how-the-operator-manages-pac}
+
+Three consequences follow from `TektonConfig` owning the PAC deployment. They explain most of the surprises in the rest of this guide:
+
+- **`spec.profile` must be `all`.** The `TektonConfig` the operator creates for you uses `all`, so this normally holds. On `profile: basic` — the value applied when a hand-written `TektonConfig` leaves the field empty — or on `profile: lite`, the reconciler returns before it reaches the PAC section. Nothing under `pipelinesAsCode` is acted on: PAC is neither installed nor removed, and an `OpenShiftPipelinesAsCode` CR that already exists is left untouched.
+- **The `OpenShiftPipelinesAsCode` CR is derived, not authored.** On `profile: all` with PAC enabled the operator creates that CR, sets an owner reference to `TektonConfig`, and on every reconcile copies `targetNamespace`, `config`, `settings`, `options` and `additionalPACControllers` back over from `TektonConfig`. Editing any of those fields on the derived CR is not an error, but the next reconcile overwrites the change. Read the CR for troubleshooting; write to `TektonConfig`.
+- **Deleting the derived CR does not uninstall PAC.** As long as `profile` is `all` and PAC is still enabled, the next reconcile recreates it. Setting `enable: false` is what makes the operator remove it and keep it removed — see [Uninstall PAC Component](#uninstall-pac-component).
 
 ### Enable Repository UI Feature \{#enable-repository-ui-feature}
 
@@ -293,7 +312,7 @@ After the domain is reachable from the Git provider network, print the URL:
     WEBHOOK_URL=http://pac.example.com
     ```
 
-`WEBHOOK_URL` is the PAC webhook URL. Record this value in `pipelines-as-code-info.data.controller-url` through `OpenShiftPipelinesAsCode` or `TektonConfig`; see [Get the PAC Webhook URL](../how_to/get_pac_webhook_url.mdx#record-the-webhook-url). Use the same value when manually configuring a Git provider webhook or when `tkn pac create repo` prompts for a webhook URL.
+`WEBHOOK_URL` is the PAC webhook URL. Record this value in `pipelines-as-code-info.data.controller-url` through `TektonConfig`; see [Get the PAC Webhook URL](../how_to/get_pac_webhook_url.mdx#record-the-webhook-url). Use the same value when manually configuring a Git provider webhook or when `tkn pac create repo` prompts for a webhook URL.
 
 If you expose PAC through ACP ALB or another Ingress Controller instead, use [Using Ingress](#using-ingress-http).
 
@@ -370,7 +389,7 @@ Expected result:
     echo "WEBHOOK_URL=http://${HOST}"
     ```
 
-`WEBHOOK_URL` is the PAC webhook URL. Record this value in `pipelines-as-code-info.data.controller-url` through `OpenShiftPipelinesAsCode` or `TektonConfig`; see [Get the PAC Webhook URL](../how_to/get_pac_webhook_url.mdx#record-the-webhook-url). Use the same value when manually configuring a Git provider webhook or when `tkn pac create repo` prompts for a webhook URL.
+`WEBHOOK_URL` is the PAC webhook URL. Record this value in `pipelines-as-code-info.data.controller-url` through `TektonConfig`; see [Get the PAC Webhook URL](../how_to/get_pac_webhook_url.mdx#record-the-webhook-url). Use the same value when manually configuring a Git provider webhook or when `tkn pac create repo` prompts for a webhook URL.
 
 If you do not have a DNS name, remove the `host` field and use the reachable Ingress IP URL instead.
 
@@ -454,11 +473,15 @@ Print the URL from a reachable node IP and the generated NodePort:
     echo "WEBHOOK_URL=http://${NODE_IP}:${NODEPORT}"
     ```
 
-`WEBHOOK_URL` is the PAC webhook URL. Record this value in `pipelines-as-code-info.data.controller-url` through `OpenShiftPipelinesAsCode` or `TektonConfig`; see [Get the PAC Webhook URL](../how_to/get_pac_webhook_url.mdx#record-the-webhook-url). Use the same value when manually configuring a Git provider webhook or when `tkn pac create repo` prompts for a webhook URL.
+`WEBHOOK_URL` is the PAC webhook URL. Record this value in `pipelines-as-code-info.data.controller-url` through `TektonConfig`; see [Get the PAC Webhook URL](../how_to/get_pac_webhook_url.mdx#record-the-webhook-url). Use the same value when manually configuring a Git provider webhook or when `tkn pac create repo` prompts for a webhook URL.
 
 ### Configuration Settings \{#configuration-settings}
 
-You can customize PAC behavior through the `settings` field in the `OpenShiftPipelinesAsCode` CR:
+PAC configuration lives in two different places under `spec.platforms.kubernetes.pipelinesAsCode`: `settings` and `options.configMaps`. Which one you must use depends on the key. Read [Where to Put Each Setting](#where-to-put-each-setting) before editing, because a key written in the wrong place is dropped without any error.
+
+#### Standard Settings \{#standard-settings}
+
+These keys go under `pipelinesAsCode.settings`:
 
 | Setting | Description | Default |
 |---------|-------------|---------|
@@ -468,74 +491,147 @@ You can customize PAC behavior through the `settings` field in the `OpenShiftPip
 | `hub-catalog-name` | Default Artifact Hub repository name for PAC remote annotations | `catalog` |
 | `remote-tasks` | Enable remote task resolution | `true` |
 | `secret-auto-create` | Automatically create secrets | `true` |
-| `error-detection-from-container-logs` | Detect errors from container logs | `false` |
+| `error-detection-from-container-logs` | Detect errors from container logs. GitHub Apps only | `true` |
 | `error-log-snippet` | Show error log snippets | `true` |
 | `custom-console-name` | Display name for custom console links in Git provider UI | `` (empty) |
-| `custom-console-url` | Base URL for custom console (e.g., OpenShift Console) | `` (empty) |
-| `custom-console-url-pr-details` | URL template for PR/MR details page. Supports variables: `{{namespace}}`, `{{pipelinerun}}` | `` (empty) |
-| `custom-console-url-pr-tasklog` | URL template for PR/MR task log page. Supports variables: `{{namespace}}`, `{{pipelinerun}}`, `{{taskrun}}` | `` (empty) |
-| `custom-console-url-namespace` | URL template for namespace page. Supports variable: `{{namespace}}` | `` (empty) |
-| `custom-console-url-namespace-vars` | Extra template variables resolved from the PipelineRun namespace labels or annotations, for example `{{ project }}` and `{{ cluster }}` | `` (empty) |
+| `custom-console-url` | Console base URL. Used verbatim; template variables are **not** expanded in this key | `` (empty) |
+| `custom-console-url-pr-details` | URL template for the PipelineRun details page. Supports `{{ namespace }}`, `{{ pr }}` | `` (empty) |
+| `custom-console-url-pr-tasklog` | URL template for the task log page. Supports `{{ namespace }}`, `{{ pr }}`, `{{ task }}` | `` (empty) |
+| `custom-console-url-namespace` | URL template for the namespace page. Supports `{{ namespace }}` | `` (empty) |
 
 **`hub-url`** addresses the Hub backend the PAC controller queries when resolving remote tasks. ACP DevOps defaults this to the in-cluster `artifacthub-shim` Service. For Artifact Hub providers, do not append `/api/v1`; PAC adds that path internally.
 
-**`custom-console-*`** settings rewrite the cluster-side links PAC posts back to the Git provider so they point at the platform console rather than at the OpenShift Console. `custom-console-url-namespace-vars` can add variables resolved from namespace labels or annotations. The walkthrough is in [Configure Custom Console Links](#configure-custom-console-links).
+**`custom-console-*`** settings rewrite the cluster-side links PAC posts back to the Git provider so they point at the platform console rather than at the OpenShift Console. The walkthrough is in [Configure Custom Console Links](#configure-custom-console-links).
+
+#### Alauda Extension Settings \{#alauda-extension-settings}
+
+These keys are Alauda additions on top of upstream Pipelines as Code. They must go under `pipelinesAsCode.options.configMaps`, **not** under `pipelinesAsCode.settings`:
+
+| Setting | Description | Default |
+|---------|-------------|---------|
+| `custom-console-url-namespace-vars` | Extra template variables for the `custom-console-url-*` templates, resolved from the labels or annotations of the namespace the run belongs to, for example `{{ project }}` and `{{ cluster }}` | `` (empty) |
+| `replace-empty-template-vars-with-empty` | Replace template variables that have no value (such as `{{ pull_request_number }}` on a push event) with an empty string instead of leaving the literal `{{ ... }}` in the PipelineRun | `false` |
+| `enable-pull-request-number-on-push-events` | Populate `{{ pull_request_number }}` on push events when the pushed commit belongs to a pull request. GitHub only | `true` |
+
+Walkthroughs: [Configure Custom Console Links](#configure-custom-console-links) for `custom-console-url-namespace-vars`, and [Configure Pull Request Number on Push Events](#configure-pull-request-number-on-push-events) for the other two.
+
+#### Where to Put Each Setting \{#where-to-put-each-setting}
+
+The two locations are handled by completely different code paths in the operator:
+
+- **`settings`** is not stored as you write it. The operator's defaulting webhook parses your map into the upstream Pipelines as Code settings struct and then regenerates the map from that struct. Any key that has no matching field in the struct — which is the case for every Alauda extension setting listed above — is silently discarded: `TektonConfig` loses the key, the derived `OpenShiftPipelinesAsCode` CR never sees it, the generated `pipelines-as-code` ConfigMap never receives it, and no error or event is reported.
+- **`options.configMaps`** is applied by the additional-options transformer, which is the last transformer to run and merges your entries into the rendered ConfigMap key by key. Nothing rewrites this map afterwards, so any key survives — including keys the operator does not know about.
+
+Three consequences worth remembering:
+
+- Put upstream keys under `settings` and Alauda extension keys under `options.configMaps`. Do not move upstream keys into `options` without reason: `settings` is the documented, validated location for them.
+- If the same key is set in both places, the `options.configMaps` value wins, because that transformer runs after the settings-derived ConfigMap has been rendered.
+- Setting `options.disabled: true` turns the whole transformer off. Everything under `options` is then ignored, including these settings, and you are back to the silent-drop behavior. Leave it unset or `false`.
+
+`options.configMaps` is a map keyed by ConfigMap name — it can target any ConfigMap in the component's manifest, and creates one if the name does not exist there. PAC reads its settings from the ConfigMap named `pipelines-as-code`, so that is the key to use here:
+
+    ```yaml
+    apiVersion: operator.tekton.dev/v1alpha1
+    kind: TektonConfig
+    metadata:
+      name: config
+    spec:
+      profile: all
+      targetNamespace: tekton-pipelines
+      platforms:
+        kubernetes:
+          pipelinesAsCode:
+            enable: true
+            options:
+              disabled: false
+              configMaps:
+                pipelines-as-code:
+                  data:
+                    custom-console-url-namespace-vars: "project=label:cpaas.io/project,cluster=label:cpaas.io/cluster"
+    ```
+
+Verify that the key reached the ConfigMap. This is the only reliable check — reading it back from `settings` does not tell you whether PAC received it:
+
+    ```bash
+    kubectl get configmap pipelines-as-code -n tekton-pipelines \
+      -o jsonpath='{.data.custom-console-url-namespace-vars}'
+    ```
 
 ## Update PAC Component \{#update-pac-component}
 
 ### Update Configuration \{#update-configuration}
 
-1. Edit the `OpenShiftPipelinesAsCode` CR:
+1. Edit the `TektonConfig` CR:
 
     ```bash
-    kubectl edit openshiftpipelinesascodes.operator.tekton.dev pipelines-as-code
+    kubectl edit tektonconfig config
     ```
 
 2. Update the `settings` field as needed:
 
     ```yaml
     spec:
-      settings:
-        application-name: "My Custom PAC"
-        hub-url: http://artifacthub-shim-api.artifacthub-shim-system.svc.cluster.local
-        hub-catalog-type: artifacthub
-        hub-catalog-name: catalog
-        remote-tasks: "true"
-        error-detection-from-container-logs: "true"
+      platforms:
+        kubernetes:
+          pipelinesAsCode:
+            enable: true
+            settings:
+              application-name: "My Custom PAC"
+              hub-url: http://artifacthub-shim-api.artifacthub-shim-system.svc.cluster.local
+              hub-catalog-type: artifacthub
+              hub-catalog-name: catalog
+              remote-tasks: "true"
+              error-detection-from-container-logs: "true"
     ```
 
-3. Save and exit. The operator will automatically update the TektonInstallerSet and apply the changes.
+    To change one of the [Alauda extension settings](#alauda-extension-settings), edit `pipelinesAsCode.options.configMaps` instead — those keys are removed from `settings` on save.
+
+3. Save and exit. The operator updates the derived `OpenShiftPipelinesAsCode` CR, then the TektonInstallerSet, and applies the changes.
+
+Do not edit the derived `OpenShiftPipelinesAsCode` CR instead: on `profile: all` the operator copies `settings` and `options` back over from `TektonConfig` on the next reconcile, so the change is lost. See [How the Operator Manages PAC](#how-the-operator-manages-pac).
 
 ### Common Configuration Updates \{#common-configuration-updates}
 
-The examples in this section update the `spec.settings` field of the `OpenShiftPipelinesAsCode` CR named `pipelines-as-code`.
+The examples in this section update `spec.platforms.kubernetes.pipelinesAsCode` in the `TektonConfig` named `config`. Each example shows the field it belongs in — most use `settings`, and the Alauda extension settings use `options.configMaps`. See [Where to Put Each Setting](#where-to-put-each-setting) if you are unsure which applies.
 
     ```bash
-    kubectl edit openshiftpipelinesascodes.operator.tekton.dev pipelines-as-code
+    kubectl edit tektonconfig config
     ```
 
 #### Configure Custom Console Links \{#configure-custom-console-links}
 
-The `custom-console-*` settings rewrite the cluster-side links PAC posts back to the Git provider so they point at the platform console. The example below resolves `{{ project }}` and `{{ cluster }}` from namespace labels, so the URLs do not hard-code a cluster identifier:
+The `custom-console-*` settings rewrite the cluster-side links PAC posts back to the Git provider so they point at the platform console. The example below resolves `{{ project }}` and `{{ cluster }}` from namespace labels, so the URLs do not hard-code a cluster identifier.
+
+Note that the three templated keys live under `settings`, while `custom-console-url-namespace-vars` must live under `options.configMaps` — see [Where to Put Each Setting](#where-to-put-each-setting):
 
     ```yaml
     spec:
       targetNamespace: tekton-pipelines
-      settings:
-        custom-console-name: "My Console"
-        custom-console-url-namespace-vars: "project=label:cpaas.io/project,cluster=label:cpaas.io/cluster"
-        custom-console-url: "https://console.example.com/console-acp/workspace/{{ project }}~{{ cluster }}~{{ namespace }}/pipeline/pipelineRuns/"
-        custom-console-url-pr-details: "https://console.example.com/console-acp/workspace/{{ project }}~{{ cluster }}~{{ namespace }}/pipeline/pipelineRuns/detail/{{ pr }}"
-        custom-console-url-pr-tasklog: "https://console.example.com/console-acp/workspace/{{ project }}~{{ cluster }}~{{ namespace }}/pipeline/pipelineRuns/detail/{{ pr }}?tab=task_overview&id={{ task }}"
-        custom-console-url-namespace: "https://console.example.com/console-acp/workspace/{{ project }}~{{ cluster }}~{{ namespace }}/pipeline/pipelineRuns"
-      options:
-        configMaps:
-          pipelines-as-code:
-            data:
-              replace-empty-template-vars-with-empty: "true"
+      platforms:
+        kubernetes:
+          pipelinesAsCode:
+            enable: true
+            settings:
+              custom-console-name: "My Console"
+              custom-console-url: "https://console.example.com/console-acp/"
+              custom-console-url-pr-details: "https://console.example.com/console-acp/workspace/{{ project }}~{{ cluster }}~{{ namespace }}/pipeline/pipelineRuns/detail/{{ pr }}"
+              custom-console-url-pr-tasklog: "https://console.example.com/console-acp/workspace/{{ project }}~{{ cluster }}~{{ namespace }}/pipeline/pipelineRuns/detail/{{ pr }}?tab=task_overview&id={{ task }}"
+              custom-console-url-namespace: "https://console.example.com/console-acp/workspace/{{ project }}~{{ cluster }}~{{ namespace }}/pipeline/pipelineRuns"
+            options:
+              disabled: false
+              configMaps:
+                pipelines-as-code:
+                  data:
+                    custom-console-url-namespace-vars: "project=label:cpaas.io/project,cluster=label:cpaas.io/cluster"
     ```
 
 Effect: Git provider status links open the platform console PipelineRun and task pages instead of the default OpenShift-style placeholder URLs.
+
+:::warning `custom-console-url` is not a template
+
+Only `custom-console-url-pr-details`, `custom-console-url-pr-tasklog` and `custom-console-url-namespace` go through template expansion. PAC returns `custom-console-url` verbatim, so writing `{{ ... }}` in it produces a broken link. Keep it a plain URL: it is the console entry point and also the value PAC falls back to whenever a templated URL fails to build.
+
+:::
 
 PAC expands these variables when it posts status links:
 
@@ -543,15 +639,27 @@ PAC expands these variables when it posts status links:
 |---|---|
 | `{{ namespace }}` | Namespace where the `PipelineRun` runs |
 | `{{ pr }}` | `PipelineRun` name |
-| `{{ task }}` | `TaskRun` name within the `PipelineRun` |
+| `{{ task }}` | Pipeline task name — the `name` of the entry under `spec.pipelineSpec.tasks`, not the generated `TaskRun` resource name |
+| `{{ pod }}` and `{{ firstFailedStep }}` | Pod name and the name of the first failed step. Use them only in `custom-console-url-pr-tasklog` — that is the only place PAC fills them in, and since they are never cleared afterwards, the other two templates get either an empty value or a stale one left over from an earlier task-log link |
 | `{{ project }}` and `{{ cluster }}` | Namespace labels declared in `custom-console-url-namespace-vars` |
 
-`custom-console-url-namespace-vars` is a comma-separated list. Each item uses `name=label:<key>` or `name=annotation:<key>`, with an optional `|<default>` fallback:
+The standard event variables (`{{ revision }}`, `{{ repo_url }}` and the rest) are also available in these templates, as are the `Repository` `spec.params` entries that resolved for this event — an entry with no name, or with a CEL `filter` that did not match, is not passed through. The five builtin names above always win: a namespace variable or a `Repository` parameter that reuses one of them is ignored rather than overriding it.
+
+`custom-console-url-namespace-vars` is a comma-separated list. Each item uses `name=label:<key>` or `name=annotation:<key>`, with an optional `|<default>` fallback used when the label or annotation is missing or empty. Without a default the variable resolves to an empty string rather than being left as a literal `{{ name }}`.
+
+Two things have to hold for that to happen. PAC must be able to read the namespace — if the `Namespace` GET fails, for example because the PAC controller has no permission on it, no namespace-derived variable is injected for that run. And the namespace it reads is the `Repository` namespace while the run is being created, and the `PipelineRun` namespace when the final status is reported; the two differ only if a `PipelineRun` is routed elsewhere through the target-namespace annotation. Whenever a variable ends up unsubstituted, `generateURL` discards the whole URL and falls back to `custom-console-url`, which is exactly the "the link is right but never expands" symptom.
 
     ```yaml
     spec:
-      settings:
-        custom-console-url-namespace-vars: "project=label:cpaas.io/project|unknown,cluster=label:cpaas.io/cluster"
+      platforms:
+        kubernetes:
+          pipelinesAsCode:
+            options:
+              disabled: false
+              configMaps:
+                pipelines-as-code:
+                  data:
+                    custom-console-url-namespace-vars: "project=label:cpaas.io/project|unknown,cluster=label:cpaas.io/cluster"
     ```
 
 :::info
@@ -568,43 +676,101 @@ For a `PipelineRun` named `my-app-build-abc123` in namespace `my-app` with label
 
 These URLs appear in commit statuses, GitHub Checks panels and merge request comments.
 
+#### Configure Pull Request Number on Push Events \{#configure-pull-request-number-on-push-events}
+
+`{{ pull_request_number }}` is a dynamic variable you can reference from a `PipelineRun` in your repository. It has an obvious value on a pull request event, but not on a push event. Two Alauda extension settings control what happens then. Both live under `options.configMaps`, not under `settings`:
+
+    ```yaml
+    spec:
+      targetNamespace: tekton-pipelines
+      platforms:
+        kubernetes:
+          pipelinesAsCode:
+            enable: true
+            options:
+              disabled: false
+              configMaps:
+                pipelines-as-code:
+                  data:
+                    enable-pull-request-number-on-push-events: "true"
+                    replace-empty-template-vars-with-empty: "true"
+    ```
+
+**`enable-pull-request-number-on-push-events`** (default `"true"`): when a push event carries a commit that belongs to a pull request, PAC sets `{{ pull_request_number }}` to that pull request number. Set it to `"false"` if you want push events to never inherit a pull request number — for example when a pipeline uses the variable to decide whether it is running for a pull request.
+
+:::note
+This setting only affects GitHub. The other providers never populate `{{ pull_request_number }}` from a push event, so on GitLab and the rest a push event behaves as if the setting were `"false"`.
+:::
+
+It also only comes into play for push events that PAC still processes. The upstream `skip-push-event-for-pr-commits` setting defaults to `"true"`, and it makes PAC drop a GitHub push event outright when the pushed commit belongs to an **open** pull request — no `PipelineRun` is created at all, so no variable is expanded. Everything else still reaches this setting: tag pushes, which the skip rule never applies to; pushes whose commit is associated only with closed or merged pull requests, which is the usual case for the push that results from a merge; and every push event once `skip-push-event-for-pr-commits` is set to `"false"`.
+
+**`replace-empty-template-vars-with-empty`** (default `"false"`): controls what PAC does with template variables it could not resolve. By default an unresolved `{{ pull_request_number }}` is left in the `PipelineRun` as the literal string `{{ pull_request_number }}`, which usually shows up as a nonsensical parameter value or a validation failure. Set it to `"true"` to replace unresolved variables with an empty string instead. Variables whose name starts with `body`, `headers` or `files` are deliberately left alone, because they are resolved by a different mechanism.
+
+For a GitHub push event that PAC does process, the two combine as follows:
+
+| `enable-pull-request-number-on-push-events` | `replace-empty-template-vars-with-empty` | `{{ pull_request_number }}` resolves to |
+|---|---|---|
+| `"true"` (default) | `"false"` (default) | The pull request number if the commit is associated with one, otherwise the literal `{{ pull_request_number }}` |
+| `"true"` (default) | `"true"` | The pull request number if the commit is associated with one, otherwise an empty string |
+| `"false"` | `"true"` | Always an empty string, even when the commit is associated with a pull request |
+
+The table assumes nothing else provides that name. A `Repository` `spec.params` entry called `pull_request_number` is passed through like any other parameter, and it is what the template resolves to whenever PAC did not take the value from the event itself.
+
+Effect: with `replace-empty-template-vars-with-empty: "true"`, pipelines that reference `{{ pull_request_number }}` run unchanged on both pull request and push events instead of failing on push.
+
+:::note
+`replace-empty-template-vars-with-empty` applies to `PipelineRun` definitions resolved from the repository. It does not affect the `custom-console-url-*` templates, which have their own fallback behavior described in [Configure Custom Console Links](#configure-custom-console-links).
+:::
+
 #### Change Application Name \{#change-application-name}
 
 Use this setting to change the display name that PAC uses in Git provider status messages:
 
     ```yaml
     spec:
-      settings:
-        application-name: "New Application Name"
+      platforms:
+        kubernetes:
+          pipelinesAsCode:
+            settings:
+              application-name: "New Application Name"
     ```
 
-Effect: Git provider checks, statuses, and comments show the new application name. This does not change the `OpenShiftPipelinesAsCode` resource name.
+Effect: Git provider checks, statuses, and comments show the new application name. This does not change the derived `OpenShiftPipelinesAsCode` resource name.
 
 #### Enable Error Detection \{#enable-error-detection}
 
     ```yaml
     spec:
-      settings:
-        error-detection-from-container-logs: "true"
-        error-detection-max-number-of-lines: "100"
+      platforms:
+        kubernetes:
+          pipelinesAsCode:
+            settings:
+              error-detection-from-container-logs: "true"
+              error-detection-max-number-of-lines: "100"
     ```
 
 Effect: PAC scans failed task logs and adds a short error snippet to the Git provider feedback.
 
 #### Update Hub URL \{#update-hub-url}
 
-If `artifacthub-shim` is deployed in a different namespace or you want to use an external Hub:
+The default already points at the in-cluster `artifacthub-shim` Service, so set this only if `artifacthub-shim` was deployed in a different namespace or you want to use an external Hub:
 
     ```yaml
     spec:
-      settings:
-        # For a cluster-internal artifacthub-shim in another namespace
-        hub-url: "http://artifacthub-shim-api.devops-system.svc.cluster.local"
-        hub-catalog-type: "artifacthub"
-        hub-catalog-name: "catalog"
+      platforms:
+        kubernetes:
+          pipelinesAsCode:
+            settings:
+              # The address artifacthub-shim is installed at by default. Change only the
+              # namespace if it was deployed somewhere other than artifacthub-shim-system.
+              hub-url: "http://artifacthub-shim-api.artifacthub-shim-system.svc.cluster.local"
+              hub-catalog-type: "artifacthub"
+              hub-catalog-name: "catalog"
 
-        # Or for external/public Hub
-        # hub-url: "https://api.hub.tekton.dev/v1"
+              # Or for a Tekton Hub instance - the catalog type has to change with it,
+              # otherwise PAC queries it with the Artifact Hub API
+              # hub-url: "https://api.hub.tekton.dev/v1"
+              # hub-catalog-type: "tekton"
     ```
 
 Effect: PAC resolves remote tasks from the specified Hub API instead of the default in-cluster shim Service.
@@ -635,31 +801,47 @@ This setting does not disable Tekton Pipelines remote resolver syntax such as `t
 
     ```yaml
     spec:
-      settings:
-        remote-tasks: "false"
+      platforms:
+        kubernetes:
+          pipelinesAsCode:
+            settings:
+              remote-tasks: "false"
     ```
 
 Effect: Use `"false"` when you want to prevent PAC from fetching remote Tasks or Pipelines from annotation references.
 
 ## Uninstall PAC Component \{#uninstall-pac-component}
 
-### Delete the `OpenShiftPipelinesAsCode` CR \{#delete-the-openshiftpipelinesascode-cr}
+This section describes the `profile: all` cluster, where the operator owns the PAC deployment. On `profile: basic` or `lite` the operator does not reconcile PAC at all: `enable: false` removes nothing, and deleting the `OpenShiftPipelinesAsCode` CR is itself the uninstall — nothing recreates it.
 
-Removing the CR makes the operator tear down the `TektonInstallerSet` and every PAC Deployment, Service, ConfigMap and RBAC object the operator created.
+### Disable PAC in `TektonConfig` \{#disable-pac-in-tektonconfig}
 
-    ```bash
-    kubectl delete openshiftpipelinesascodes.operator.tekton.dev pipelines-as-code
+Set `enable: false`. The operator deletes the derived `OpenShiftPipelinesAsCode` CR, which in turn tears down the `TektonInstallerSet` and every PAC Deployment, Service, ConfigMap and RBAC object the operator created.
+
+    ```yaml
+    spec:
+      profile: all
+      platforms:
+        kubernetes:
+          pipelinesAsCode:
+            enable: false
     ```
+
+:::warning Do not delete the derived CR by hand
+
+On `profile: all`, `kubectl delete openshiftpipelinesascodes.operator.tekton.dev pipelines-as-code` does not uninstall PAC while `TektonConfig` still enables it — the next reconcile recreates the CR and PAC comes back. Disable it in `TektonConfig` instead.
+
+:::
 
 Confirm the CR, the installer set and the pods are gone:
 
     ```bash
     kubectl get openshiftpipelinesascodes.operator.tekton.dev
-    kubectl get tektoninstallersets -n tekton-pipelines | grep pipelinesascode
+    kubectl get tektoninstallersets | grep pipelinesascode
     kubectl get pods -n tekton-pipelines | grep pipelines-as-code
     ```
 
-Each of these should return `No resources found`.
+The first command should print `No resources found`. The two `grep` commands should print nothing at all — an empty result is what you are looking for, not an error message. `TektonInstallerSet` is cluster-scoped, which is why the second command takes no namespace.
 
 ### Clean up resources the operator does not own \{#clean-up-resources-the-operator-does-not-own}
 
@@ -712,7 +894,7 @@ Example output (example log entries):
 
 ### `OpenShiftPipelinesAsCode` CR Not Ready \{#openshiftpipelinesascode-cr-not-ready}
 
-Check the CR status and events:
+Check the derived CR status and events. This is a read-only check — fix the configuration in `TektonConfig`, not here:
 
     ```bash
     kubectl describe openshiftpipelinesascodes.operator.tekton.dev pipelines-as-code
@@ -736,10 +918,13 @@ Example output (abbreviated):
 When the `TektonInstallerSet` is not `Ready`, read its conditions and the operator's view of the underlying `OpenShiftPipelinesAsCode` CR. Both are read-only checks; never delete the installer set yourself.
 
     ```bash
-    kubectl get tektoninstallersets -n tekton-pipelines -o yaml
+    kubectl get tektoninstallersets -o yaml
+    kubectl get openshiftpipelinesascodes.operator.tekton.dev pipelines-as-code -o yaml
     ```
 
-If errors persist, recreate the `OpenShiftPipelinesAsCode` CR — the operator rebuilds the installer set from scratch.
+`TektonInstallerSet` is cluster-scoped, so the first command takes no namespace and lists every installer set on the cluster; the PAC ones carry `pipelinesascode` in their names.
+
+If errors persist, let the operator rebuild the CR: on `profile: all`, delete the derived `OpenShiftPipelinesAsCode` CR while `TektonConfig` still has `enable: true`, and the next reconcile recreates it together with a fresh installer set. Check the profile first — on `basic` or `lite` nothing recreates the CR, and deleting it removes PAC for good.
 
 ### CR Not Deleting \{#cr-not-deleting}
 

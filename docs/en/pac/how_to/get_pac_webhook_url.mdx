@@ -12,7 +12,7 @@ Before using this page, an administrator must expose the PAC controller as descr
 
 Use this page to get the webhook URL for PAC. This URL lets Git providers notify PAC about repository events, such as commits and merge requests, so PAC can trigger matching PipelineRuns.
 
-Choose the section that matches how PAC was exposed: Gateway API, Ingress, or NodePort. Examples use the default PAC namespace `tekton-pipelines`; replace it in the commands if your `OpenShiftPipelinesAsCode` CR uses a different `targetNamespace`.
+Choose the section that matches how PAC was exposed: Gateway API, Ingress, or NodePort. Examples use the default PAC namespace `tekton-pipelines`; replace it in the commands if your `TektonConfig` uses a different `targetNamespace`.
 
 ## Using Gateway API \{#using-gateway-api}
 
@@ -82,23 +82,7 @@ Use this section if PAC was exposed with a dedicated NodePort Service. Print the
 
 Automatic webhook registration reads the public PAC webhook URL from `pipelines-as-code-info.data.controller-url`. After choosing and verifying `WEBHOOK_URL`, update the PAC component options so the Tekton Operator manages that ConfigMap.
 
-If PAC is managed through `OpenShiftPipelinesAsCode`, update the resource like this:
-
-    ```yaml
-    apiVersion: operator.tekton.dev/v1alpha1
-    kind: OpenShiftPipelinesAsCode
-    metadata:
-      name: pipelines-as-code
-    spec:
-      targetNamespace: tekton-pipelines
-      options:
-        configMaps:
-          pipelines-as-code-info:
-            data:
-              controller-url: https://pac.example.com
-    ```
-
-If PAC is managed through `TektonConfig`, update the `platforms.openshift.pipelinesAsCode` options instead:
+Update the `pipelinesAsCode` options in `TektonConfig`, under `platforms.kubernetes`. The operator rejects the same block under `platforms.openshift` with a validation error:
 
     ```yaml
     apiVersion: operator.tekton.dev/v1alpha1
@@ -106,16 +90,20 @@ If PAC is managed through `TektonConfig`, update the `platforms.openshift.pipeli
     metadata:
       name: config
     spec:
+      targetNamespace: tekton-pipelines
       platforms:
-        openshift:
+        kubernetes:
           pipelinesAsCode:
             enable: true
             options:
+              disabled: false
               configMaps:
                 pipelines-as-code-info:
                   data:
                     controller-url: https://pac.example.com
     ```
+
+Do not put this block on the derived `OpenShiftPipelinesAsCode` CR instead: the operator copies `options` back over from `TektonConfig` on the next reconcile, so the URL is lost. The one exception is a cluster where `TektonConfig` does not manage PAC at all — `spec.profile` is `basic` or `lite` — in which case the same `options` block goes on that CR under `spec.options`. See [How the Operator Manages PAC](../install/manage_pac.mdx#how-the-operator-manages-pac).
 
 Replace `https://pac.example.com` with the value printed as `WEBHOOK_URL`. When this value changes, the webhook registration controller reconciles all PAC `Repository` resources so their provider-side webhooks use the new URL.
 

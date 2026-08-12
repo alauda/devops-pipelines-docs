@@ -609,7 +609,7 @@ Now that you have successfully created and tested a basic Tekton Triggers exampl
    - Verify the webhook URL is accessible (check `status.addresses`)
    - Check if the request format is correct
    - View the `EventListener` Pod logs: `kubectl logs -n tekton-triggers-demo -l app=el-hello-listener`
-   - Verify the `Ingress` is correctly configured: `kubectl get ingress -n tekton-triggers-demo`
+   - Verify the shared `Ingress` is correctly configured (it is created in the Tekton system namespace and named after the export rule, not per EventListener): `kubectl get ingress -n tekton-pipelines`
 
 4. **TaskRun is not created**
    - Confirm that the `TriggerTemplate` configuration is correct

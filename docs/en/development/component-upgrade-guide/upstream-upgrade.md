@@ -167,6 +167,16 @@ This command will:
 1. Download the `release.yaml` file from the upstream URL
 2. Format it using `yq` for better git diff readability
 3. Save it to the path specified in `RELEASE_YAML_PATH`
+4. (operator only) Normalize the CRD schemas via `hack/strip-crd-spec-required.sh` — recursively
+   strip every `required` under the `spec` schema subtree of all `operator.tekton.dev` CRDs, so an
+   OLM upgrade from an older baseline is not blocked by `spec.required` fields that older stored CRs
+   lack (DEVOPS-44435, see `docs/en/development/specs/olm-upgrade-required-fix-devops-44435.md`).
+
+> **operator — do not skip the normalization.** The strip runs automatically at the tail of
+> `make download-release-yaml`. If you ever edit or re-fetch `release.yaml` by other means, re-run
+> `make strip-operator-crd-required`. `make verify-operator-crd-required` (also part of `make verify`)
+> fails if any `operator.tekton.dev` CRD still carries a `required` under its `spec` schema, so a
+> forgotten normalization is caught in CI rather than surfacing as a broken customer upgrade.
 
 #### 3.3 Verify the Downloaded File
 
@@ -566,6 +576,77 @@ Update relevant documentation to reflect the new version:
 - **CHANGELOG.md**: Document the upgrade and any notable changes
 - **Release Notes**: Prepare release notes for the upgraded version
 - **Component Docs**: Update any component-specific documentation
+- **API reference**: Regenerate the CRD schemas *and* reconcile the `.mdx` wrappers — see below
+
+#### Regenerate the API reference (CRD schemas + `.mdx` wrappers)
+
+The API reference is two layers. `docs/shared/crds/*.yaml` holds the generated schema;
+`docs/en/apis/kubernetes_apis/**/*.mdx` are hand-written wrappers that only carry a
+`weight`, a title, and `<K8sCrd name="..." />`. An upgrade changes the first layer
+automatically and the second layer **not at all**, so both must be checked.
+
+1. Regenerate the operator's own CRDs. Patches must be applied first, and the
+   `AdditionalOptions` kubebuilder markers are stripped temporarily so `controller-gen`
+   renders the embedded `appsv1` types in expanded form instead of
+   `x-kubernetes-preserve-unknown-fields`:
+
+   ```bash
+   make clean-patches
+   make apply-patches
+   sed -i '' '/+kubebuilder:validation:Schemaless/d; /+kubebuilder:pruning:PreserveUnknownFields/d' \
+       upstream/pkg/apis/operator/v1alpha1/additional_options.go
+   make generate-crd-docs
+   make clean-patches   # never leave marker edits in the submodule
+   ```
+
+2. **Do not re-add CRDs that the product does not expose.** `make generate-crd-docs`
+   ends with an `rm` list precisely because `controller-gen` emits a document for every
+   API type under `upstream/pkg/apis`. An upgrade will bring these files back; deleting
+   them by hand is not enough, they must stay in the `rm` list in the `Makefile`:
+
+   | Dropped CRD | Reason |
+   | --- | --- |
+   | `manualapprovalgates`, `tektonaddons`, `tektondashboards` | OpenShift-only, never reconciled on Kubernetes |
+   | `syncerservices`, `tektonmulticlusterproxyaaes` | Not part of the product |
+   | `tektonschedulers` | Component not formally introduced yet |
+
+3. Reconcile the `.mdx` wrappers against whatever CRDs remain. The check is bidirectional —
+   a wrapper pointing at a removed CRD renders an empty page, and a new CRD without a
+   wrapper has no entry in the reference at all:
+
+   ```bash
+   # every CRD referenced by a wrapper
+   rg -oNI 'K8sCrd name="([^"]+)"' -r '$1' docs/en/apis/kubernetes_apis/operator | sort -u
+   # every CRD that survived generation
+   rg --only-matching --no-filename --no-line-number '^  name: [a-z]+\.operator\.tekton\.dev$' \
+      docs/shared/crds/operator.tekton.dev_*.yaml | sed 's/^  name: //' | sort -u
+   # the two lists must be identical; repeat for the pipelines/ and triggers/ directories
+   ```
+
+   Also confirm no two wrappers in a directory share a `weight`:
+
+   ```bash
+   rg -N '^weight:' docs/en/apis/kubernetes_apis/operator/*.mdx | sort | uniq -d   # must be empty
+   ```
+
+   To add a wrapper for a newly exposed CRD, copy the format of the neighbouring files:
+
+   ```mdx
+   ---
+   weight: 190
+   ---
+
+   # TektonPruner [operator.tekton.dev/v1alpha1]
+
+   <K8sCrd name="tektonpruners.operator.tekton.dev" />
+   ```
+
+4. Component CRDs (`docs/shared/crds/pipelines/`, `triggers/`) are **not** generated here.
+   They come from the sibling repositories at the branches pinned in `values.yaml`; run
+   `make generate-crd-docs` there and copy the results. Copy the generated files
+   individually rather than replacing the whole directory — `openshiftpipelines.org_approvaltasks.yaml`
+   and `tekton.alaudadevops.io_scheduledtriggers.yaml` are maintained by hand and a
+   directory-level overwrite deletes them.
 
 ### Monitor Production Rollout
 
@@ -707,6 +788,10 @@ Use this checklist to ensure all steps are completed:
 
 - [ ] **Post-Upgrade Tasks**
   - [ ] Update documentation
+  - [ ] Regenerate CRD schemas (`make generate-crd-docs`, expanded form, patches applied)
+  - [ ] Confirm the `rm` list still drops every CRD the product does not expose
+  - [ ] Reconcile `docs/en/apis/kubernetes_apis/**/*.mdx` against the surviving CRDs (both directions)
+  - [ ] Verify `upstream/` submodule is clean and back at its pinned commit
   - [ ] Prepare release notes
   - [ ] Monitor production rollout
   - [ ] Clean up temporary branches

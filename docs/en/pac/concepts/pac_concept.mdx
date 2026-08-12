@@ -23,7 +23,7 @@ PAC runs three controllers in the cluster and reacts to events delivered by the 
 - **PAC Controller** owns the logic of "what should run on this event". It looks up the matching `Repository` resource, fetches the `.tekton/` manifests from the ref the event refers to, filters them through the trigger annotations, expands variables, and creates `PipelineRun`s.
 - **PAC Watcher** follows the `PipelineRun`s that PAC created and reports their state back to the Git provider — as a GitHub Check Run, a commit status, or a comment, depending on the provider.
 
-All three components live in the PAC namespace (default: `tekton-pipelines`) and are deployed by the Tekton Operator from the `OpenShiftPipelinesAsCode` CR.
+All three components live in the PAC namespace (default: `tekton-pipelines`). The Tekton Operator deploys them from an `OpenShiftPipelinesAsCode` CR, which it derives from `TektonConfig` — see [How the Operator Manages PAC](../install/manage_pac.mdx#how-the-operator-manages-pac).
 
 ## The Repository resource \{#the-repository-resource}
 
@@ -175,7 +175,7 @@ PAC reports `PipelineRun` state back to the Git provider through three channels,
 - **Commit statuses** — used in GitHub Webhook mode and GitLab. A short status line is posted against the commit and (where relevant) the PR / MR.
 - **Comment** — for failures, a comment containing the `PipelineRun` name and a link to the cluster is added to the PR / MR. The exact format depends on the provider.
 
-The cluster-side URL embedded in those status reports can be customized through the `custom-console-url-*` settings in `OpenShiftPipelinesAsCode`; see [Manage PAC Component](../install/manage_pac.mdx#configure-custom-console-links).
+The cluster-side URL embedded in those status reports can be customized through the `custom-console-url-*` settings in `TektonConfig`; see [Manage PAC Component](../install/manage_pac.mdx#configure-custom-console-links). Note that `custom-console-url-namespace-vars` belongs under `options.configMaps` rather than `settings` — [Where to Put Each Setting](../install/manage_pac.mdx#where-to-put-each-setting) explains why.
 
 ## Concurrency and cancellation \{#concurrency-and-cancellation}
 

@@ -22,9 +22,9 @@ config/system-roles/
 
 ### Bundle Integration
 
-The system roles are now integrated into the operator bundle during the build process. The `.tekton/to-all-in-one.yaml` pipeline has been updated to include the following steps:
+The system roles are now integrated into the operator bundle during the build process. The bundle preparation script `.tekton/scripts/prepare-bundle.sh` (`copy_system_roles`) copies them into the bundle manifests:
 
-```yaml
+```bash
 # Copy system-roles to the bundle directory
 cp -rf config/system-roles upstream/operatorhub/kubernetes/manifests
 yq e -i '.resources += "../system-roles"' upstream/operatorhub/kubernetes/manifests/fetch-strategy-release-manifest/kustomization.yaml

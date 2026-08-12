@@ -5,11 +5,11 @@ weight: 40
 # Release Notes
 
 ::: tip
-The maintenance period for version **v4.12.x** is from 16 Jun, 2026 to 16 Oct, 2026.
+The maintenance period for version **v4.14.x** is from 17 Aug, 2026 to 17 Aug, 2027.
 :::
 
 :::note
-Release sequencing update: `v4.9` is intentionally skipped. The next release after `v4.8` is `v4.10 (LTS)`.
+Release sequencing update: `v4.9` and `v4.13` are intentionally skipped. The next release after `v4.8` is `v4.10 (LTS)`, and the next release after `v4.12` is `v4.14 (LTS)`.
 :::
 
 ## Compatibility and support matrix \{#compatibility-and-support-matrix}
@@ -19,6 +19,7 @@ The following table shows the compatibility and support matrix between the `Alau
 | Alauda DevOps Pipelines Version | Component Version | | | | | | | | | ACP Version |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **Operator** | **Pipelines** | **Triggers** | **CLI** | **Chains** | **Hub** | **Results** | **Pipelines as Code** | **Manual Approval Gate** | **Pruner** | |
+| 4.14.x | 1.12.x | 0.36.x | 0.45.x | 0.27.x | - | 0.19.x | 0.48.x | 0.9.x | 0.4.x | 4.1, 4.2, 4.3, 4.4 |
 | 4.12.x | 1.6.x | 0.34.x | 0.43.x | 0.26.x | 1.23.x | 0.17.x | 0.39.x | 0.7.x | 0.3.x | 4.1, 4.2, 4.3 |
 | 4.11.x | 1.6.x | 0.34.x | 0.43.x | 0.26.x | 1.23.x | 0.17.x | 0.39.x | 0.7.x | 0.3.x | 4.1, 4.2, 4.3 |
 | 4.10.x (LTS) | 1.6.x | 0.34.x | 0.43.x | 0.26.x | 1.23.x | 0.17.x | 0.39.x | 0.7.x | 0.3.x | 4.0, 4.1, 4.2, 4.3 |
@@ -35,6 +36,7 @@ The following table shows the recommended version mapping between `Alauda DevOps
 
 | Alauda DevOps Pipelines Version | Recommended Alauda DevOps Connectors Version |
 | :--- | :--- |
+| 4.14.x | >= 1.14 |
 | 4.12.x | >= 1.10 |
 | 4.11.x | >= 1.10 |
 | 4.10.x (LTS) | >= 1.10 |
@@ -51,47 +53,68 @@ The following table shows the recommended version mapping between `Alauda DevOps
 
 For details about channel behavior and upgrade targeting, see [Upgrade Path](../upgrade/upgrade_path.mdx) and [Lifecycle Policy](./lifecycle_policy.mdx).
 
-## v4.12.0
+## v4.14.0
 
 ### New and Optimized Features
 
 **Operator**
 
-- With this update, Tekton catalog artifacts are delivered by the platform's standalone `ArtifactHub` component. `ArtifactHub` has its own lifecycle, so catalog updates — new tools, Task fixes, version upgrades — can be delivered quickly, independently of the operator release cadence.
-- With this update, the Kubernetes API client QPS and Burst settings of the operator are overridable, and the CPU limits of the operator lifecycle controller are raised to improve reconcile stability in large clusters.
+- With this update, the whole Tekton stack moves to a new baseline: Tekton Pipelines `v1.12`, Triggers `v0.36`, Chains `v0.27`, Results `v0.19`, Pipelines as Code `v0.48`, Manual Approval Gate `v0.9`, Pruner `v0.4`, and the `tkn` CLI `v0.45`. See the [Compatibility and support matrix](#compatibility-and-support-matrix) for the full mapping.
 
-**Pipelines**
+**Triggers**
 
-- With this update, the pipeline `set-security-context` feature flag defaults to `true` for newly created `TektonConfig` and `TektonPipeline` instances, so Tekton-injected containers run with a hardened non-root security context and work in namespaces enforcing the `restricted` Pod Security Admission level. Existing instances are not changed. For details, see [Comply with Pod Security Restricted Standard](../pipelines/how_to/comply_with_pod_security_restricted.mdx).
-- With this update, a new `enable-validating-admission-policy` parameter is added under `TektonConfig` `spec.pipeline.params` to control the deployment of `ValidatingAdmissionPolicy` guardrail resources. The parameter is disabled by default. For details, see [Comply with Pod Security Restricted Standard](../pipelines/how_to/comply_with_pod_security_restricted.mdx).
+- With this update, an EventListener export rule can be exposed through Gateway API `HTTPRoute` by setting `type: HTTPRoute`, in addition to the existing `Ingress` mode. This makes automatic webhook exposure work on clusters that provide no `IngressClass` and route external traffic through a Gateway implementation such as Envoy Gateway. An empty `type` still defaults to `Ingress`, so existing rules are unaffected. For details, see [Gateway API (HTTPRoute) mode](../triggers/how_to/trigger-wrapper-config.mdx#gateway-api-httproute-mode).
+- With this update, the time zone used to render the `$(context.date)` and `$(context.datetime)` placeholders injected by `ScheduledTrigger` is defined and documented: the same effective zone evaluates the cron `schedule` and renders the placeholders, resolved from `spec.timeZone`, then the controller's process time zone, and finally **UTC** as the out-of-the-box default. Previously the value carried whatever local zone the controller image happened to bake in, so the same `ScheduledTrigger` produced different offsets on different clusters. For details, see [Time Zone Resolution for Context Parameters](../triggers/how_to/scheduledtriggers.mdx#time-zone-resolution-for-context-parameters).
 
 **Pipelines as Code**
 
-- With this update, PAC `Repository` resources can be created and managed from the web console, including onboarding repositories through a GitLab App or GitHub App. Enable the feature through the `enable-pac-repository` flag in the `tektoncd-enhancement-feature-flags` ConfigMap. For details, see [Enable Repository UI Feature](../pac/install/manage_pac.mdx#enable-repository-ui-feature).
-- With this update, PAC can automatically retrieve and register the webhook URL when onboarding a repository, removing the manual webhook configuration step.
-- With this update, custom console links support namespace-derived template variables through the `custom-console-url-namespace-vars` setting, resolving values such as `{{ project }}` and `{{ cluster }}` from namespace labels or annotations. For details, see [Manage PAC Component](../pac/install/manage_pac.mdx#configure-custom-console-links).
+- With this update, Pipelines as Code is configured through `TektonConfig` on Kubernetes. On the default `spec.profile: all` the operator derives the `OpenShiftPipelinesAsCode` CR from `TektonConfig` and keeps it in sync, so `TektonConfig` is the only resource to edit. For details, see [Manage PAC Component](../pac/install/manage_pac.mdx).
+- With this update, PAC resolves catalog resources through the in-cluster `artifacthub-shim` service. An administrator-configured hub URL is preserved, and additional PAC controllers are covered as well, including controllers declared after the upgrade.
 
-**Results**
+**Catalog**
 
-- With this update, the Tekton Results API and agent components no longer expose database credentials as container environment variables; credentials are read from mounted Secret files instead.
+- With this update, legacy `TektonHub` custom catalog configuration is migrated to <ExternalSiteLink name="artifacthub-shim" href="/" children="ArtifactHub Shim" /> before the removed Tekton Hub runtime is cleaned up. The operator reads `TektonHub.spec.catalogs[]` and the old `tekton-hub-api` ConfigMap `CATALOGS` data, then creates an ArtifactHub Shim repository ConfigMap named `artifacthub-shim-legacy-tekton-hub-catalogs`.
+- Migrated catalog entries are generated as `<catalog>` for Tasks, `<catalog>-pipelines` for Pipelines, and `<catalog>-stepactions` for StepActions. Generated entries use `optional: true`; Pipeline and StepAction entries also use `legacyCatalogAliases` so old resolver references can keep using the original catalog name.
+- If the legacy Tekton Hub SSH credential Secret `tekton-hub-api-ssh-crds` exists in the old Hub target namespace, the operator normalizes it into the ArtifactHub Shim namespace as `artifacthub-shim-legacy-tekton-hub-ssh-creds` and references it from migrated SSH catalog repositories. The normalized Secret contains `sshPrivateKey` and `known_hosts`; if `known_hosts` is missing or multiple private key candidates are present, the catalog entry is still migrated without `credentialRef`.
+- With this update, the default backend of the Hub resolver is the in-cluster `artifacthub-shim` service using Artifact Hub-compatible APIs. For details, see [Resolvers](../pipelines/concepts/resolver_concept.mdx).
 
 **Web Console**
 
-- With this update, after a TaskRun is retried, the logs of each previous execution can be viewed by switching between retries.
-- With this update, the Task list and the Hub Task list show the catalog source of each Task and support filtering by source in the pipeline editor.
-- With this update, multiple UI details are refined, including the graphical Pipeline editor, the PipelineRun loading state, advanced-parameter visibility control, Integration selection, workspace binding, and label filtering.
+- With this update, the run dialog can configure `computeResources` — CPU and memory requests and limits — for a PipelineRun without hand-editing YAML. The values are preserved when the run is saved as a `TriggerTemplate` and when the PipelineRun is executed again.
+- With this update, the run configuration also covers timeouts, with unit selection and validation, so the common PipelineRun execution settings no longer require switching to YAML.
+- With this update, re-running a PipelineRun falls back to the run configuration recorded in the original PipelineRun when the console cannot resolve its `pipelineRef`. Params, workspaces, and `taskRunTemplate` are no longer lost or reset when a Pipeline is referenced through a resolver the console does not fully parse.
+- With this update, a pipeline can bind Integrations of different types at the same time through Multi Connector.
+- With this update, Hub catalog requests carry the current Workspace namespace, and list, detail, and manifest caches are isolated per cluster and namespace. Switching Workspace no longer shows or resolves catalog resources that are invisible in the target namespace.
+- With this update, Task and Pipeline lists use a lightweight pagination API and load README and manifest content on demand, which shortens the time to first render on large catalogs.
+- With this update, multiple UI details are refined, including dynamic form authoring (multi-language display fields for workspaces and results, code editing for string fields, Integration form-mode compatibility, and Result type and object property rendering), pipeline topology layout, detail pages defaulting to the Details tab, breadcrumbs and browser title, tag-triggered run source navigation, and `cluster` resolver PipelineRuns in the Repository detail page.
 
 ### Breaking Changes
 
-- Starting from this release, the built-in `Tekton Hub` is **no longer deployed by default**, and future releases (including LTS versions) will not deploy it by default either. A new operator-level switch `AUTOINSTALL_TEKTONHUB` (default `"false"`) controls the behavior; the `TektonConfig` CRD/API is not changed.
+- Starting from this release, the built-in `Tekton Hub` runtime is **no longer shipped**. The operator carries no Tekton Hub manifests, and the `AUTOINSTALL_TEKTONHUB` switch introduced in `v4.12.0` has been removed, so the built-in `Tekton Hub` cannot be re-enabled after upgrading. The `Hub` column of the compatibility matrix is empty from `4.14.x` onward for this reason.
 
-  - On **upgrade**, an environment that previously ran the built-in `Tekton Hub` will have it **removed**: with the switch off, the operator actively deletes the `TektonHub` CR. Migrate catalog publishing and consumption to the standalone `ArtifactHub` component whenever possible. For catalog guidance, see <ExternalSiteLink name="artifacthub-shim" href="/catalog/index.html" children="ArtifactHub Shim Catalog" />.
-  - The operator bundle **no longer ships the catalog tool images** (`buildah`, `golang`, `maven`, and so on). Tool image inventory and catalog Task usage are documented with the standalone `ArtifactHub` component.
+  - Catalog publishing and consumption are served by <ExternalSiteLink name="artifacthub-shim" href="/" children="ArtifactHub Shim" />, which has its own lifecycle. Custom catalog configuration is migrated automatically — see **Catalog** above and the **Upgrade Notes** below for what the migration does and does not cover.
+  - The Tekton Hub documentation section has been removed along with the runtime. For catalog authoring and consumption guides, see <ExternalSiteLink name="artifacthub-shim" href="/catalog/index.html" children="ArtifactHub Shim Catalog" />.
+
+- Starting from this release, `TektonConfig` owns the Pipelines as Code deployment on the Kubernetes platform. Up to `v4.12.x` there was no PAC block in `TektonConfig` on Kubernetes, so PAC was configured by editing the `OpenShiftPipelinesAsCode` CR directly. That CR is now **derived** from `TektonConfig`: the operator sets an owner reference on it and overwrites `targetNamespace`, `config`, `settings`, `options`, and `additionalPACControllers` on every reconcile. Read it for troubleshooting, but write to `TektonConfig`. Note that PAC is only reconciled on `spec.profile: all`; on `basic` or `lite` the operator does not touch PAC at all. For details, see [Manage PAC Component](../pac/install/manage_pac.mdx).
+
+### Upgrade Notes
+
+**Pipelines as Code**
+
+- Upgrading a Kubernetes cluster that configured a standalone `OpenShiftPipelinesAsCode` CR copies its settings, its `additionalPACControllers`, and the Alauda-specific settings that `TektonConfig` has no field for into `TektonConfig` before adoption overwrites them. A value already present in `TektonConfig` is never overwritten, and the standalone CR is never deleted. `spec.config` has no per-component equivalent in `TektonConfig`; the operator warns about it rather than guessing.
+- Adoption also relocates PAC into the `TektonConfig` target namespace. The Git provider credential Secret `pipelines-as-code-secret` is copied and the global `Repository` is moved into the new namespace, both annotated with `operator.tekton.dev/copied-from-namespace`. Neither overwrites an object that already exists in the target namespace, and user-created `Repository` resources are left untouched.
+- A catalog that genuinely speaks the Tekton Hub API must now declare `catalog-<n>-type: tektonhub` explicitly. Catalog type auto-detection no longer probes the network from the admission path, so it cannot stall on an air-gapped cluster.
+
+**Catalog**
+
+- The migration writes resources into the ArtifactHub Shim namespace resolved from `TektonConfig.spec.pipeline.hub-resolver-config.artifact-hub-api`; when that value is unavailable, the default namespace is `artifacthub-shim-system`.
+- The migration does not fetch `TektonHub.spec.api.hubConfigUrl` and does not clone Git repositories. Make sure custom catalog definitions are present in `TektonHub.spec.catalogs[]` or in the in-cluster `tekton-hub-api` ConfigMap `CATALOGS` data before upgrading. For details about configuring migrated custom catalog sources, see <ExternalSiteLink name="artifacthub-shim" href="/how_to/configure_custom_git_repositories.mdx" children="Configure Custom Git Repositories" />.
+- The operator skips generated entries that conflict with existing ArtifactHub Shim repository names or same-kind aliases. It also preserves same-name ConfigMaps or Secrets that were not generated by this migration.
 
 ### Fixed Issues
 
-{/* release-notes-for-bugs?template=fixed&project=DEVOPS&version=v4.12.0 */}
+{/* release-notes-for-bugs?template=fixed&project=DEVOPS&version=v4.14.0 */}
 
 ### Known Issues
 
-{/* release-notes-for-bugs?template=unfixed&project=DEVOPS&version=v4.12.0 */}
+{/* release-notes-for-bugs?template=unfixed&project=DEVOPS&version=v4.14.0 */}

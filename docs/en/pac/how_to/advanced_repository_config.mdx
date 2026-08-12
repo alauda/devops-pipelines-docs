@@ -28,7 +28,7 @@ This guide explains advanced configuration options for Repository Custom Resourc
 The global Repository CR feature is a **Technology Preview** feature that provides automatic configuration inheritance for all Repository CRs.
 :::
 
-Alternatively, you can create a **global Repository CR** in the namespace where PAC is installed (typically `tekton-pipelines` or configured via `targetNamespace` in the OpenShiftPipelinesAsCode CR). If you create a Repository CR named `pipelines-as-code` in this namespace, the settings you specify in it will be **automatically applied** to all Repository CRs you create.
+Alternatively, you can create a **global Repository CR** in the namespace where PAC is installed (typically `tekton-pipelines` or configured via `targetNamespace` in the `TektonConfig` CR). If you create a Repository CR named `pipelines-as-code` in this namespace, the settings you specify in it will be **automatically applied** to all Repository CRs you create.
 
 **Key Points**:
 - **Name**: Must be exactly `pipelines-as-code`
@@ -38,7 +38,7 @@ Alternatively, you can create a **global Repository CR** in the namespace where 
 
 ### Example: Global Repository CR \{#example-global-repository-cr}
 
-Create a global Repository CR in the PAC namespace:
+Create a global Repository CR in the PAC namespace — the one in `TektonConfig.spec.targetNamespace`, which the example below assumes is the default `tekton-pipelines`. Replace it if your cluster uses a different one: PAC only reads the global Repository from its own namespace, so one created elsewhere is accepted without error and inherited by nothing.
 
     ```yaml
     apiVersion: pipelinesascode.tekton.dev/v1alpha1
