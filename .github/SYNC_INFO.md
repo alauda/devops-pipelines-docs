@@ -1,10 +1,10 @@
 # Documentation Sync Information
 
-- **Last synced**: 2026-08-19 03:14:14 UTC
+- **Last synced**: 2026-08-19 04:08:20 UTC
 - **Source repository**: alaudadevops/tektoncd-operator
-- **Source commit**: [e92e8ce39ebba2709b315bb1aceaf0d23d93f138](https://github.com/alaudadevops/tektoncd-operator/commit/e92e8ce39ebba2709b315bb1aceaf0d23d93f138)
+- **Source commit**: [ef5e69146d9a794c94c3ed814fc39e73dd7120d3](https://github.com/alaudadevops/tektoncd-operator/commit/ef5e69146d9a794c94c3ed814fc39e73dd7120d3)
 - **Triggered by**: l-qing
-- **Workflow run**: [#256](https://github.com/alaudadevops/tektoncd-operator/actions/runs/32211403851)
+- **Workflow run**: [#257](https://github.com/alaudadevops/tektoncd-operator/actions/runs/32214629663)
 
 ## Files synced:
 - docs/
