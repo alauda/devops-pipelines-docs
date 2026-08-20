@@ -325,7 +325,7 @@ All components follow a unified branch management strategy:
 - Use `release-{feature-milestone}` format based on functional milestones.
 - `tektoncd-operator` follows this strategy because it is the orchestration component for the ACP DevOps Tekton stack.
 - The catalog is now maintained as part of the `artifacthub-shim` delivery path instead of being treated as a Tekton Operator built-in runtime component.
-- `hubs-wrapper` and Tekton Hub runtime are no longer new component templates for ACP DevOps 4.13 and later.
+- `hubs-wrapper` and Tekton Hub runtime are no longer new component templates for ACP DevOps 4.14 and later.
 
 **Exception Cases:**
 

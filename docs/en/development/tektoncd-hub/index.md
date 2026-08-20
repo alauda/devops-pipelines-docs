@@ -22,3 +22,4 @@ All contributions must follow the Tekton Community Code of Conduct.
 ## Related Documentation
 
 - **[Quick Start](quick-start.md)** - Quick deployment for testing and development
+- **[Legacy Custom Catalog Migration](catalog-migration.md)** - Automatic migration from the built-in Tekton Hub to ArtifactHub Shim

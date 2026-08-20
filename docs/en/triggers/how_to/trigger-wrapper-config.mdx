@@ -8,7 +8,7 @@ weight: 40
 
 This document helps you configure automatic external exposure of EventListeners through the automatic exposure feature. You will learn:
 
-- How to configure export rules to automatically expose EventListeners via Ingress
+- How to configure export rules to automatically expose EventListeners via Ingress or the Gateway API (HTTPRoute)
 - How to set up webhook URLs that will be displayed in the UI
 - How to configure different exposure strategies for different namespaces or environments
 - How to verify that EventListeners are properly exposed
@@ -65,6 +65,14 @@ The Operator synchronises this spec into the `trigger-wrapper-config` ConfigMap 
 Each entry in `export-rules` represents a publishing strategy. Important fields:
 
 - **name** – rule name, also used when generating Service/Ingress names.
+  **Avoid name collisions**: the shared Ingress name is the rule name normalized
+  to a valid DNS-1123 subdomain (lower-cased, characters outside `[a-z0-9-]`
+  replaced with `-`, repeated `-` collapsed). This normalization is lossy, so rule
+  names that differ **only** by such characters resolve to the same Ingress and
+  overwrite each other — for example `a_b`, `a.b`, and `A-B` all become `a-b`.
+  Give each rule a name that is already a distinct, valid DNS-1123 subdomain
+  (lower-case letters, digits, and `-`); do not rely on `_`, `.`, or letter case
+  to distinguish two rules.
 - **ingressClass** (optional) – the Ingress controller to use, e.g. `nginx`, `traefik`.
 - **host** (optional) – hostname matched by the Ingress. Leave empty to accept all hosts. **Important**: When configuring a domain name, ensure DNS resolution is properly configured (or add to `/etc/hosts` for local testing). The domain must be resolvable from systems that will send webhooks.
 - **externalHosts** (optional) – **What it does**: Defines the webhook URLs that will be displayed to users in the UI and populated in EventListener's `status.addresses` field.
@@ -112,7 +120,9 @@ Each entry in `export-rules` represents a publishing strategy. Important fields:
 - **namespaceSelector.matchNames** (optional) – namespaces allowed by this rule. Use `"*"` to target all namespaces.
 - **labelSelector** (optional) – Kubernetes LabelSelector used to filter EventListeners.
 - **tls** (optional) – TLS configuration for Ingress. Each entry specifies `hosts` (list of hostnames) and `secretName` (name of the TLS Secret containing the certificate).
-- **annotations** (optional) – additional annotations for Ingress. Useful for cert-manager, nginx-specific settings, etc. Controller-managed annotations (like `nginx.ingress.kubernetes.io/rewrite-target`) will be merged with user-provided annotations.
+- **annotations** (optional) – additional annotations for Ingress. Useful for cert-manager, nginx-specific settings, etc. Only your annotations are applied; the controller no longer injects any controller-specific annotation (such as `nginx.ingress.kubernetes.io/rewrite-target`). The generated Ingress path uses `pathType: Exact` and no rewrite, so exposure works with any Ingress controller (nginx, traefik, ALB, …), not just nginx.
+- **type** (optional) – exposure resource: `Ingress` (default) or `HTTPRoute` (Gateway API). Empty defaults to `Ingress` for backward compatibility. See [Gateway API (HTTPRoute) mode](#gateway-api-httproute-mode).
+- **gateway** (optional) – required when `type: HTTPRoute`. References the parent Gateway the HTTPRoute attaches to: `name` (required), `namespace` (defaults to the Tekton system namespace), optional `sectionName` and `port`.
 
 > Namespace matching currently supports `matchNames` only. If you need label-based namespace selection, enumerate the namespaces explicitly.
 
@@ -125,9 +135,9 @@ The following table shows how export rule fields map to the generated Ingress re
 | `name` | `metadata.name` | The Ingress resource name is set to the rule name |
 | `ingressClass` | `spec.ingressClassName` | Specifies which Ingress controller should handle this Ingress |
 | `host` | `spec.rules[].host` | Hostname for the Ingress rule. If empty or `"*"`, matches all hosts. **Note:** IP addresses are not supported as host values. If using an IP, leave `host` empty or configure a domain name that resolves to the IP. |
-| `urlPathPrefix` | `spec.rules[].http.paths[].path` | Combined with namespace and EventListener name to form the path: `${urlPathPrefix}/${namespace}/${eventlistener-name}` |
+| `urlPathPrefix` | `spec.rules[].http.paths[].path` (with `pathType: Exact`) | Combined with namespace and EventListener name to form the exact path: `${urlPathPrefix}/${namespace}/${eventlistener-name}` |
 | `tls` | `spec.tls` | TLS configuration for HTTPS. Each entry maps to `spec.tls[].hosts` and `spec.tls[].secretName` |
-| `annotations` | `metadata.annotations` | User-provided annotations are merged with controller-managed annotations |
+| `annotations` | `metadata.annotations` | Only your annotations are applied; no controller-managed annotations are injected |
 | `namespaceSelector` | N/A | Used to filter EventListeners, not directly mapped to Ingress |
 | `labelSelector` | N/A | Used to filter EventListeners, not directly mapped to Ingress |
 | `externalHosts` | N/A | Used to populate EventListener `status.addresses`, not directly mapped to Ingress |
@@ -174,19 +184,17 @@ flowchart LR
         C["Ingress controller<br/>matches host + {urlPathPrefix}/{ns}/{el}"]
     end
     subgraph Cluster
-        D[ClusterIP Service<br/>routes to EventListener Pod]
-        E["EventListener
-        Namespace = {ns}
-        Name = {el}"]
+        D["ExternalName Service (system namespace)<br/>CNAME to the EventListener sink Service"]
+        E["EventListener sink Service<br/>Namespace = {ns}, Name = el-{el}"]
     end
 
-    A -->|"Request https://webhooks.example.com/hooks/internal/hooks/{ns}/{el}"| B
+    A -->|"Request https://webhooks.example.com/{urlPathPrefix}/{ns}/{el}"| B
     B -->|Forward to Ingress| C
-    C -->|"Backend path /internal/hooks/{ns}/{el}"| D
+    C -->|"Backend path {urlPathPrefix}/{ns}/{el}"| D
     D -->|HTTP routing| E
 ```
 
-> `externalHosts` tells external clients which URL to call. The Ingress still matches requests by `host` and `${urlPathPrefix}/${namespace}/${eventlistener}`, and the backend Service receives exactly that path.
+> `externalHosts` tells external clients which URL to call. The Ingress matches requests by `host` and the exact path `${urlPathPrefix}/${namespace}/${eventlistener}`, and forwards to an ExternalName Service in the Tekton system namespace that resolves to the EventListener sink Service. Because the sink accepts any path, the backend receives the full path unchanged (no rewrite).
 
 ## Configuration examples
 
@@ -363,6 +371,170 @@ export-rules:
 
 > **Note:** When both `tls` and cert-manager annotations are configured, the `tls` configuration takes precedence. For automatic certificate management, use cert-manager annotations without `tls` configuration.
 
+## Gateway API (HTTPRoute) mode \{#gateway-api-httproute-mode}
+
+In addition to Ingress, an export rule can expose EventListeners through the
+[Gateway API](https://gateway-api.sigs.k8s.io/) by setting `type: HTTPRoute`.
+This is the recommended mode for clusters that have no Ingress controller (or no
+usable `ingressClass`) but do run a Gateway implementation such as Envoy Gateway.
+The existing Ingress behaviour is unchanged, and Gateway mode also keeps
+`status.addresses` populated so the UI and Git webhook registration keep working.
+
+**Prerequisites**:
+
+- The Gateway API CRDs and a Gateway implementation (e.g. Envoy Gateway) are
+  installed. If the CRDs are absent, the controller stays in Ingress-only mode
+  and records a warning event on any `type: HTTPRoute` rule.
+- A parent `Gateway` already exists. Its listener `allowedRoutes.namespaces` must
+  permit the Tekton system namespace (default `tekton-pipelines`), because the
+  generated HTTPRoute is created there. The controller does not modify the
+  Gateway; it only reads the HTTPRoute's `Accepted` condition.
+- `externalHosts` is **required** in this mode — it is the source of
+  `status.addresses`.
+
+**Example**:
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  pipeline:
+    options:
+      configMaps:
+        trigger-wrapper-config:
+          data:
+            config: |
+              export-rules:
+                - name: gateway-webhooks
+                  type: HTTPRoute
+                  host: webhooks.example.com
+                  urlPathPrefix: /triggers
+                  externalHosts:
+                    - "https://webhooks.example.com"
+                  gateway:
+                    name: eg
+                    namespace: envoy-gateway-system
+                  namespaceSelector:
+                    matchNames:
+                      - "*"
+```
+
+**What the controller creates**:
+
+- One `HTTPRoute` per matching EventListener in the system namespace, with a
+  single `path.type: Exact` match (`${urlPathPrefix}/${namespace}/${eventlistener}`),
+  a `parentRefs` entry pointing at your Gateway, and a cross-namespace
+  `backendRefs` entry that targets the EventListener sink Service (`el-<name>`,
+  port 8080) directly. No `URLRewrite` filter is used — the sink accepts the full
+  path.
+- One `ReferenceGrant` per EventListener in the EventListener's namespace,
+  scoped by `to.name` to that single sink Service, so the system-namespace
+  HTTPRoute may reference it across the namespace boundary (least privilege).
+
+**Mode-specific field behaviour**: `ingressClass`, `tls` and `annotations` apply
+to Ingress mode only and are ignored when `type: HTTPRoute`. For HTTPS in Gateway
+mode, terminate TLS on the Gateway listener instead — see
+[HTTPS in Gateway API mode](#https-in-gateway-api-mode) below.
+
+**Verification**:
+
+```bash
+# HTTPRoutes are created in the system namespace, named per (EventListener, rule).
+kubectl get httproute -n tekton-pipelines
+
+# ReferenceGrants are created in each EventListener's namespace.
+kubectl get referencegrant -n <eventlistener-namespace>
+```
+
+`status.addresses` (and the Trigger annotation endpoints) are published only once
+the HTTPRoute is `Accepted` by its Gateway. If an address does not appear, check
+`kubectl get httproute <name> -n tekton-pipelines -o yaml` for
+`status.parents[].conditions` — an `Accepted: False` or `ResolvedRefs: False`
+condition usually means the Gateway listener does not allow the system namespace,
+or the sink Service is not reachable.
+
+### HTTPS in Gateway API mode \{#https-in-gateway-api-mode}
+
+In the Gateway API, TLS is terminated on the **Gateway listener**, not on the
+HTTPRoute — trigger-wrapper never manages certificates in this mode (the `tls`
+field applies to Ingress mode only). To serve an EventListener over HTTPS, attach
+the export rule to a Gateway that has an HTTPS listener whose `tls.certificateRefs`
+points at your certificate `Secret`, and pin the rule to that listener with
+`gateway.sectionName` (or `gateway.port`).
+
+**1. A Gateway with an HTTPS listener** (managed by the platform / cluster admin):
+
+```yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: eg
+  namespace: envoy-gateway-system
+spec:
+  gatewayClassName: eg
+  listeners:
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: webhooks.example.com
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: webhooks-tls
+      allowedRoutes:
+        namespaces:
+          from: All
+```
+
+The certificate `Secret` (`webhooks-tls` above, holding `tls.crt` / `tls.key`)
+and the Gateway are cluster/platform-managed. `allowedRoutes.namespaces.from`
+must permit the Tekton system namespace, because the generated HTTPRoute is
+created there.
+
+**2. The export rule, pinned to that HTTPS listener** via `gateway.sectionName`:
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  pipeline:
+    options:
+      configMaps:
+        trigger-wrapper-config:
+          data:
+            config: |
+              export-rules:
+                - name: gateway-webhooks-https
+                  type: HTTPRoute
+                  host: webhooks.example.com
+                  urlPathPrefix: /triggers
+                  externalHosts:
+                    - "https://webhooks.example.com"
+                  gateway:
+                    name: eg
+                    namespace: envoy-gateway-system
+                    sectionName: https
+                  namespaceSelector:
+                    matchNames:
+                      - "*"
+```
+
+Notes:
+
+- Set the rule's `host` to the listener `hostname` so the HTTPRoute hostname
+  matches the TLS SNI, and use the `https://` scheme in `externalHosts` so the
+  published `status.addresses` advertise HTTPS.
+- `gateway.sectionName` pins the HTTPRoute to a named listener; use
+  `gateway.port` instead (or as well) when listeners are distinguished by port.
+  Omitting both lets the Gateway attach the route to any compatible listener.
+- trigger-wrapper only creates the HTTPRoute (and its `ReferenceGrant`); it does
+  not create or modify the Gateway, the listener, or the certificate `Secret`.
+
 ## Configuration workflow
 
 1. Edit the `TektonConfig` resource (see **Configuration entry point**).
@@ -408,26 +580,28 @@ data:
 
 ### Verify Ingress objects
 
-Check that Ingress resources are created for matching EventListeners:
+Check that Ingress resources are created for matching export rules:
 
 ```bash
-# Replace <namespace> with the namespace where your EventListener is deployed
-# For example, if your EventListener is in the 'tekton-triggers-demo' namespace:
-kubectl get ingress -n tekton-triggers-demo
+# The shared Ingress is created in the Tekton system namespace (default:
+# tekton-pipelines), NOT in the EventListener's namespace, and it is named
+# after the export rule (not after the EventListener).
+kubectl get ingress -n tekton-pipelines
 ```
 
-**Important**: The `<namespace>` in the command should be the namespace where your EventListener is deployed, not the system namespace (`tekton-pipelines`). The automatic exposure feature creates Ingress resources in the same namespace as the EventListener.
+**Important**: One shared Ingress is created per export rule in the system namespace. Its name is the rule `name`, and it carries one `pathType: Exact` path per matching EventListener (`${urlPathPrefix}/${namespace}/${eventlistener}`). There is no per-EventListener Ingress in the EventListener's own namespace.
 
 **Expected output (normal):**
 ```
-NAME                              CLASS   HOSTS                    ADDRESS   PORTS   AGE
-el-<eventlistener-name>           nginx   webhooks.example.com     ...        80      5m
+NAME                CLASS   HOSTS                    ADDRESS   PORTS   AGE
+<export-rule-name>  nginx   webhooks.example.com     ...        80      5m
 ```
 
 **What to check:**
-- Ingress objects exist for EventListeners that match export rules
-- The `HOSTS` field matches the `host` specified in the export rule
+- A shared Ingress exists for each export rule that matches at least one EventListener
+- The `HOSTS` field matches the `host` specified in the export rule (empty/`*` means all hosts)
 - The Ingress has an `ADDRESS` assigned (may take a few minutes)
+- Inspect `kubectl get ingress <rule-name> -n tekton-pipelines -o yaml` and confirm each matching EventListener has a `pathType: Exact` path
 - If no Ingress appears, verify the namespace matches `matchNames` and EventListener labels match `labelSelector`
 
 ### Check EventListener addresses
@@ -510,8 +684,9 @@ kubectl get trigger my-trigger -n tekton-triggers-demo \
   - Appear in controller logs as parsing errors
   - Check controller logs: `kubectl logs -n tekton-pipelines -l app=tektoncd-enhancement-controller`
 
-- **Removing a rule:**
-  - Cascades deletion of the generated resources (Ingress, Service, etc.)
+- **Removing a rule (or switching its `type`):**
+  - Cascades deletion of the generated resources for that rule (Ingress + ExternalName Service, or HTTPRoute + ReferenceGrant)
+  - Switching a rule between `Ingress` and `HTTPRoute` prunes the old mode's resources and creates the new ones
   - Setting `export-rules` to an empty array disables all external exposure
   - EventListener `status.addresses` will be cleared when no rules match
 

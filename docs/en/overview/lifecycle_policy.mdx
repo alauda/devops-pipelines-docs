@@ -10,6 +10,7 @@ Below is the lifecycle schedule for released versions of the `Alauda DevOps Pipe
 
 | Alauda DevOps Pipelines Version | Release Date | End of Support | Version Type | Available Channels | Recommended Channel |
 | :----: | :----------: | :--------------: | :----: | :----------------: | :-----------------: |
+| v4.14.x | 2026-08-19 | 2027-08-19 | LTS | `stable`, `latest`, `pipelines-4.14` | `stable` |
 | v4.12.x | 2026-06-16 | 2026-10-16 | Non-LTS | `latest` | `latest` |
 | v4.11.x | 2026-05-15 | 2026-09-15 | Non-LTS | `latest` | `latest` |
 | v4.10.x | 2026-04-15 | 2027-04-15 | LTS | `stable`, `latest`, `pipelines-4.10` | `stable` |
@@ -24,7 +25,7 @@ Below is the lifecycle schedule for released versions of the `Alauda DevOps Pipe
 
 > For detailed component versions in each version, see the [Compatibility and support matrix](./release_notes.mdx#compatibility-and-support-matrix)
 >
-> Version sequence note: `v4.9` is intentionally skipped. The next release after `v4.8` is `v4.10 (LTS)`.
+> Version sequence note: `v4.9` and `v4.13` are intentionally skipped. The next release after `v4.8` is `v4.10 (LTS)`, and the next release after `v4.12` is `v4.14 (LTS)`.
 >
 > Channel policy transition note: `stable` as the default channel starts from `v4.10.x`. Historical versions (`v4.0.x` to `v4.8.x`) used `latest` as the default channel.
 
@@ -34,7 +35,7 @@ A new minor version of the `Alauda DevOps Pipelines` operator is usually release
 
 Within every 4-month period, the last minor version will be selected as a Long Term Support (LTS) version. LTS versions are supported for 12 months, while non-LTS versions are supported four months.
 
-In exceptional release cycles, a minor version number can be intentionally skipped (for example, `v4.9`).
+In exceptional release cycles, a minor version number can be intentionally skipped (for example, `v4.9` and `v4.13`).
 
 During these four months, we will update to the latest or second [LTS](https://github.com/tektoncd/community/blob/main/releases.md#support-policy) version officially released by Tekton.
 
@@ -56,7 +57,7 @@ Alauda provides comprehensive maintenance support for the `Alauda DevOps Pipelin
 
 | Version Type | Support Duration | Examples |
 |:------------:|:----------------:|:--------:|
-| LTS (Long Term Support) | 12 months | 4.0.x |
+| LTS (Long Term Support) | 12 months | 4.0.x, 4.2.x, 4.6.x, 4.10.x, 4.14.x |
 | Non-LTS | 4 months | 4.1.x |
 
 During the maintenance period, Alauda provides the following services:

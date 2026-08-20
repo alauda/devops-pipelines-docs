@@ -12,9 +12,16 @@ spec:
     listKind: TektonInstallerSetList
     plural: tektoninstallersets
     singular: tektoninstallerset
-  scope: Namespaced
+  scope: Cluster
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].message
+      name: Reason
+      type: string
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: TektonInstallerSet is the Schema for the TektonInstallerSet API
@@ -40,10 +47,7 @@ spec:
             description: TektonInstallerSetSpec defines the desired state of TektonInstallerSet
             properties:
               manifests:
-                description: Slice is a Source comprised of existing objects
-                items:
-                  type: object
-                type: array
+                x-kubernetes-preserve-unknown-fields: true
             type: object
           status:
             description: TektonInstallerSetStatus defines the observed state of TektonInstallerSet
@@ -104,3 +108,5 @@ spec:
         type: object
     served: true
     storage: true
+    subresources:
+      status: {}

@@ -9,7 +9,7 @@ weight: 10
 This troubleshooting guide covers issues for both **administrators** (component deployment, configuration) and **regular users** (repository setup, pipeline execution).
 
 **Important**: Throughout this document, we use two different namespaces:
-- **`<pac-namespace>`**: The namespace where PAC components (controller, watcher, webhook) are deployed. Default is `tekton-pipelines`, but can be customized via `targetNamespace` in the `OpenShiftPipelinesAsCode` CR.
+- **`<pac-namespace>`**: The namespace where PAC components (controller, watcher, webhook) are deployed. Default is `tekton-pipelines`, but can be customized via `targetNamespace` in the `TektonConfig` CR.
 - **`<namespace>`**: The namespace where PipelineRuns are created. This is specified when creating the Repository CR and can be any namespace in your cluster.
 
 Replace these placeholders with your actual namespace names.
@@ -44,7 +44,7 @@ pipelines-as-code-webhook-5fcd94db5b-xxxxx     1/1     Running   0          113d
 **Get PAC namespace** (where PAC components are deployed):
 
 ```bash
-kubectl get openshiftpipelinesascodes.operator.tekton.dev pipelines-as-code -o jsonpath='{.spec.targetNamespace}'
+kubectl get tektonconfig config -o jsonpath='{.spec.targetNamespace}'
 ```
 
 If the command fails or returns empty, use the default: `tekton-pipelines`
@@ -90,11 +90,28 @@ kubectl get pipelinerun -n <namespace>
 
 ### Symptom \{#symptom}
 
-`OpenShiftPipelinesAsCode` CR shows `Ready: False` or pods are not starting.
+`OpenShiftPipelinesAsCode` CR shows `Ready: False`, pods are not starting, or that CR does not exist at all.
 
 ### Troubleshooting Steps \{#troubleshooting-steps}
 
-1. **Check CR Status**:
+1. **Check that `TektonConfig` asks for PAC**. The operator derives the `OpenShiftPipelinesAsCode` CR from `TektonConfig`, and only when the profile is `all` and PAC is enabled. If the CR is missing entirely, start here:
+
+    ```bash
+    kubectl get tektonconfig config \
+      -o jsonpath='profile={.spec.profile} enable={.spec.platforms.kubernetes.pipelinesAsCode.enable}{"\n"}'
+    ```
+
+    Expected output:
+
+    ```text
+    profile=all enable=true
+    ```
+
+    A profile of `basic` or `lite` means the operator never reaches its PAC logic — it neither creates nor deletes the CR.
+
+    An empty `enable` means `spec.platforms.kubernetes.pipelinesAsCode` is absent altogether. The defaulting webhook fills that block in with `enable: true`, but only when something writes `TektonConfig`, so the block stays absent on a cluster whose `TektonConfig` has not been written since the operator was upgraded. On `profile: all` — the only profile that reaches the PAC logic at all — the reconciler reads that absent block as PAC being disabled and deletes the derived CR. Writing the block explicitly, as shown in [Deploy PAC Component](../install/manage_pac.mdx#deploy-pac-component), both fixes the immediate problem and keeps the intent visible in the CR.
+
+2. **Check CR Status**:
 
     ```bash
     kubectl get openshiftpipelinesascodes.operator.tekton.dev pipelines-as-code -o yaml
@@ -114,7 +131,7 @@ Example output (abbreviated):
         reason: DeploymentFailed
     ```
 
-2. **Check CR Events**:
+3. **Check CR Events**:
 
     ```bash
     kubectl describe openshiftpipelinesascodes.operator.tekton.dev pipelines-as-code
@@ -131,14 +148,14 @@ Example output (abbreviated):
     Warning  DeploymentFailed 5m    tekton-operator   Failed to deploy PAC component
     ```
 
-3. **Check TektonInstallerSet**:
+4. **Check TektonInstallerSet**:
 
     ```bash
     kubectl get tektoninstallersets | grep openshiftpipelinesascode
     kubectl describe tektoninstallerset <name>
     ```
 
-   **Note**: `TektonInstallerSet` is a cluster-scoped resource. This is a read-only check for troubleshooting. Do not modify or delete it directly. If issues persist, troubleshoot through the `OpenShiftPipelinesAsCode` CR.
+   **Note**: `TektonInstallerSet` is a cluster-scoped resource. This is a read-only check for troubleshooting. Do not modify or delete it directly. If issues persist, troubleshoot through `TektonConfig` and the derived `OpenShiftPipelinesAsCode` CR.
 
 Example output:
 
@@ -149,7 +166,7 @@ Example output:
     openshiftpipelinesascode-post-cdwjw              153d
     ```
 
-4. **Check Operator Logs**:
+5. **Check Operator Logs**:
 
     ```bash
     kubectl logs -n <pac-namespace> -l app=tekton-operator --tail=100
@@ -163,17 +180,17 @@ Example output (example log entries):
 
 ### Common Causes \{#common-causes}
 
-- **Incorrect CR name**: Must be exactly `pipelines-as-code`
+- **PAC not requested in `TektonConfig`**: the profile is not `all`, or the profile is `all` but `spec.platforms.kubernetes.pipelinesAsCode` is missing or has `enable: false`. This is the usual reason for the CR being absent rather than unready. The two cases differ: on `basic` or `lite` the operator never creates the CR and never touches one that already exists, while on `all` a missing block or `enable: false` makes it delete the CR. The missing-block case is easy to hit after an in-place upgrade, because the block is only filled in when something writes `TektonConfig`
 - **Operator not running**: Check Tekton Operator status
 - **Namespace issues**: Verify `targetNamespace` exists
 - **Resource conflicts**: Check for existing resources
 
 ### Solution \{#solution}
 
-1. Verify the CR name is `pipelines-as-code`
+1. Set `spec.profile: all` and `spec.platforms.kubernetes.pipelinesAsCode.enable: true` in `TektonConfig`
 2. Ensure Tekton Operator is running
 3. Check namespace exists (replace `<pac-namespace>` with your actual PAC namespace): `kubectl get namespace <pac-namespace>`
-4. Delete and recreate the CR if needed
+4. If the derived CR is stuck rather than missing, delete it — on `profile: all`, with PAC still enabled in `TektonConfig`, the operator recreates it on the next reconcile. Do not do this on `basic` or `lite`: nothing recreates the CR there, so deleting it removes PAC permanently
 
 ## PAC Pods Not Starting \{#pac-pods-not-starting}
 
@@ -314,7 +331,7 @@ metadata:
 
 | Reason annotation | Meaning | Fix |
 |---|---|---|
-| `WebhookURLUnavailable` | The controller cannot find the public PAC webhook URL. | Populate `pipelines-as-code-info.data.controller-url` through `OpenShiftPipelinesAsCode` or `TektonConfig`. |
+| `WebhookURLUnavailable` | The controller cannot find the public PAC webhook URL. | Populate `pipelines-as-code-info.data.controller-url` through `TektonConfig`. |
 | `MissingWebhookSecret` | The effective `spec.git_provider.webhook_secret` is missing or points to a missing/empty key. | Add `webhook_secret.name` and key `webhook.secret` in the Repository namespace, or inherit it from the PAC global Repository. Inherited Secrets are read from the global Repository namespace. |
 | `MissingCredential` | No usable provider token was found. | Add `spec.git_provider.secret` in the Repository namespace, inherit it from the PAC global Repository, or add one matching centralized Secret in the webhook registration controller namespace. Inherited Secrets are read from the global Repository namespace. |
 | `AmbiguousCredential` | More than one centralized Secret matches the same provider type and URL. | Keep exactly one matching Secret, or adjust `pac.tekton.alauda.io/provider-url`. |
@@ -371,8 +388,22 @@ Example output (example log entries):
 4. **Verify Controller URL is Accessible**:
 
     ```bash
+    # If using Gateway API
+    curl -i http://pac.example.com/
+    # If DNS is not ready yet, resolve the host to the Envoy Gateway external IP:
+    # curl -i --resolve "pac.example.com:80:<gateway-external-ip>" http://pac.example.com/
+    ```
+
+Example output:
+
+    ```
+    HTTP/1.1 200 OK
+    Content-Type: text/plain
+    ```
+
+    ```bash
     # If using Ingress
-    curl -I http://pac.example.com
+    curl -i http://pac.example.com/
     ```
 
 Example output:
@@ -384,7 +415,7 @@ Example output:
 
     ```bash
     # If using NodePort
-    curl -I http://<node-ip>:<node-port>
+    curl -i http://<node-ip>:<node-port>/
     ```
 
 Example output:
@@ -428,13 +459,13 @@ Example output (abbreviated):
 - **Controller URL not accessible**: Firewall or network issues
 - **Webhook secret mismatch**: Secret in GitLab doesn't match Repository CR
 - **Webhook URL incorrect**: Wrong controller URL configured
-- **Ingress/Service not configured**: Controller not exposed
+- **Gateway/Ingress/Service not configured**: Controller not exposed
 
 ### Solution \{#solution-2}
 
 1. Verify controller URL is accessible from GitLab servers
 2. Ensure webhook secret matches in both GitLab and Repository CR
-3. Check Ingress/Service configuration
+3. Check Gateway/Ingress/Service configuration
 4. Test webhook manually using `curl`
 
 ### Verification \{#verification}
@@ -1242,6 +1273,76 @@ Comment commands like `/retest` are not triggering pipelines.
 3. Use commands only in Merge Requests
 4. Enable "Comments" in GitLab webhook configuration
 5. Match command names exactly (case-sensitive)
+
+## PAC Setting Has No Effect \{#pac-setting-has-no-effect}
+
+### Symptom \{#symptom-10}
+
+A setting was added to `TektonConfig.spec.platforms.kubernetes.pipelinesAsCode.settings` and applied without error, but PAC keeps behaving as if the setting still had its default value. Both `TektonConfig` and the derived `OpenShiftPipelinesAsCode` CR report ready, no event or error is recorded, and reading `TektonConfig` back shows the key is gone from `settings`.
+
+This affects the Alauda extension settings only: `custom-console-url-namespace-vars`, `replace-empty-template-vars-with-empty` and `enable-pull-request-number-on-push-events`.
+
+Note that the symptom is "the default is in effect", not "the feature is missing". When the key is absent from its ConfigMap, PAC falls back to the built-in default for that setting, so turning a default-on setting off is just as affected as turning a default-off setting on.
+
+### Troubleshooting Steps \{#troubleshooting-steps-10}
+
+The commands below use two placeholders. Set them first, in the same shell, so the rest can be pasted as is:
+
+    ```bash
+    SETTING=custom-console-url-namespace-vars   # the setting you configured
+    PAC_NS=tekton-pipelines                     # spec.targetNamespace of TektonConfig
+    ```
+
+1. **Check whether the key survived in `TektonConfig`**:
+
+    ```bash
+    kubectl get tektonconfig config \
+      -o jsonpath="{.spec.platforms.kubernetes.pipelinesAsCode.settings.$SETTING}"
+    ```
+
+    This step only tells you something if you wrote the key under `settings`; empty output then means the operator dropped it. If you already moved the key to `options.configMaps`, empty output here is the expected result — go straight to step 3.
+
+2. **Check the derived CR**. On `profile: all`, which is what this symptom implies since PAC is running, the operator copies `settings` from `TektonConfig` into it, so the key is gone here too — this step only confirms the copy is in sync, it is not the authoritative check:
+
+    ```bash
+    kubectl get openshiftpipelinesascodes.operator.tekton.dev pipelines-as-code \
+      -o jsonpath="{.spec.settings.$SETTING}"
+    ```
+
+3. **Check the ConfigMap PAC actually reads**. This is the authoritative check — `settings` only describes intent:
+
+    ```bash
+    kubectl get configmap pipelines-as-code -n "$PAC_NS" \
+      -o jsonpath="{.data.$SETTING}"
+    ```
+
+    Compare the output with the value you intended. Anything else means PAC is not using your configuration. Note that empty output is the correct result when you deliberately set the key to an empty string, for example to clear a mapping you no longer want.
+
+### Common Causes \{#common-causes-9}
+
+- **Key written under `settings`**: the operator's defaulting webhook rebuilds that map from the upstream Pipelines as Code settings struct. The Alauda extension settings have no field in that struct, so they are discarded on save — silently, with no error and no event. This happens on `TektonConfig` itself, so the key never reaches the derived CR either.
+- **Key written on the derived `OpenShiftPipelinesAsCode` CR**: on `profile: all` the operator copies `settings` and `options` back over from `TektonConfig` on the next reconcile, so the edit is lost even for keys it would otherwise accept.
+- **Key written directly into the ConfigMap**: a manual edit survives ordinary reconciles, because the operator compares its rendered manifest against a hash annotation that your edit does not change. The comparison is per resource, so a PAC change that does not alter the rendered ConfigMap — a `spec.config` or Deployment option, for example — leaves the edit in place. It is silently overwritten the moment the rendered ConfigMap itself changes: any edit to `settings` or to `options.configMaps`, an operator upgrade, or a rebuild of the installer set. Editing the ConfigMap by hand therefore looks like it worked and then stops working at an unpredictable moment.
+
+### Solution \{#solution-9}
+
+Move the key to `options.configMaps` in `TektonConfig`, which the operator merges into the ConfigMap key by key and never rewrites:
+
+    ```yaml
+    spec:
+      platforms:
+        kubernetes:
+          pipelinesAsCode:
+            enable: true
+            options:
+              disabled: false
+              configMaps:
+                pipelines-as-code:
+                  data:
+                    custom-console-url-namespace-vars: "project=label:cpaas.io/project,cluster=label:cpaas.io/cluster"
+    ```
+
+Then repeat step 3 to confirm the value reached the ConfigMap. Details and the full key list are in [Where to Put Each Setting](../install/manage_pac.mdx#where-to-put-each-setting).
 
 ## Getting Help \{#getting-help}
 

@@ -8,7 +8,7 @@ weight: 43
 
 This guide is for **cluster administrators** who need to configure PAC to trust self-signed certificates or custom CA certificates for Git providers.
 
-**Note**: Throughout this document, `<pac-namespace>` or `tekton-pipelines` refers to the namespace where PAC is deployed. The default namespace is `tekton-pipelines`, but you can customize it via `targetNamespace` in the `OpenShiftPipelinesAsCode` CR. Replace `<pac-namespace>` or `tekton-pipelines` with your actual namespace name if different.
+**Note**: Throughout this document, `<pac-namespace>` or `tekton-pipelines` refers to the namespace where PAC is deployed. The default namespace is `tekton-pipelines`, but you can customize it via `targetNamespace` in the `TektonConfig` CR. Replace `<pac-namespace>` or `tekton-pipelines` with your actual namespace name if different.
 
 :::
 
@@ -21,7 +21,7 @@ Before configuring custom certificates, ensure you have:
 - PAC component deployed
 - Administrator access to the cluster
 - Access to the CA certificate file
-- Ability to modify the `OpenShiftPipelinesAsCode` CR or the `TektonConfig` CR
+- Ability to modify the `TektonConfig` CR
 
 ## Overview \{#overview}
 
@@ -104,51 +104,11 @@ Example output:
 
 ## Step 3: Mount Certificate in PAC Controller \{#step-3-mount-certificate-in-pac-controller}
 
-Mount the certificate in the PAC controller pods by updating the `OpenShiftPipelinesAsCode` CR or the `TektonConfig` CR.
+Mount the certificate in the PAC controller pods by updating the `TektonConfig` CR.
 
-### For `OpenShiftPipelinesAsCode` CR \{#for-openshiftpipelinesascode-cr}
+### For `TektonConfig` CR \{#for-tektonconfig-cr}
 
-If you're using the `OpenShiftPipelinesAsCode` CR:
-
-    ```yaml
-    apiVersion: operator.tekton.dev/v1alpha1
-    kind: OpenShiftPipelinesAsCode
-    metadata:
-      name: pipelines-as-code
-    spec:
-      settings:
-        application-name: Pipelines as Code CI
-        hub-url: http://artifacthub-shim-api.artifacthub-shim-system.svc.cluster.local
-        hub-catalog-type: artifacthub
-        hub-catalog-name: catalog
-      targetNamespace: tekton-pipelines  # Default namespace, you can customize this
-      options:
-        deployments:
-          pipelines-as-code-controller:
-            spec:
-              template:
-                spec:
-                  containers:
-                  - name: pac-controller
-                    volumeMounts:
-                    - name: git-ca-cert
-                      mountPath: /etc/ssl/certs/git-ca.crt
-                      subPath: ca.crt
-                      readOnly: true
-                    env:
-                    - name: GIT_SSL_CAINFO
-                      value: /etc/ssl/certs/git-ca.crt
-                    - name: SSL_CERT_FILE
-                      value: /etc/ssl/certs/git-ca.crt
-                  volumes:
-                  - name: git-ca-cert
-                    configMap:
-                      name: git-ca-cert
-    ```
-
-### For TektonConfig CR \{#for-tektonconfig-cr}
-
-If you're using `TektonConfig` CR (for OpenShift deployments):
+On a Kubernetes cluster the PAC options live under `platforms.kubernetes`. The operator rejects `platforms.openshift` there, and rejects `platforms.kubernetes` on OpenShift:
 
     ```yaml
     apiVersion: operator.tekton.dev/v1alpha1
@@ -156,11 +116,13 @@ If you're using `TektonConfig` CR (for OpenShift deployments):
     metadata:
       name: config
     spec:
+      targetNamespace: tekton-pipelines  # Default namespace, you can customize this
       platforms:
-        openshift:
+        kubernetes:
           pipelinesAsCode:
             enable: true
             options:
+              disabled: false
               deployments:
                 pipelines-as-code-controller:
                   spec:
@@ -184,10 +146,12 @@ If you're using `TektonConfig` CR (for OpenShift deployments):
                             name: git-ca-cert
     ```
 
-**Important**: 
+Do not put this block on the derived `OpenShiftPipelinesAsCode` CR instead. The operator copies `options` back over from `TektonConfig` on every reconcile, so the mount disappears again. The one exception is a cluster where `TektonConfig` does not manage PAC at all — `spec.profile` is `basic` or `lite` — in which case the same `options` block goes on that CR under `spec.options`. See [How the Operator Manages PAC](./manage_pac.mdx#how-the-operator-manages-pac).
+
+**Important**:
 - The certificate is mounted at `/etc/ssl/certs/git-ca.crt` in the container
 - Environment variables `GIT_SSL_CAINFO` and `SSL_CERT_FILE` tell Git to use this certificate
-- After updating the CR, the Operator will automatically restart the PAC controller pods
+- After `TektonConfig` is updated, the Operator will automatically restart the PAC controller pods
 
 ### For automatic webhook registration \{#for-automatic-webhook-registration}
 
@@ -230,16 +194,16 @@ If your PAC webhook URL itself uses a self-signed certificate, the Git provider 
 
 ## Step 4: Apply Configuration \{#step-4-apply-configuration}
 
-Apply the updated CR:
+Apply the updated `TektonConfig`:
 
     ```bash
-    kubectl apply -f your-cr-file.yaml
+    kubectl apply -f your-tektonconfig-file.yaml
     ```
 
 Example output:
 
     ```
-    openshiftpipelinesascode.operator.tekton.dev/pipelines-as-code configured
+    tektonconfig.operator.tekton.dev/config configured
     ```
 
 Wait for the PAC controller pods to restart:
@@ -270,10 +234,17 @@ Verify the certificate is mounted in the PAC controller pod:
       -o jsonpath='{.items[0].spec.volumes}' | jq
     ```
 
-Example output:
+Example output — the `git-ca-cert` volume is the one this guide adds; `tls` is present on every PAC controller pod:
 
     ```json
     [
+      {
+        "name": "git-ca-cert",
+        "configMap": {
+          "defaultMode": 420,
+          "name": "git-ca-cert"
+        }
+      },
       {
         "name": "tls",
         "secret": {
@@ -284,6 +255,8 @@ Example output:
       }
     ]
     ```
+
+If only `tls` is listed, the operator has not applied the mount yet — or it never reached the Deployment, which is what happens when the `options` block was written on the derived CR instead of on `TektonConfig`.
 
 You should see the volume configuration showing the certificate is mounted.
 
@@ -401,7 +374,7 @@ Example output:
 
 ### Pod Not Restarting \{#pod-not-restarting}
 
-**Problem**: PAC controller pods are not restarting after updating the CR.
+**Problem**: PAC controller pods are not restarting after `TektonConfig` was updated.
 
 **Solutions**:
 1. Check CR status:

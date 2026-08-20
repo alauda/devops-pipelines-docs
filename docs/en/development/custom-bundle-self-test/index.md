@@ -34,14 +34,14 @@ make download-release-from-nexus
 Read the frontend tag from `values.yaml`:
 
 ```bash
-yq e '.global.images.ui.tag' values.yaml
+yq e '.global.images.pipeline-v2-frontend_ui.tag' values.yaml
 ```
 
 Export the tags that will be used in `overwrite_artifacts`:
 
 ```bash
 export TARGET_BRANCH="release-4.6"
-export UI_TAG="$(yq e '.global.images.ui.tag' values.yaml)"
+export UI_TAG="$(yq e '.global.images.pipeline-v2-frontend_ui.tag' values.yaml)"
 export COMMON_COMPONENT_TAG="<component-tag-from-release-pipeline>"
 ```
 
@@ -116,7 +116,7 @@ podman push build-harbor.alauda.cn/devops/tektoncd/operator/cmd/kubernetes/opera
 Set `overwrite_artifacts` with the frontend tag from `values.yaml`, and pin operator-related tags explicitly:
 
 ```bash
-/test to-build-bundle-image overwrite_artifacts=".global.images.ui.tag=${UI_TAG},.global.images.operator.tag=${CUSTOM_OPERATOR_TAG},.global.images.proxy-webhook.tag=${COMMON_COMPONENT_TAG},.global.images.webhook.tag=${COMMON_COMPONENT_TAG},.global.images.tkn.tag=${COMMON_COMPONENT_TAG}" branch:${TARGET_BRANCH}
+/test to-build-bundle-image overwrite_artifacts=".global.images.pipeline-v2-frontend_ui.tag=${UI_TAG},.global.images.operator.tag=${CUSTOM_OPERATOR_TAG},.global.images.proxy-webhook.tag=${COMMON_COMPONENT_TAG},.global.images.webhook.tag=${COMMON_COMPONENT_TAG},.global.images.tkn.tag=${COMMON_COMPONENT_TAG}" branch:${TARGET_BRANCH}
 ```
 
 `to-build-bundle-image` does not build operator-related images. If tags are not pinned, the bundle may use unexpected image versions.
