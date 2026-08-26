@@ -339,6 +339,12 @@ metadata:
 | `NoGitProvider` | The Repository has no local `spec.git_provider`, or the effective provider type is empty and cannot be inferred. | Add a local `spec.git_provider` block for Webhook mode. Set `type` to `github` or `gitlab`, inherit it from the PAC global Repository, or provide an unambiguous public GitHub/GitLab URL or `/api/v3` or `/api/v4` API URL. GitHub App mode does not use automatic webhook registration. |
 | `UnsupportedProvider` | The controller only supports GitLab and GitHub Webhook mode. | Use manual registration or another supported integration mode. |
 
+TLS errors depend on which component initiated the connection:
+
+- `x509`, `certificate signed by unknown authority`, or similar errors in `tektoncd-enhancement-controller` logs mean that the controller cannot trust the Git provider API certificate. Mount the CA bundle and set `SSL_CERT_FILE`/`GIT_SSL_CAINFO`; see [Configure Custom Certificates](../install/configure_custom_certificates.mdx).
+- A GitLab/GitHub webhook delivery test that fails because the PAC endpoint certificate cannot be verified is a provider-to-PAC issue. Check `pac-webhook-registration.webhook-target-tls-verify` in [Configure Enhancement Features via TektonConfig](../../configure/configure-tektoncd-enhancement-configmap.mdx), or install a CA trusted by the Git provider.
+- `pipelines-as-code-controller` errors while fetching repository content or reporting status are a separate PAC-controller-to-provider trust issue and require the PAC controller CA configuration in [Configure Custom Certificates](../install/configure_custom_certificates.mdx).
+
 ### Notes \{#notes-automatic-webhook-registration}
 
 - Repository-local token is tried first. If it returns `401` or `403`, the controller retries with a matching centralized Secret.
@@ -351,6 +357,14 @@ metadata:
 - Deleting the Repository attempts best-effort cleanup of the recorded managed webhook. Cleanup failures are logged and emitted as events, but they do not block Repository finalizer removal. Check the provider-side webhook manually if credentials were removed or the provider API was unreachable.
 - Disabling automatic registration globally, or adding `pac.tekton.alauda.io/webhook-registration-disabled: "true"` to a Repository, removes recorded managed webhooks before the controller marks the Repository inactive. If cleanup fails because credentials are missing or provider access is unavailable, the controller keeps the managed annotations and finalizer and retries after the credential or provider access is fixed.
 - Add label `pac.tekton.alauda.io/webhook-registration-disabled: "true"` to a Repository to skip automatic webhook registration for that Repository.
+
+For the controller logs, use:
+
+```bash
+kubectl logs -n <pac-namespace> \
+  -l app=tektoncd-enhancement-controller \
+  --tail=100 | grep -Ei 'x509|certificate|tls|webhook|ProviderAPIError'
+```
 
 ## Webhook Not Receiving Events \{#webhook-not-receiving-events}
 
@@ -1358,3 +1372,5 @@ If you're still experiencing issues:
 - [Manage PAC Component](../install/manage_pac.mdx) - Deployment and management guide
 - [Guides](../guides/index.mdx) - Repository setup walkthroughs
 - [Trigger PAC Pipelines](../how_to/trigger_pipeline.mdx) - Automatic events and comment commands
+- [Configure Custom Certificates](../install/configure_custom_certificates.mdx) - Trust self-signed or private-CA Git providers
+- [Configure Enhancement Features via TektonConfig](../../configure/configure-tektoncd-enhancement-configmap.mdx) - Automatic webhook registration settings

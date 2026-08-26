@@ -25,16 +25,19 @@ Before configuring custom certificates, ensure you have:
 
 ## Overview \{#overview}
 
-When your Git hosting service uses self-signed certificates or certificates signed by a custom CA, two controller clients may need to trust the CA:
+When your Git hosting service uses self-signed certificates or certificates signed by a custom CA, configure the trust chain for each outbound connection separately:
 
-- `pipelines-as-code-controller`, which fetches repository content and reports status after webhook delivery.
-- The automatic webhook registration controller, which registers or updates GitLab/GitHub webhooks by calling the Git provider API.
+| Connection | What it does | Configuration |
+|---|---|---|
+| `pipelines-as-code-controller` -> Git provider API | Fetches repository content and reports status after webhook delivery. | Mount the CA and set `GIT_SSL_CAINFO` and `SSL_CERT_FILE` in the PAC controller. |
+| `tektoncd-enhancement-controller` -> Git provider API | Registers or updates GitLab/GitHub webhooks for PAC `Repository` resources. | Mount the same CA and set `SSL_CERT_FILE` (and optionally `GIT_SSL_CAINFO`) in the Enhancement controller. |
+| Git provider -> PAC webhook | Delivers webhook events to the PAC endpoint. | The provider validates the PAC endpoint certificate. Automatic registration enables this validation by default; see [`webhook-target-tls-verify`](../../configure/configure-tektoncd-enhancement-configmap.mdx). |
 
 This requires:
 
 1. Creating a ConfigMap with the CA certificate
 2. Mounting the certificate in PAC controller pods
-3. Mounting the same certificate in the automatic webhook registration controller when automatic webhook registration is used
+3. Mounting the same certificate in the `tektoncd-enhancement-controller` when automatic webhook registration is used
 4. Configuring Git and HTTPS clients to use the certificate
 
 ## Step 1: Prepare the CA Certificate \{#step-1-prepare-the-ca-certificate}
@@ -155,7 +158,7 @@ Do not put this block on the derived `OpenShiftPipelinesAsCode` CR instead. The 
 
 ### For automatic webhook registration \{#for-automatic-webhook-registration}
 
-If you use automatic webhook registration for GitLab or GitHub Webhook mode, mount the same CA bundle into the automatic webhook registration controller and set `SSL_CERT_FILE`. This controller is managed by `TektonConfig`, so update `spec.pipeline.options.deployments` instead of patching the Deployment directly. The controller also honors `GIT_SSL_CAINFO` when `SSL_CERT_FILE` is not set.
+If you use automatic webhook registration for GitLab or GitHub Webhook mode, mount the same CA bundle into `tektoncd-enhancement-controller` and set `SSL_CERT_FILE`. This controller is managed by `TektonConfig`, so update `spec.pipeline.options.deployments` instead of patching the Deployment directly. The controller also honors `GIT_SSL_CAINFO` when `SSL_CERT_FILE` is not set.
 
 Example `TektonConfig` patch:
 
@@ -182,15 +185,42 @@ Example `TektonConfig` patch:
                       env:
                       - name: SSL_CERT_FILE
                         value: /etc/ssl/certs/git-ca.crt
+                      - name: GIT_SSL_CAINFO
+                        value: /etc/ssl/certs/git-ca.crt
                     volumes:
                     - name: git-ca-cert
                       configMap:
                         name: git-ca-cert
     ```
 
-The CA is needed only for the controller-to-Git-provider API connection. It does not change webhook payload validation.
+The CA mounted in this section is needed only for the Enhancement controller-to-Git-provider API connection. It does not change webhook payload validation or the certificate verification performed by the Git provider when it calls the PAC webhook.
 
-If your PAC webhook URL itself uses a self-signed certificate, the Git provider must also trust that certificate when it calls PAC. By default automatic registration enables provider-side TLS verification. For non-production environments, administrators can set `pac-webhook-registration.webhook-target-tls-verify: false` through `TektonConfig`; keep it enabled in production.
+### Configure automatic webhook registration \{#configure-automatic-webhook-registration\}
+
+The `tektoncd-enhancement-controller` reads automatic webhook registration settings from the managed `tektoncd-enhancement-config` ConfigMap. Configure that ConfigMap through `TektonConfig`; do not edit the managed ConfigMap directly:
+
+    ```yaml
+    apiVersion: operator.tekton.dev/v1alpha1
+    kind: TektonConfig
+    metadata:
+      name: config
+    spec:
+      pipeline:
+        options:
+          configMaps:
+            tektoncd-enhancement-config:
+              data:
+                config: |
+                  pac-webhook-registration:
+                    enabled: true
+                    # Set false only when the PAC webhook certificate is not trusted
+                    # by the Git provider (for example, in a non-production cluster).
+                    webhook-target-tls-verify: false
+    ```
+
+`webhook-target-tls-verify` controls only whether GitLab or GitHub verifies the PAC webhook URL certificate when delivering events. It does **not** disable TLS verification for `tektoncd-enhancement-controller` or `pipelines-as-code-controller` when they call the Git provider API. For those connections, configure the CA mount and environment variables above. See [Configure Enhancement Features via TektonConfig](../../configure/configure-tektoncd-enhancement-configmap.mdx) for the full configuration reference.
+
+Keep `webhook-target-tls-verify: true` in production whenever the Git provider can trust the PAC webhook certificate. Setting it to `false` weakens verification of the provider-to-PAC connection and is not a substitute for installing the correct CA certificate.
 
 ## Step 4: Apply Configuration \{#step-4-apply-configuration}
 
@@ -206,10 +236,11 @@ Example output:
     tektonconfig.operator.tekton.dev/config configured
     ```
 
-Wait for the PAC controller pods to restart:
+The Operator reconciles the managed ConfigMap and deployments after the CR update. `pac-webhook-registration.*` settings are hot-reloaded and do not require a rollout; changing a CA volume or environment variable does require the corresponding controller deployment to restart. Check the affected deployments as applicable:
 
     ```bash
     kubectl rollout status deployment/pipelines-as-code-controller -n <pac-namespace>  # Replace <pac-namespace> with your actual namespace (default: tekton-pipelines)
+    kubectl rollout status deployment/tektoncd-enhancement-controller -n <pac-namespace>
     ```
 
 Example output:
@@ -260,6 +291,18 @@ If only `tls` is listed, the operator has not applied the mount yet — or it ne
 
 You should see the volume configuration showing the certificate is mounted.
 
+### Check Enhancement controller configuration \{#check-enhancement-controller-configuration\}
+
+Verify that the managed Enhancement ConfigMap contains the expected registration settings and that the controller pod has the CA environment variables:
+
+    ```bash
+    kubectl get configmap tektoncd-enhancement-config -n <pac-namespace> -o yaml
+    kubectl get deployment tektoncd-enhancement-controller -n <pac-namespace> \
+      -o jsonpath='{.spec.template.spec.containers[?(@.name=="manager")].env}'
+    ```
+
+The `pac-webhook-registration.webhook-target-tls-verify` value belongs in the ConfigMap data shown above. The CA path belongs in the Enhancement controller environment, and both settings are managed through `TektonConfig`.
+
 ### Check PAC Controller Logs \{#check-pac-controller-logs}
 
 Check the PAC controller logs for any certificate-related errors:
@@ -274,6 +317,16 @@ Check the PAC controller logs for any certificate-related errors:
     ```
 
 If configured correctly, you should not see SSL/TLS certificate errors in the logs.
+
+For automatic webhook registration, check the Enhancement controller logs separately:
+
+    ```bash
+    kubectl logs -n <pac-namespace> \
+      -l app=tektoncd-enhancement-controller \
+      --tail=100 | grep -Ei 'x509|certificate|tls|webhook|ProviderAPIError'
+    ```
+
+Errors such as `x509: certificate signed by unknown authority` in these logs indicate that the Enhancement controller cannot trust the Git provider API certificate. They are not fixed by `webhook-target-tls-verify: false`; mount the correct CA bundle and set `SSL_CERT_FILE`/`GIT_SSL_CAINFO` instead.
 
 ### Test with a Repository \{#test-with-a-repository}
 
@@ -468,4 +521,5 @@ Create a certificate bundle by combining all certificates into a single file.
 - [Manage PAC Component](./manage_pac.mdx) - Learn about managing PAC deployment
 - [Configure GitHub Repository](../guides/configure_github_repo.mdx) - GitHub-specific configuration guide
 - [Configure GitLab Repository](../guides/configure_gitlab_repo.mdx) - GitLab-specific configuration guide
+- [Configure Enhancement Features via TektonConfig](../../configure/configure-tektoncd-enhancement-configmap.mdx) - Automatic webhook registration settings
 - [Common Issues](../trouble_shooting/common_issues.mdx) - Troubleshooting guide
