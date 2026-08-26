@@ -216,6 +216,8 @@ Expected status is `Registered`. The controller creates or updates a GitHub `web
 - Events: commit comments, issue comments, pull requests, and pushes
 - SSL verification: enabled by default
 
+Automatic registration is configured by `tektoncd-enhancement-controller`. See [Configure Enhancement Features via TektonConfig](../../configure/configure-tektoncd-enhancement-configmap.mdx) for `pac-webhook-registration.*` settings, including provider-side TLS verification. If the GitHub Enterprise API uses a private CA, also follow [Configure Custom Certificates](../install/configure_custom_certificates.mdx) for the controller trust configuration.
+
 The controller records the GitHub hook ID in `pac.tekton.alauda.io/webhook-managed-ref`. If the PAC webhook URL changes later, the controller updates the recorded hook by ID instead of creating a duplicate hook for the same repository.
 
 :::info
@@ -290,3 +292,4 @@ For the full troubleshooting matrix, see [Common Issues](../trouble_shooting/com
 - [Trigger PAC Pipelines](../how_to/trigger_pipeline.mdx) — automatic events and comment commands.
 - [Advanced Repository Configuration](../how_to/advanced_repository_config.mdx) — concurrency, parameters, custom settings.
 - [Configure Custom Certificates](../install/configure_custom_certificates.mdx) — for GitHub Enterprise with a private CA.
+- [Configure Enhancement Features via TektonConfig](../../configure/configure-tektoncd-enhancement-configmap.mdx) — configure automatic webhook registration.

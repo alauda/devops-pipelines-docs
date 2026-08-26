@@ -6,6 +6,8 @@ weight: 14
 
 This guide shows how to manage enhancement feature configuration through `TektonConfig` using `spec.pipeline.options.configMaps`.
 
+For self-signed or private-CA Git providers, configure the CA trust for the Enhancement and PAC controllers separately from the provider-side webhook verification setting. See [Configure Custom Certificates](../pac/install/configure_custom_certificates.mdx) for the complete certificate mounting examples.
+
 > **Namespace Note**: Throughout this guide, `<tekton-pipelines>` is used as a placeholder for your `Tekton` namespace. Replace it with your actual namespace name. The default installation uses `tekton-pipelines` namespace.
 
 ## Prerequisites
@@ -46,7 +48,9 @@ spec:
                 # The default is true. Setting this to false deletes webhooks
                 # previously managed by tektoncd-enhancement.
                 enabled: true
-                # Keep enabled in production.
+                # Keep enabled in production. This controls Git provider -> PAC
+                # webhook delivery only; it does not disable controller -> Git
+                # provider API TLS verification.
                 webhook-target-tls-verify: true
 ```
 
@@ -57,11 +61,13 @@ spec:
 | `template-render.details-url-template`     | Go template used to render `detailsURL` for mail/template rendering context. | `{{- if .isPipelineRun -}}{{ .platformURL }}/console-acp/workspace/{{ .project }}~{{ .cluster }}~{{ .namespace }}/pipeline/pipelineRuns/detail/{{ .pipelineRunName }}{{- else -}}{{ .platformURL }}/console-acp/workspace/{{ .project }}~{{ .cluster }}~{{ .namespace }}/pipeline/taskRuns/detail/{{ .taskRunName }}{{- end -}}` |
 | `template-render.time-zone`                | Global time zone setting for template rendering.                             | `""` (use container local time zone)                                                                                                                                                                                                                                                                                             |
 | `pac-webhook-registration.enabled`         | Enables automatic GitLab/GitHub webhook registration for PAC `Repository` resources. When set to `false`, the controller deletes provider webhooks it previously managed and marks the Repository as `Disabled`. | `true` |
-| `pac-webhook-registration.webhook-target-tls-verify` | Whether Git providers verify the PAC webhook URL certificate when delivering events. | `true` |
+| `pac-webhook-registration.webhook-target-tls-verify` | Whether GitLab or GitHub verifies the PAC webhook URL certificate when delivering events. This only affects the provider -> PAC webhook connection; it does not affect TLS verification from `tektoncd-enhancement-controller` or `pipelines-as-code-controller` to the Git provider API. | `true` |
 
 PAC webhook registration reads the public webhook URL from `pipelines-as-code-info.data.controller-url`. Configure that value through the PAC component options; see [Get the PAC Webhook URL](../pac/how_to/get_pac_webhook_url.mdx#record-the-webhook-url).
 
 To use automatic webhook registration, set each PAC `Repository` `spec.git_provider.type` to `github` or `gitlab`. Repositories without a supported type are skipped, with the reason recorded as a Repository Event and status annotations.
+
+If the Git provider cannot validate a self-signed PAC webhook certificate, set `webhook-target-tls-verify: false` only for non-production environments. This setting does not resolve `x509` or `certificate signed by unknown authority` errors in the Enhancement controller; mount the Git provider CA and set `SSL_CERT_FILE`/`GIT_SSL_CAINFO` as described in [Configure Custom Certificates](../pac/install/configure_custom_certificates.mdx).
 
 :::warning
 
@@ -100,3 +106,13 @@ Check in this order:
 2. `tektoncd-enhancement-config` in namespace `<tekton-pipelines>` has the expected `data.config`.
 3. The Tekton Operator has reconciled the latest `TektonConfig`.
 4. If you changed any `template-render.*` setting, `tektoncd-enhancement-controller` was restarted after the ConfigMap update.
+
+For automatic webhook registration failures, inspect the Enhancement controller logs:
+
+```bash
+kubectl logs -n <tekton-pipelines> \
+  -l app=tektoncd-enhancement-controller \
+  --tail=100
+```
+
+`x509` or `certificate signed by unknown authority` errors refer to the controller-to-Git-provider API connection. A failed webhook delivery test in GitLab or GitHub refers to the provider-to-PAC connection and should be investigated with `pac-webhook-registration.webhook-target-tls-verify` and the PAC webhook certificate.
