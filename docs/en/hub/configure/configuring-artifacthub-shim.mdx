@@ -1,0 +1,264 @@
+---
+weight: 4
+---
+
+# Configuring Tekton to Use ArtifactHub Shim
+
+## Overview
+
+`artifacthub-shim` provides the Artifact Hub-compatible API used by the Tekton Hub resolver and the DevOps Hub UI. After installing `artifacthub-shim`, update the `TektonConfig` resource so that catalog requests use the shim instead of the built-in `Tekton Hub` components.
+
+This guide uses the default `artifacthub-shim` Service and namespace. If you want to keep or re-enable the built-in `Tekton Hub` instead, see [Enabling the Built-in Tekton Hub](./enabling-tekton-hub.mdx).
+
+## Prerequisites
+
+Before you begin, ensure that:
+
+- `artifacthub-shim` is installed and its API workload is ready.
+- The `artifacthub-shim-api` Service exists in the `artifacthub-shim-system` namespace.
+- The installed `artifacthub-shim` version supports the `optional` and `legacyCatalogAliases` repository fields.
+- The `TektonConfig` resource named `config` exists.
+- You have permission to update `TektonConfig` and read workloads in the Tekton target namespace.
+- `jq` is installed if you plan to use the command in this guide to migrate an existing SSH Secret.
+
+If you are replacing an existing built-in `Tekton Hub`, do not disable it yet. First follow [Migrate Custom Catalogs from the Built-in Tekton Hub](#migrate-custom-catalogs), verify the migrated sources, and configure `TektonConfig`. You can then follow [Disabling the Built-in Tekton Hub](./enabling-tekton-hub.mdx#disabling-the-built-in-tekton-hub) when you no longer need the old Hub as a fallback.
+
+## Migrate Custom Catalogs from the Built-in Tekton Hub \{#migrate-custom-catalogs}
+
+`release-4.10` preserves an existing built-in `Tekton Hub`, but it does not automatically migrate custom catalog configuration to `artifacthub-shim`. Complete the following steps manually before disabling the built-in Hub.
+
+### Inspect the Existing Catalog Configuration
+
+Determine the Tekton target namespace. If `spec.targetNamespace` is empty, use `tekton-pipelines`:
+
+```bash
+$ PIPELINES_NAMESPACE="$(kubectl get tektonconfig config \
+    -o jsonpath='{.spec.targetNamespace}')"
+$ [ -n "${PIPELINES_NAMESPACE}" ] || PIPELINES_NAMESPACE=tekton-pipelines
+```
+
+Inspect both the `TektonHub` resource and the rendered API ConfigMap:
+
+```bash
+$ kubectl get tektonhub hub -o yaml
+
+$ kubectl -n "${PIPELINES_NAMESPACE}" get configmap tekton-hub-api \
+    -o jsonpath='{.data.CATALOGS}{"\n"}'
+```
+
+The `TektonHub` resource contains the user-configured `spec.catalogs` entries. The rendered `CATALOGS` data can also contain catalog entries and `disabledPackages` rules. Compare both sources and retain the most complete values for each catalog.
+
+Map each legacy catalog as follows:
+
+| Legacy Tekton Hub value | ArtifactHub Shim value |
+| --- | --- |
+| `name: <catalog>` | Task repository `name: <catalog>` |
+| `name: <catalog>` | Pipeline repository `name: <catalog>-pipelines` with `legacyCatalogAliases: [<catalog>]` |
+| `name: <catalog>` | StepAction repository `name: <catalog>-stepactions` with `legacyCatalogAliases: [<catalog>]` |
+| `sshUrl` or `sshurl` | `gitRepositories[].url`; use this in preference to the legacy `url` |
+| `url` without an SSH URL | `gitRepositories[].url` |
+| `revision` | `gitRepositories[].revision`; use `main` when the old value is empty |
+| `contextDir` or `contextdir` | Prefix for the `task`, `pipeline`, and `stepaction` paths |
+| `disabledPackages` | Copy to each generated `repositories[]` entry |
+
+The legacy `org`, `type`, and `provider` fields are not required by `artifacthub-shim`.
+
+### Migrate Git Credentials
+
+For a public Git repository, omit `credentialRef`. For an SSH repository, create a Secret in the same namespace as the repository ConfigMap. The standard legacy Secret is named `tekton-hub-api-ssh-crds` and stores its private key under `id_rsa`; `artifacthub-shim` expects `sshPrivateKey` or `ssh-privatekey` and requires `known_hosts`.
+
+If the legacy Secret contains `id_rsa` and `known_hosts`, the following command copies the encoded values without printing the plaintext credential:
+
+```bash
+$ kubectl -n "${PIPELINES_NAMESPACE}" get secret tekton-hub-api-ssh-crds -o json | \
+    jq '{
+      apiVersion: "v1",
+      kind: "Secret",
+      metadata: {
+        name: "artifacthub-shim-legacy-tekton-hub-ssh-creds",
+        namespace: "artifacthub-shim-system"
+      },
+      type: "Opaque",
+      data: {
+        sshPrivateKey: .data.id_rsa,
+        known_hosts: .data.known_hosts
+      }
+    }' | kubectl apply -f -
+```
+
+The old `id_rsa.pub` value is not required. If the old Secret uses another private-key field, select that value instead. Verify that `known_hosts` contains the host key for the Git server before applying the new Secret.
+
+For HTTPS repositories, a referenced Secret can contain `username` and `password`, or `token`. Add `ca.crt` to the same Secret when the Git server uses an internal CA. Never embed credentials in the Git URL or repository ConfigMap.
+
+### Register the Migrated Catalog Sources
+
+Create a labeled ConfigMap in the `artifacthub-shim` namespace. The following example migrates the legacy catalog `team-a`, whose resources are stored below `catalogs/devops`:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: artifacthub-shim-legacy-tekton-hub-catalogs
+  namespace: artifacthub-shim-system
+  labels:
+    artifacthub-shim.alauda.io/repository: "true"
+data:
+  repository.yaml: |
+    gitRepositories:
+      - url: ssh://git@git.example.com/team-a/tekton-catalog.git
+        revision: main
+        credentialRef:
+          name: artifacthub-shim-legacy-tekton-hub-ssh-creds
+        repositories:
+          - name: team-a
+            displayName: Team A Tasks
+            kind: task
+            path: catalogs/devops/task
+            optional: true
+            disabledPackages:
+              - name: deprecated-resource
+                versions:
+                  - "0.1"
+          - name: team-a-pipelines
+            displayName: Team A Pipelines
+            kind: pipeline
+            path: catalogs/devops/pipeline
+            optional: true
+            legacyCatalogAliases:
+              - team-a
+            disabledPackages:
+              - name: deprecated-resource
+                versions:
+                  - "0.1"
+          - name: team-a-stepactions
+            displayName: Team A StepActions
+            kind: stepaction
+            path: catalogs/devops/stepaction
+            optional: true
+            legacyCatalogAliases:
+              - team-a
+            disabledPackages:
+              - name: deprecated-resource
+                versions:
+                  - "0.1"
+```
+
+When the old `contextDir` is empty, use `task`, `pipeline`, and `stepaction` as the paths. Keep all three entries even if one of these directories does not exist: `optional: true` makes an absent or empty kind path Ready with zero packages.
+
+The canonical repository names must be globally unique. `legacyCatalogAliases`, however, are scoped by resource kind. Therefore, existing Task, Pipeline, and StepAction resolver references can all continue to use `catalog: team-a`; Pipeline requests resolve to `team-a-pipelines`, and StepAction requests resolve to `team-a-stepactions`. API responses return the canonical repository name. New references should use the canonical name directly.
+
+Existing references that explicitly set `type: tekton` must still be changed to `type: artifact`. References that omit `type` use the `default-type: artifact` value configured later in this guide.
+
+Apply the ConfigMap and inspect its Events:
+
+```bash
+$ kubectl apply -f artifacthub-shim-legacy-tekton-hub-catalogs.yaml
+
+$ kubectl -n artifacthub-shim-system describe configmap \
+    artifacthub-shim-legacy-tekton-hub-catalogs
+```
+
+`RepositoryConfigAccepted` means the configuration was accepted. Wait for `RepositorySourceReady` for each source before switching `TektonConfig`. Test every resource kind used by your old catalog through the DevOps Hub or a Hub resolver reference with `type: artifact` and the original catalog name.
+
+For the complete repository schema, credential formats, Events, and resolver examples, see <ExternalSiteLink name="artifacthub-shim" href="/how_to/configure_custom_git_repositories.html" children="Configure Custom Git Repositories" />.
+
+## Configure TektonConfig
+
+Edit `TektonConfig/config` and merge the following fields into `spec.pipeline`:
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  pipeline:
+    enable-hub-resolver: true
+    hub-resolver-config:
+      artifact-hub-api: http://artifacthub-shim-api.artifacthub-shim-system.svc.cluster.local
+      default-artifact-hub-pipeline-catalog: catalog-pipelines
+      default-artifact-hub-task-catalog: catalog
+      default-kind: task
+      default-type: artifact
+    options:
+      disabled: false
+      deployments:
+        hubs-wrapper:
+          spec:
+            replicas: 0
+      ingress:
+        hubs-wrapper:
+          spec:
+            ingressClassName: cpaas-system
+            rules:
+              - http:
+                  paths:
+                    - backend:
+                        service:
+                          name: hubs-wrapper
+                          port:
+                            number: 80
+                      path: /__disabled-hubs-wrapper(/|$)(.*)
+                      pathType: ImplementationSpecific
+```
+
+:::warning
+Merge these fields with the existing `spec.pipeline` configuration. Do not replace the entire section: it contains other feature flags, performance settings, and environment-specific customizations. If `options` already contains other Deployment or Ingress overrides, preserve them as well.
+:::
+
+This configuration makes the following changes:
+
+- Enables the Hub resolver and uses the Artifact Hub-compatible API exposed by `artifacthub-shim`.
+- Uses `catalog` for Tasks and `catalog-pipelines` for Pipelines.
+- Uses Artifact Hub resources of kind `task` when a resolver reference omits these values.
+- Scales the legacy `hubs-wrapper` Deployment to zero and moves its Ingress away from `/hub`, allowing the `artifacthub-shim` plugin to serve the DevOps Hub endpoint.
+- Keeps the Tekton Pipelines component enabled. The `options.disabled: false` field does not enable `hubs-wrapper`; its zero replicas disable that individual Deployment.
+
+If `artifacthub-shim` is installed in another namespace, replace `artifacthub-shim-system` in `artifact-hub-api`. If the Service name was customized, replace `artifacthub-shim-api` as well.
+
+## Verify the Configuration
+
+Wait for `TektonConfig` to become ready:
+
+```bash
+$ kubectl wait --for=condition=Ready tektonconfig/config --timeout=600s
+```
+
+Determine the Tekton target namespace if you did not already do so. If `spec.targetNamespace` is empty, use `tekton-pipelines`:
+
+```bash
+$ PIPELINES_NAMESPACE="$(kubectl get tektonconfig config \
+    -o jsonpath='{.spec.targetNamespace}')"
+$ [ -n "${PIPELINES_NAMESPACE}" ] || PIPELINES_NAMESPACE=tekton-pipelines
+```
+
+Check the resolver configuration reconciled by the operator:
+
+```bash
+$ kubectl -n "${PIPELINES_NAMESPACE}" get configmap hubresolver-config -o yaml
+```
+
+The output must contain these values:
+
+```yaml
+data:
+  artifact-hub-api: http://artifacthub-shim-api.artifacthub-shim-system.svc.cluster.local
+  default-artifact-hub-pipeline-catalog: catalog-pipelines
+  default-artifact-hub-task-catalog: catalog
+  default-kind: task
+  default-type: artifact
+```
+
+Verify that the Hub resolver is enabled and the legacy wrapper is stopped:
+
+```bash
+$ kubectl -n "${PIPELINES_NAMESPACE}" get configmap resolvers-feature-flags \
+    -o jsonpath='{.data.enable-hub-resolver}{"\n"}'
+true
+
+$ kubectl -n "${PIPELINES_NAMESPACE}" get deployment hubs-wrapper \
+    -o jsonpath='{.spec.replicas}{"\n"}'
+0
+```
+
+For `artifacthub-shim` installation options and resolver integration details, see <ExternalSiteLink name="artifacthub-shim" href="/how_to/configure_tekton_integration.html" children="Configure Tekton Integration" />.

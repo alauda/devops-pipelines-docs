@@ -2,212 +2,136 @@
 weight: 40
 ---
 
-# Triggering with Git Operations
+# Trigger PAC Pipelines
 
 :::info For Regular Users
 
-This guide provides Git command examples for triggering PAC pipelines through Git operations.
+This page explains how PAC starts `PipelineRun`s after a repository is connected. To define the `.tekton/` files that PAC selects, see [Define PipelineRuns in Git](./maintain_pipeline_code.mdx).
 
 :::
 
-This guide shows common Git commands used to trigger PAC pipelines through Git provider events.
+PAC triggers pipelines in two ways:
 
-:::info How PAC Triggers Work
+- **Automatic event triggers**: a Git provider sends webhook events, and PAC matches those events against annotations on `PipelineRun` files.
+- **Comment command triggers**: an authorized user comments with a PAC command such as `/test`, `/retest`, or `/cancel`.
 
-PAC uses webhooks from Git providers such as GitHub or GitLab to detect events:
-1. **Webhook Configuration**: When you create a Repository CR, PAC automatically configures a webhook in your Git provider
-2. **Event Detection**: When events occur (push, pull request, comments), the Git provider sends a webhook to PAC controller
-3. **Pipeline Matching**: PAC controller matches the event against annotations in your PipelineRun files
-4. **Pipeline Execution**: If a match is found, PAC creates a PipelineRun in your cluster
+## Automatic Event Triggers \{#automatic-event-triggers}
 
-For more details on pipeline definitions and event annotations, see [Define PipelineRuns in Git](./maintain_pipeline_code.mdx).
+Automatic triggers are controlled by annotations in each `PipelineRun` under `.tekton/`. PAC reads the `PipelineRun` definitions from the Git ref that raised the event, matches the annotations, replaces PAC variables, and creates the matching `PipelineRun`s in the `Repository` namespace.
 
-:::
+The table below explains which event source to use. For exact annotation syntax and examples, see [Trigger Events](./maintain_pipeline_code.mdx#event-annotations).
 
-## Testing Push Triggers \{#testing-push-triggers}
+| Event source | PAC event | Match condition |
+|--------------|-----------|-----------------|
+| Branch push | `push` | The pushed branch matches the PipelineRun branch filter. |
+| Tag push | `push` | The tag ref matches the PipelineRun tag filter. |
+| Pull Request / Merge Request | `pull_request` | The PR/MR base branch matches the PipelineRun branch filter. |
+| Label update | `pull_request` | The PR/MR has a matching label condition. |
+| Custom PR/MR comment | `on-comment` | The new PR/MR comment matches the PipelineRun comment regular expression. |
 
-### Basic Push \{#basic-push}
+Use custom comment triggers for repository-specific commands such as `/deploy-preview`. Use the built-in PAC commands below when you want PAC's native rerun, test, cancel, or approval behavior.
 
-Make a change and push to trigger pipelines:
+For more matching options, see the [Pipelines as Code event matching documentation](https://pipelinesascode.com/docs/guides/event-matching/).
 
-```bash
-echo "test" >> test.txt
-git add test.txt
-git commit -m "Test push trigger"
-git push origin main
+## Comment Command Triggers \{#comment-command-triggers}
+
+PAC also recognizes built-in GitOps commands in comments. These commands are useful when you want to run, rerun, approve, or cancel pipelines without pushing another commit.
+
+### Commands on Pull Requests and Merge Requests \{#commands-on-pull-requests-and-merge-requests}
+
+Use these commands on an open PR or MR:
+
+| Command | Effect |
+|---------|--------|
+| `/test` | Run all matching `PipelineRun`s for the current PR or MR. |
+| `/test <pipelinerun>` | Run only the named `PipelineRun`. |
+| `/retest` | Rerun matching `PipelineRun`s that have not already succeeded for the same commit. |
+| `/retest <pipelinerun>` | Rerun only the named `PipelineRun`. |
+| `/cancel` | Cancel running `PipelineRun`s associated with the PR or MR. |
+| `/cancel <pipelinerun>` | Cancel only the named `PipelineRun`. |
+| `/ok-to-test` | Allow PAC to run CI for an external or otherwise untrusted contribution, when policy requires approval. |
+| `/ok-to-test <sha>` | Same as `/ok-to-test`, with explicit SHA validation when the PAC configuration requires it. |
+
+`<pipelinerun>` is the `metadata.name` or `metadata.generateName` value in the `.tekton/` file, not the generated runtime name. For example, if the file has `generateName: sv-event-pr-`, use:
+
+```text
+/test sv-event-pr-
 ```
 
-### Push to Specific Branch \{#push-to-specific-branch}
+### Commands on Commit Comments \{#commands-on-commit-comments}
 
-Create and push to a feature branch:
+GitHub and GitLab support `/test`, `/retest`, and `/cancel` on comments added to a pushed branch commit. `/ok-to-test` is for PR/MR authorization and does not apply to pushed commits.
 
-```bash
-git checkout -b feature/new-feature
-echo "feature code" >> feature.txt
-git add feature.txt
-git commit -m "Add new feature"
-git push origin feature/new-feature
+When you comment on a commit, PAC must know which branch or tag context to use. If you do not specify one, PAC uses the repository default branch. The commented commit must be the HEAD commit of that branch, or the commit pointed to by the tag.
+
+Use `branch:<branch>` when the commit belongs to a non-default branch:
+
+```text
+/test <pipelinerun> branch:<branch>
 ```
 
-### Empty Commit \{#empty-commit}
+Use `tag:<tag>` when the command should run in a tag context. Tag comment commands are currently supported on GitHub App and GitHub webhook integrations only:
 
-Trigger pipeline without code changes:
-
-```bash
-git commit --allow-empty -m "Trigger pipeline"
-git push origin main
+```text
+/test <pipelinerun> tag:<tag>
 ```
 
-## Testing Merge Request Triggers \{#testing-merge-request-triggers}
+The same branch argument is accepted by `/retest` and `/cancel`. On supported GitHub tag comments, the tag argument is also accepted:
 
-### Create Merge Request \{#create-merge-request}
-
-1. Create a feature branch:
-
-    ```bash
-    git checkout -b feature/test-mr
-    echo "feature" >> feature.txt
-    git add feature.txt
-    git commit -m "Add feature for MR test"
-    git push origin feature/test-mr
-    ```
-
-2. Create a Pull/Merge Request targeting `main` branch via your Git provider UI
-
-### Update Merge Request \{#update-merge-request}
-
-Push more commits to trigger pipeline again:
-
-```bash
-echo "update" >> feature.txt
-git add feature.txt
-git commit -m "Update feature"
-git push origin feature/test-mr
+```text
+/retest <pipelinerun> branch:<branch>
+/cancel <pipelinerun> branch:<branch>
 ```
 
-### Force Push to Merge Request \{#force-push-to-merge-request}
+### Passing Parameters in Commands \{#passing-parameters-in-commands}
 
-Rewrite history and force push:
+Built-in commands can include `key=value` arguments. PAC parses them from the comment and can use them to override custom parameters defined in `Repository.spec.params` or supported standard variables:
 
-```bash
-git commit --amend --no-edit
-git push --force-with-lease origin feature/test-mr
+```text
+/test <pipelinerun> environment=staging
+/test <pipelinerun> message="run smoke tests"
 ```
 
-**Note**: Use `--force-with-lease` instead of `--force` to prevent overwriting others' work.
+Only parameters already defined for the `Repository` or recognized by PAC are applied. Arbitrary keys are ignored.
 
-## Using Comment Commands \{#using-comment-commands}
+### Provider Notes \{#provider-notes}
 
-Comment commands only work in Merge Requests (Pull Requests), not in regular commits or push events.
+| Area | GitHub | GitLab |
+|------|--------|--------|
+| PR/MR event | Pull Request events map to `pull_request`. | Merge Request events map to `pull_request`. |
+| PR/MR comments | Built-in commands and `on-comment` work on open Pull Requests. | Built-in commands and `on-comment` work on open Merge Requests. |
+| Commit comments | `/test`, `/retest`, and `/cancel` work on commit comments. | `/test`, `/retest`, and `/cancel` work on commit comments. |
+| Tag comment commands | `tag:<tag>` is supported with GitHub App and webhook integrations. | `tag:<tag>` is not supported. |
+| `/ok-to-test <sha>` | SHA validation is used when the PAC configuration requires it. | The command is supported for MR authorization; SHA validation is a GitHub-specific safeguard. |
 
-### Trigger via Comment \{#trigger-via-comment}
+For more command details, see the [Pipelines as Code GitOps commands documentation](https://pipelinesascode.com/docs/guides/gitops-commands/).
 
-1. Open your Pull/Merge Request in the Git provider UI
+## Verify a Trigger \{#verify-a-trigger}
 
-2. Add a comment with the command:
-
-    ```
-    /retest
-    ```
-
-or
-
-    ```
-    /test
-    ```
-
-3. PAC will detect the comment and trigger the corresponding pipeline
-
-### Common Comment Commands \{#common-comment-commands}
-
-| Command | Description |
-|---------|-------------|
-| `/retest` | Re-run all failed tests |
-| `/test` | Run tests |
-| `/ok-to-test` | Approve running tests (if required) |
-| `/cancel` | Cancel running pipeline |
-
-**Note**: The exact commands depend on your pipeline configuration. You define commands in the `on-comment` annotation in your PipelineRun files.
-
-## Checking Pipeline Status \{#checking-pipeline-status}
-
-### View PipelineRuns \{#view-pipelineruns}
-
-Check if pipeline was triggered:
+After an event or comment is sent, check the `PipelineRun`s in the namespace where the `Repository` CR is defined:
 
 ```bash
 kubectl get pipelineruns -n <namespace>
 ```
 
-### View Pipeline Logs \{#view-pipeline-logs}
-
-View logs of a specific PipelineRun:
+If no `PipelineRun` is created, check the event annotations and PAC controller logs:
 
 ```bash
-tkn pipelinerun logs <pipelinerun-name> -n <namespace>
+kubectl logs -n <pac-namespace> -l app=pipelines-as-code-controller --tail=100
 ```
 
-Or follow logs in real-time:
+Common checks:
 
-```bash
-tkn pipelinerun logs <pipelinerun-name> -n <namespace> -f
-```
-
-### Check Latest PipelineRun \{#check-latest-pipelinerun}
-
-Get the latest PipelineRun:
-
-```bash
-kubectl get pipelineruns -n <namespace> --sort-by=.metadata.creationTimestamp | tail -1
-```
-
-## Troubleshooting Git Operations \{#troubleshooting-git-operations}
-
-### Check Current Branch \{#check-current-branch}
-
-Verify you're on the correct branch:
-
-```bash
-git branch --show-current
-```
-
-### Verify Last Commit \{#verify-last-commit}
-
-Check the last commit details:
-
-```bash
-git log --oneline -1
-```
-
-### Check Remote Branch \{#check-remote-branch}
-
-Verify branch exists on remote:
-
-```bash
-git branch -r | grep <branch-name>
-```
-
-### View Git Remote \{#view-git-remote}
-
-Check configured remote URL:
-
-```bash
-git remote -v
-```
-
-### Force Sync with Remote \{#force-sync-with-remote}
-
-Reset local branch to match remote:
-
-```bash
-git fetch origin
-git reset --hard origin/<branch-name>
-```
-
-**Warning**: This will discard local changes.
+| Symptom | Check |
+|---------|-------|
+| No run after a push | The file is under `.tekton/`, `on-event` includes `push`, and `on-target-branch` matches the pushed ref. |
+| No run after a PR or MR update | `on-event` includes `pull_request`, and `on-target-branch` matches the PR/MR base branch. |
+| `/test <pipelinerun>` does not match | Use the `name` or `generateName` from the `.tekton/` file, not the generated runtime `PipelineRun` name. |
+| Commit comment does not run | The commented commit is the HEAD of the selected `branch:` or the commit pointed to by `tag:`. |
+| `on-comment` does not run | The new comment matches the regular expression after trimming leading and trailing spaces. |
 
 ## Next Steps \{#next-steps}
 
-- [Define PipelineRuns in Git](./maintain_pipeline_code.mdx) - Learn how to define pipelines and configure event triggers
-- [Guides](../guides/index.mdx) - Repository setup walkthroughs
+- [Define PipelineRuns in Git](./maintain_pipeline_code.mdx) - PipelineRun files and trigger annotations
+- [Incoming Webhooks](./incoming_webhooks.mdx) - Direct HTTP triggers for external systems
 - [Common Issues](../trouble_shooting/common_issues.mdx) - Troubleshooting guide

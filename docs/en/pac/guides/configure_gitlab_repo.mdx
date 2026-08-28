@@ -112,7 +112,7 @@ GitLab offers a **Test → Push events** action under the webhook entry. A `200`
 
 Add a PipelineRun manifest under `.tekton/` in the repository and push it. PAC reads the file from the branch the event was raised on, matches the annotations against the event, and creates a `PipelineRun` in the namespace.
 
-See [Define PipelineRuns in Git](../how_to/maintain_pipeline_code.mdx) for the file layout and the annotation grammar, and [Trigger Pipelines](../how_to/trigger_pipeline.mdx) for the Git operations that PAC reacts to.
+See [Define PipelineRuns in Git](../how_to/maintain_pipeline_code.mdx) for the file layout and annotation grammar, and [Trigger PAC Pipelines](../how_to/trigger_pipeline.mdx) for automatic and comment-based triggers.
 
 ## Verification \{#verification}
 
@@ -147,6 +147,6 @@ For the full troubleshooting matrix, see [Common Issues](../trouble_shooting/com
 ## Next steps \{#next-steps}
 
 - [Define PipelineRuns in Git](../how_to/maintain_pipeline_code.mdx) — define and evolve pipelines under `.tekton/`.
-- [Trigger Pipelines](../how_to/trigger_pipeline.mdx) — push, merge request and comment-driven triggers.
+- [Trigger PAC Pipelines](../how_to/trigger_pipeline.mdx) — automatic events and comment commands.
 - [Advanced Repository Configuration](../how_to/advanced_repository_config.mdx) — concurrency, parameters, custom settings.
 - [Configure Custom Certificates](../install/configure_custom_certificates.mdx) — for self-hosted GitLab with a private CA.

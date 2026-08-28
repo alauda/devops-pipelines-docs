@@ -110,8 +110,8 @@ When a push event occurs, PAC controller:
      - Version specified (format: `task-name:version`) → PAC fetches that exact version
      - Version format follows semantic versioning (e.g., `0.1`, `0.9`, `1.2.3`)
 
-4. **Queries Tekton Hub API**:
-   - **Hub URL**: Defaults to cluster-internal Hub (`http://tekton-hub-api.tekton-pipelines:8000/v1`) or public Hub (`https://api.hub.tekton.dev/v1`)
+4. **Queries the Hub API**:
+   - **Hub URL**: Defaults to the in-cluster ArtifactHub Shim (`http://artifacthub-shim-api.artifacthub-shim-system.svc.cluster.local`); see [Custom Hub URL](#custom-hub-url) to point it elsewhere
    - **Query for latest**: PAC queries Hub for the latest available version
    - **Query for specific version**: PAC requests the exact version specified in the annotation
    - **Example queries**:
@@ -564,7 +564,12 @@ PAC resolves Hub tasks by name and can optionally pin a task version with `task-
 
 ### Custom Hub URL \{#custom-hub-url}
 
-The default `hub-url` points to the cluster-internal Tekton Hub service in the default namespace (`http://tekton-hub-api.tekton-pipelines:8000/v1`). If Tekton Hub is deployed in a different namespace, adjust the namespace in the URL accordingly. If you need to use a different Hub instance, configure it in the `OpenShiftPipelinesAsCode` CR:
+The default `hub-url` points to the in-cluster ArtifactHub Shim
+(`http://artifacthub-shim-api.artifacthub-shim-system.svc.cluster.local`, with
+`hub-catalog-type: artifacthub`). Leave it unset unless you need a different Hub. To use
+one, set it in the `OpenShiftPipelinesAsCode` CR — always together with
+`hub-catalog-type`, because the shipped `artifacthub` value stays in place if you set only
+the URL:
 
     ```yaml
     apiVersion: operator.tekton.dev/v1alpha1
@@ -573,14 +578,20 @@ The default `hub-url` points to the cluster-internal Tekton Hub service in the d
       name: pipelines-as-code
     spec:
       settings:
-        # For cluster-internal Hub in different namespace
-        hub-url: "http://tekton-hub-api.<your-namespace>:8000/v1"
-        
-        # Or for external/public Hub
-        hub-url: "https://api.hub.tekton.dev/v1"
-        
-        # Or for custom Hub instance
-        hub-url: "https://custom-hub.example.com/v1"
+        # An ArtifactHub-compatible API: public artifacthub.io, or your own mirror
+        hub-url: "https://artifacthub.io"
+        hub-catalog-type: "artifacthub"
+    ```
+
+For a Tekton Hub instance instead, the catalog type has to change with it. This release does
+not deploy a Tekton Hub, so there is no in-cluster address to copy — use the namespace your
+own instance runs in:
+
+    ```yaml
+    spec:
+      settings:
+        hub-url: "http://tekton-hub-api.<namespace-of-your-tekton-hub>:8000/v1"
+        hub-catalog-type: "tekton"
     ```
 
 **Note**: Only the PAC controller needs access to the Hub URL. If using a cluster-internal Hub, ensure the PAC controller can reach the Hub service.
@@ -700,16 +711,18 @@ Example output (if accessible):
     Content-Type: application/json
     ```
 
-2. **Verify Hub configuration**: Check the `hub-url` setting in `OpenShiftPipelinesAsCode` CR
+2. **Verify Hub configuration**: read the rendered `pipelines-as-code` ConfigMap rather than the CR — `spec.settings.hub-url` is empty on a default install, because the value comes from the ConfigMap the operator ships
 
     ```bash
-    kubectl get openshiftpipelinesascodes.operator.tekton.dev pipelines-as-code -o jsonpath='{.spec.settings.hub-url}'
+    kubectl -n <pac-namespace> get configmap pipelines-as-code \
+      -o jsonpath='{.data.hub-url}{"\n"}{.data.hub-catalog-type}{"\n"}'
     ```
 
 Example output:
 
     ```
-    http://tekton-hub-api.tekton-pipelines:8000/v1
+    http://artifacthub-shim-api.artifacthub-shim-system.svc.cluster.local
+    artifacthub
     ```
 
 3. **Review task version**: Ensure the specified version exists

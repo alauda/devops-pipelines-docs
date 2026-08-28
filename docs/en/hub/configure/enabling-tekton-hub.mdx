@@ -1,0 +1,130 @@
+---
+weight: 3
+---
+
+# Enabling the Built-in Tekton Hub
+
+## Overview
+
+Starting from `v4.10.2`, a fresh installation **no longer deploys the built-in `Tekton Hub` by default**. Tekton catalog artifacts are delivered by the platform's standalone `ArtifactHub` component instead. `ArtifactHub` has its own lifecycle, so catalog updates — new tools, Task fixes, version upgrades — can be delivered quickly, independently of the operator release cadence.
+
+The operator still fully supports deploying the built-in `Tekton Hub` as a **transitional** option. This guide describes how to enable it, how the new default keeps an existing `Tekton Hub` working across an operator upgrade, and how to disable it.
+
+If you deploy the standalone `ArtifactHub` component instead, see [Configuring Tekton to Use ArtifactHub Shim](./configuring-artifacthub-shim.mdx) to connect the Tekton Hub resolver and DevOps Hub endpoint to it.
+
+> The other guides in this section (such as [`Tekton Hub` Configuration](./tekton-hub-config.mdx) and [Custom Catalogs](./custom-catalogs.mdx)) assume the built-in `Tekton Hub` has been enabled by following this guide.
+
+:::info
+The default value of the switch changed in `v4.10.2`. Earlier `release-4.10` versions (`v4.10.0` / `v4.10.1`) deploy the built-in `Tekton Hub` automatically. After upgrading such an environment to `v4.10.2`, the existing `Tekton Hub` is **kept** (see [The Default on Upgrade](#preserve-on-upgrade)), not removed.
+:::
+
+## How the Switch Works
+
+Whether the operator deploys the built-in `Tekton Hub` is controlled by an operator-level switch: the `AUTOINSTALL_TEKTONHUB` key in the `tekton-config-defaults` ConfigMap in the `tekton-operator` namespace. Its default value is `"preserve"`.
+
+The switch is three-state:
+
+| Value | Meaning | Fresh install | Upgrade (an existing `Tekton Hub`) |
+| --- | --- | --- | --- |
+| `"preserve"` (default) | Observe-only: never create and never delete. Keep an existing `Tekton Hub` and wait until it is `Ready`. | No `Tekton Hub` is deployed. | The existing `Tekton Hub` is kept and its catalog is reused. |
+| `"true"` | Ensure the built-in `Tekton Hub` exists (requires `profile: all`; otherwise falls back to `preserve`). | The `Tekton Hub` is deployed. | The existing `Tekton Hub` is kept. |
+| `"false"` | Destructively remove any existing `Tekton Hub` (opt-in only). | No `Tekton Hub` is deployed. | The existing `Tekton Hub` is removed. |
+
+An unset, empty, or unrecognized value maps to `"preserve"`, so a typo can never fall through to the destructive `"false"` behavior.
+
+:::warning
+`"false"` actively deletes the `TektonHub` CR and its workloads. Applying a `TektonHub` manifest manually while the switch is `"false"` does not help — the operator removes it again. To deploy the built-in `Tekton Hub`, set the switch to `"true"` first.
+:::
+
+## Enabling the Built-in Tekton Hub
+
+Set the switch to `"true"`. The value is injected into the operator's environment, which is **not** hot-reloaded — the operator pod must be restarted after changing the ConfigMap.
+
+```bash
+# 1) Turn the switch on
+$ kubectl -n tekton-operator patch configmap tekton-config-defaults \
+    --type merge -p '{"data":{"AUTOINSTALL_TEKTONHUB":"true"}}'
+
+# 2) Restart the operator so it re-reads the environment
+$ kubectl -n tekton-operator delete pod -l name=tekton-operator
+
+# 3) The operator creates the TektonHub CR for a profile=all TektonConfig shortly
+#    after the restart. If the command below reports NotFound, the CR has not been
+#    created yet — wait a moment and re-run it.
+$ kubectl wait --for=condition=Ready tektonhub/hub --timeout=600s
+```
+
+:::note
+Restart the operator with `kubectl delete pod` rather than `kubectl rollout restart`: on OLM-managed clusters, OLM reverts the restart annotation that `rollout restart` sets on the Deployment, so the operator pod is never recreated. Deleting the pod takes effect everywhere. The ConfigMap value itself is not reverted by OLM.
+:::
+
+## The Default on Upgrade \{#preserve-on-upgrade}
+
+With the default `"preserve"`, upgrading an environment that already runs the built-in `Tekton Hub` (for example `v4.10.1` → `v4.10.2`) requires **no action**: the existing `Tekton Hub` is kept and continues to serve its catalog, so Task and Pipeline references keep resolving. Both the keep and the catalog reuse happen automatically:
+
+- The `TektonHub` CR and all built-in `Tekton Hub` workloads are kept, and the operator waits for the hub to become `Ready`.
+- The catalog `ConfigMaps` imported into the `kube-public` namespace (the `*-latest` tool-image `ConfigMaps`, the overview-template `ConfigMaps`, the tool-image `ConfigMaps`, and the mail-template `ConfigMaps`) are preserved across the operator's internal upgrade, so the catalog served before the upgrade is the catalog served after it.
+- The catalog image that this environment already runs is captured and pinned automatically, so the upgrade does not switch the catalog to a tool-image set that may not exist in your registry (particularly relevant for air-gapped installations).
+
+You only need the steps in [Pinning the Catalog](#pinning-the-catalog) below when you explicitly enable the built-in `Tekton Hub` with `"true"` and want to control which catalog image it uses.
+
+## Pinning the Catalog to the Pre-Upgrade Image \{#pinning-the-catalog}
+
+The operator bundle no longer ships the tool images referenced by the catalog (`buildah`, `golang`, `maven`, and so on). The tool image versions referenced by the **new** catalog may therefore not exist in your environment. This is especially true for air-gapped installations, where the image synchronization list of the new version no longer contains these tool images. The tool images referenced by your **pre-upgrade** catalog, on the other hand, are guaranteed to exist, because they were synchronized together with the previous version.
+
+For this reason, when you re-enable the built-in `Tekton Hub` after an upgrade, it is **recommended to pin the catalog to the pre-upgrade catalog image**, so that the upgrade has no impact on your existing pipelines.
+
+**Step 1 — before the upgrade**, record the current catalog image:
+
+```bash
+$ kubectl -n tekton-pipelines get deployment tekton-hub-api \
+    -o jsonpath='{.spec.template.spec.initContainers[?(@.name=="catalog-sidecar")].image}'
+```
+
+**Step 2 — after the upgrade**, enable the switch as described above, then pin the recorded image through the `TektonConfig` CR:
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  profile: all
+  hub:
+    options:
+      deployments:
+        tekton-hub-api:                   # deployment name, must match exactly
+          spec:
+            template:
+              spec:
+                initContainers:
+                  - name: catalog-sidecar # init container name, must match exactly
+                    image: <catalog-image-recorded-before-the-upgrade>
+```
+
+:::warning
+Both names must match exactly, and they fail differently: a mismatched **deployment** name is silently ignored, while a mismatched **init container** name does not override `catalog-sidecar` — it **adds** a new init container to the deployment, which can prevent the pod from starting. Sub-fields other than `options` are not accepted under `spec.hub` for this purpose.
+:::
+
+## Disabling the Built-in Tekton Hub \{#disabling-the-built-in-tekton-hub}
+
+If this Hub has custom catalogs and you are switching to `artifacthub-shim`, first [migrate the custom catalog sources and credentials](./configuring-artifacthub-shim.mdx#migrate-custom-catalogs) and verify them through the Hub resolver. `release-4.10` does not migrate this configuration automatically.
+
+To remove a deployed built-in `Tekton Hub`, set the switch to `"false"` and restart the operator in the same way:
+
+```bash
+$ kubectl -n tekton-operator patch configmap tekton-config-defaults \
+    --type merge -p '{"data":{"AUTOINSTALL_TEKTONHUB":"false"}}'
+
+$ kubectl -n tekton-operator delete pod -l name=tekton-operator
+```
+
+The operator then removes the deployed built-in `Tekton Hub`. When the switch is `"false"`:
+
+- The `TektonHub` CR and all built-in `Tekton Hub` workloads are removed. The `TektonConfig` CR stays `Ready`.
+- The overview-template `ConfigMaps` imported with the catalog into the `kube-public` namespace are removed together with the `Tekton Hub`.
+- The tool-image `ConfigMaps` (`catalog-tool-image-*`) and mail-template `ConfigMaps` in the `kube-public` namespace are **kept**. They continue to point at the pre-upgrade tool image addresses, which exist in your registry.
+
+:::warning
+`"false"` is destructive and opt-in. If you only want to stop deploying a **new** `Tekton Hub` while keeping any existing one intact, use the default `"preserve"` instead — do not set `"false"`.
+:::

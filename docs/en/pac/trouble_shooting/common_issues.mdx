@@ -1158,6 +1158,64 @@ Comment commands like `/retest` are not triggering pipelines.
 4. Enable "Comments" in GitLab webhook configuration
 5. Match command names exactly (case-sensitive)
 
+## PAC Setting Has No Effect \{#pac-setting-has-no-effect}
+
+### Symptom \{#symptom-10}
+
+A setting was added to the `OpenShiftPipelinesAsCode` CR and applied without error, but PAC keeps behaving as if the setting still had its default value. The CR reports `READY=True`, no event or error is recorded, and reading the CR back shows the key is gone from `spec.settings`.
+
+This affects the Alauda extension settings only: `custom-console-url-namespace-vars`, `replace-empty-template-vars-with-empty` and `enable-pull-request-number-on-push-events`.
+
+Note that the symptom is "the default is in effect", not "the feature is missing". When the key is absent from its ConfigMap, PAC falls back to the built-in default for that setting, so turning a default-on setting off is just as affected as turning a default-off setting on.
+
+### Troubleshooting Steps \{#troubleshooting-steps-10}
+
+The commands below use two placeholders. Set them first, in the same shell, so the rest can be pasted as is:
+
+    ```bash
+    SETTING=custom-console-url-namespace-vars   # the setting you configured
+    PAC_NS=tekton-pipelines                     # spec.targetNamespace of the PAC CR
+    ```
+
+1. **Check whether the key survived in the CR**:
+
+    ```bash
+    kubectl get openshiftpipelinesascodes.operator.tekton.dev pipelines-as-code \
+      -o jsonpath="{.spec.settings.$SETTING}"
+    ```
+
+    This step only tells you something if you wrote the key under `spec.settings`; empty output then means the operator dropped it. If you already moved the key to `spec.options.configMaps`, empty output here is the expected result — go straight to step 2.
+
+2. **Check the ConfigMap PAC actually reads**. This is the authoritative check — `spec.settings` only describes intent:
+
+    ```bash
+    kubectl get configmap pipelines-as-code -n "$PAC_NS" \
+      -o jsonpath="{.data.$SETTING}"
+    ```
+
+    Compare the output with the value you intended. Anything else means PAC is not using your configuration. Note that empty output is the correct result when you deliberately set the key to an empty string, for example to clear a mapping you no longer want.
+
+### Common Causes \{#common-causes-9}
+
+- **Key written under `spec.settings`**: the operator's defaulting webhook rebuilds `spec.settings` from the upstream Pipelines as Code settings struct. The Alauda extension settings have no field in that struct, so they are discarded on save — silently, with no error and no event.
+- **Key written directly into the ConfigMap**: a manual edit survives ordinary reconciles, because the operator compares its rendered manifest against a hash annotation that your edit does not change. It is silently overwritten as soon as that rendered manifest does change — on any PAC configuration change, an operator upgrade, or a rebuild of the installer set. Editing the ConfigMap by hand therefore looks like it worked and then stops working at an unpredictable moment.
+
+### Solution \{#solution-9}
+
+Move the key to `spec.options.configMaps`, which the operator merges into the ConfigMap key by key and never rewrites:
+
+    ```yaml
+    spec:
+      options:
+        disabled: false
+        configMaps:
+          pipelines-as-code:
+            data:
+              custom-console-url-namespace-vars: "project=label:cpaas.io/project,cluster=label:cpaas.io/cluster"
+    ```
+
+Then repeat step 2 to confirm the value reached the ConfigMap. Details and the full key list are in [Where to Put Each Setting](../install/manage_pac.mdx#where-to-put-each-setting).
+
 ## Getting Help \{#getting-help}
 
 If you're still experiencing issues:
@@ -1171,5 +1229,4 @@ If you're still experiencing issues:
 
 - [Manage PAC Component](../install/manage_pac.mdx) - Deployment and management guide
 - [Guides](../guides/index.mdx) - Repository setup walkthroughs
-- [Trigger Pipelines](../how_to/trigger_pipeline.mdx) - Trigger configuration guide
-
+- [Trigger PAC Pipelines](../how_to/trigger_pipeline.mdx) - Automatic events and comment commands
