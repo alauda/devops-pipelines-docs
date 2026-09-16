@@ -1,0 +1,501 @@
+---
+weight: 80
+---
+
+# Centralized Management with Hub Pipeline and Run Template
+
+## Overview
+
+Hub Pipeline and Run Template provide a way to standardize Pipeline processes
+while preserving the run settings required by each project and environment.
+
+In this guide, **Hub Pipeline** means a Pipeline obtained through the Tekton
+`hub` resolver or the product catalog. In current releases, catalog resources
+are served by the standalone ArtifactHub Shim component; the legacy embedded
+Tekton Hub runtime is not shipped. For resolver behavior, see
+[Hub Resolver](../concepts/resolver_concept.mdx) and
+<ExternalSiteLink name="artifacthub-shim" href="/catalog/index.html" children="ArtifactHub Shim Catalog" />.
+
+- The central platform or DevOps team maintains shared, versioned Hub
+  Pipelines.
+- Project teams use Run Templates to maintain the configuration for a service,
+  project, or environment.
+- Triggers and ScheduledTriggers start the corresponding Run Template when an
+  event or schedule requires it.
+
+This separates **how the Pipeline works** from **how a project runs it** and
+**when it starts**. It reduces duplicated Pipeline definitions, configuration
+drift, and the risk of using the wrong environment.
+
+## Use Cases
+
+Centralized management is useful when:
+
+- Multiple projects need the same build, test, scan, or release process.
+- A platform team needs to standardize security checks and artifact handling.
+- One standard process must serve development, test, and production environments.
+- The same run configuration must support manual, event-driven, and scheduled
+  starts.
+- A new Hub Pipeline version requires a controlled impact review and rollout.
+
+## Core Concepts
+
+| Capability | Responsibility | Typical owner |
+| --- | --- | --- |
+| Hub Pipeline | Defines the standard Pipeline process, shared capabilities, and versions. | Central platform or DevOps team |
+| Run Template | Defines how a project, service, or environment runs the Pipeline. | Project team or application owner |
+| Trigger | Defines external events, trigger conditions, and event variables. | Project team, with platform review when needed |
+| TriggerBinding | Defines the event variables available to a Trigger and their mappings. | Central platform or project team |
+| EventListener | Receives external events and passes them to matching Triggers. | Platform team |
+| ScheduledTrigger | Defines when a Run Template starts on a schedule. | Project or operations team |
+| PipelineRun | Records one actual Pipeline execution and its result. | Created by the platform |
+
+You can think of these capabilities as:
+
+- **Hub Pipeline**: What the standard process is.
+- **Run Template**: How a project uses that process.
+- **TriggerBinding**: Which event variables are available.
+- **Trigger**: Which external events can start the process.
+- **ScheduledTrigger**: When the process starts on a schedule.
+- **PipelineRun**: The result of one execution.
+
+## Management Responsibilities
+
+### Maintain Hub Pipelines centrally
+
+The central team is responsible for:
+
+- Designing the organization's standard Pipeline steps.
+- Defining code checks, security scans, artifact creation, and release
+  requirements.
+- Maintaining clear Pipeline names, descriptions, and versions.
+- Publishing release notes that describe new capabilities, behavior changes,
+  and upgrade considerations.
+- Validating that a new version runs in the environments supported by the
+  organization.
+
+A Hub Pipeline should describe a reusable process. Project-specific
+environment names, deployment targets, and temporary values should be kept in
+Run Templates rather than hard-coded into the shared Pipeline.
+
+### Maintain Run Templates by project and environment
+
+Project teams select an appropriate Hub Pipeline version and create Run
+Templates for:
+
+- Project and service identity.
+- Code source.
+- Development, test, and production settings.
+- Image repository and image tag strategy.
+- Deployment target.
+- Workspaces and Integrations.
+- Values supplied at runtime by a user or event.
+
+Content that has a fixed value in the Run Template and is not set to `Set at
+Runtime` is used as run input, so users do not need to care about it. A single
+Hub Pipeline can have multiple Run Templates, with each template representing
+one clear usage scenario.
+
+### Manage the start conditions
+
+The start method and the run configuration are separate concerns:
+
+- Use a Trigger when an external event should start a run.
+- Use a ScheduledTrigger when a run should start according to a schedule.
+- Run the Run Template directly for a manual release, verification, or other
+  user-initiated execution.
+
+Event variables are defined by the TriggerBinding. The Trigger associates
+those variables with Pipeline run values when the event starts the Run
+Template.
+
+## Management Workflow
+
+| Step | Activity | Owner | Description |
+| --- | --- | --- | --- |
+| 1 | Publish a standard Hub Pipeline | Central platform team | Publish the organization's standard process and version. |
+| 2 | Select a Pipeline version | Project team | Confirm its purpose, version, and required configuration in Hub. |
+| 3 | Create a Run Template | Project team | Create from the Run Template list or copy an existing template. |
+| 4 | Start or execute | Project or platform team | Configure a Trigger, configure a ScheduledTrigger, or run the Run Template directly. |
+| 5 | Validate and deliver | Shared responsibility | Validate in development and test before production use. |
+| 6 | Upgrade by version | Central platform and project teams | Review the impact, update existing Run Templates, and validate each start method. |
+
+## Prerequisites
+
+Before establishing centralized management, confirm that:
+
+1. The central platform team has published a reusable Hub Pipeline.
+2. The Hub Pipeline has a clear purpose, version, and change description.
+3. Project teams can access the Hub Pipeline and Run Template.
+4. Required Workspaces, Integrations, and run permissions are available.
+5. An EventListener is available when Triggers are used.
+6. Development, test, and production permission boundaries are defined.
+
+## Establish Centralized Management
+
+<Steps>
+
+### 1. Publish a standard Hub Pipeline
+
+The central team publishes a reusable Pipeline in Hub, such as
+`build-and-deploy`.
+
+The standard process can include:
+
+1. Fetching source code.
+2. Compilation and unit tests.
+3. Dependency or security checks.
+4. Building and publishing artifacts.
+5. Deploying to a target environment.
+6. Reporting execution results for audit and review.
+
+The Hub Pipeline standardizes the process; it does not replace project and
+environment configuration.
+
+### 2. Select a Pipeline version
+
+Open the Pipeline in Hub and confirm:
+
+- Whether its purpose matches the project.
+- Which version to use.
+- Required parameters.
+- Required Workspaces.
+- Required Integrations.
+- Version notes and upgrade impact.
+
+After confirming the version, create or update a Run Template for that
+version.
+
+### 3. Create a Run Template
+
+Open **Run Template**, click **Create**, select the target Pipeline, and
+configure the project and environment run settings.
+
+You can also save a verified PipelineRun with **Save Run Template**, and
+choose **Create a new Run Template** or **Update an existing Run Template**.
+To start from an existing template, copy it:
+
+1. Find the existing template.
+2. Click **Copy**.
+3. Enter a name for the new template.
+4. Check the environment, deployment target, Workspaces, Integrations, and
+   runtime content.
+5. Save the new template.
+
+For example, separate templates can represent these environments:
+
+| Run Template | Purpose | Typical configuration |
+| --- | --- | --- |
+| `order-service-dev` | Development verification | Development branch, development environment, development image tag. |
+| `order-service-test` | Test regression | Test branch, test target, test credentials. |
+| `order-service-prod` | Production release | Release branch, production target, production credentials, and approval requirements. |
+
+Values that are fixed in the Run Template and not set to `Set at Runtime` are
+used as run inputs, so users do not need to care about them. Only content set
+to `Set at Runtime` needs to be supplied as runtime content.
+
+### 4. Configure the start method
+
+Configure the start method that matches each usage scenario:
+
+| Purpose | Start method | Run Template |
+| --- | --- | --- |
+| Verify quickly after a developer pushes code | Trigger | `order-service-dev` |
+| Run regular test regression | ScheduledTrigger | `order-service-test` |
+| Release to production manually | Run Template direct execution | `order-service-prod` |
+
+For a Trigger:
+
+1. Prepare and validate the target Run Template.
+2. Create a Trigger that uses the Run Template. From the Run Template details
+   page, the current template is already selected as a fixed reference.
+3. Select the event and trigger conditions.
+4. If this Trigger needs to complete required runtime values or inject event
+   variables, select **Synchronize updates to TriggerTemplate**. See
+   [Synchronize updates to
+   TriggerTemplate](run_template.mdx#synchronize-updates-to-a-run-template).
+5. According to the TriggerBinding definition, associate event variables with
+   Pipeline run values.
+6. Save the Trigger. If **Synchronize updates to TriggerTemplate** is
+   selected and the Event is not yet associated with the Run Template, the
+   Event is written back to the Run Template before the Trigger is created.
+7. If validation requires a test event, deliver it through the configured
+   EventListener or another supported event sender and confirm the values in
+   the resulting PipelineRun. The Trigger form does not send the event itself.
+
+The synchronization option defaults to selected when the referenced Run
+Template contains runtime Parameters, Workspaces, or Integrations. It defaults
+to cleared when the template has no runtime content. For a ScheduledTrigger
+without runtime content, the option is not shown.
+
+### 5. Validate and deliver
+
+Before making a new Run Template available, validate:
+
+- One direct execution from the Run Template.
+- One event-driven execution, when a Trigger is used.
+- One scheduled execution, when a ScheduledTrigger is used.
+- The resulting parameters, Workspaces, artifacts, and deployment target.
+
+After validation, hand production Run Templates and Triggers to users with the
+appropriate permissions.
+
+</Steps>
+
+## Centralized Trigger Management \{#centralized-trigger-management}
+
+### Trigger, TriggerBinding, EventListener, and Run Template
+
+Keep the responsibilities clear:
+
+- **Run Template** stores the complete run configuration for a project or
+  environment.
+- **TriggerBinding** defines the event variables available to the event flow.
+- **Trigger** defines which external event can start the Pipeline and how event
+  variables are passed to the Run Template.
+- **EventListener** receives events from a repository or another system and
+  passes them to the matching Trigger.
+
+A Trigger should not become another copy of the run configuration. Associating
+it with a Run Template keeps manual execution and event-driven execution
+aligned on Workspaces, credentials, deployment targets, and other run values.
+
+### Event variable management
+
+Event variables are defined by the TriggerBinding used by the Trigger. The
+available variables can differ between event types and event sources.
+
+A Run Template can be associated with more than one Event. Event variables
+with the same name are merged into one variable. Duplicate names do not block
+saving.
+
+The central platform team can define shared TriggerBinding conventions for
+common events. Project teams then use those conventions when mapping variables
+in Triggers. Keep names and meanings consistent for values such as:
+
+- Project name or project path.
+- Git branch.
+- Commit SHA.
+- Commit message.
+- Image tag or the values used to create an image tag.
+
+After configuring a mapping, optionally deliver an event through the configured
+EventListener or another supported event sender and check the resulting
+PipelineRun to confirm that the event value reached the intended Pipeline run
+value. The Trigger form does not provide a built-in test-event action.
+
+### Event variables across multiple start methods
+
+Manual execution, Trigger execution, and ScheduledTrigger execution use the
+same Run Template, but their run contexts and available event variables may
+be different:
+
+- Manual execution has no external event. A referenced event variable uses its
+  default value; without a default, the whole value containing the variable is
+  cleared.
+- A Trigger uses the value provided by its current event when the
+  TriggerBinding provides the variable.
+- A ScheduledTrigger can provide a value for a corresponding
+  `$(tt.params.<name>)` event variable. This is a scheduled template value,
+  not an arbitrary override for every Pipeline parameter.
+- In the current Tekton Triggers `v0.36.0` implementation, if a TriggerTemplate
+  declares a parameter without a default and the TriggerBinding does not
+  provide it, the generated PipelineRun can retain the literal
+  `$(tt.params.xxx)` value. Manual Run Template execution follows a different
+  frontend path and clears the entire value when its default is empty or
+  missing.
+- A ScheduledTrigger supplies values through its scheduled template parameters.
+  Configure a value or a default for every referenced event variable that the
+  scheduled run requires.
+- A value provided by a Trigger or ScheduledTrigger takes precedence for the
+  corresponding event variable. A Run Template default provides a stable
+  fallback when the current run context does not provide that value.
+
+When one Run Template is reused by multiple Triggers, ScheduledTriggers, and
+manual executions, review the event variable defaults as part of the template
+configuration. See [Event Variables and Different Run
+Contexts](run_template.mdx#event-variables-and-different-run-contexts) in the Run
+Template guide for the detailed behavior and configuration steps.
+
+### Trigger permissions and change management
+
+Triggers can start builds, scans, or deployments. Consider the following:
+
+- Restrict who can create, update, or delete production Triggers.
+- Review production event sources and trigger conditions.
+- Before updating a Run Template, review all Triggers that use it.
+- After changing a TriggerBinding or event variable mapping, validate the
+  resulting run values.
+- Use separate Triggers for development, test, and production to prevent an
+  event from starting the wrong environment.
+- Before deleting a Trigger, confirm that its EventListener and external event
+  source no longer use it.
+
+:::warning
+Updating a Run Template that is used by multiple Triggers can affect manual,
+event-driven, and scheduled execution at the same time. Use separate
+production templates when the impact of a shared change is not acceptable.
+:::
+
+## Pipeline Changes and Run Templates
+
+A Run Template follows the latest definition of its associated Pipeline. When
+a Pipeline changes, review all Run Templates that use it.
+
+### Add a Pipeline parameter
+
+When a Pipeline adds a parameter, that parameter is shown by default when the
+Run Template is executed. The template does not yet have a `Set at Runtime`
+setting for the new parameter, so the execution form treats it as visible
+runtime content.
+
+If the parameter needs a fixed default value or needs `Set at Runtime`,
+update and save the Run Template. Values that are not marked `Set at Runtime`
+are stored as fixed run inputs and are hidden on later executions. New
+Pipeline parameters remain visible until you save the template again.
+
+### Rename, remove, or change a parameter
+
+If a Pipeline parameter is renamed, removed, or changes type, review the
+parameter name, value, and any TriggerBinding event variable mapping that
+targets it.
+
+### Add or change a Workspace
+
+If a Pipeline adds a Workspace or changes its usage requirements, update the
+Run Template and validate the Workspace binding in the target environment.
+
+### Change other run requirements
+
+If a Pipeline changes its Integration requirements, task-level run
+requirements, or deployment behavior, validate direct Run Template execution,
+Triggers, and ScheduledTriggers again.
+
+## Upgrade a Hub Pipeline
+
+When a new Hub Pipeline version is published, use the existing Run Templates
+as the basis for the upgrade. Do not create a new Run Template just because
+the Hub Pipeline version changes.
+
+1. The central team publishes the new version and describes the changes.
+2. Project teams identify the existing Run Templates that use the previous
+   version.
+3. Review the new version's parameters, Workspaces, Integrations, run
+   requirements, event variable mappings, and deployment behavior.
+4. Open each existing Run Template's update entry. In the form view, the
+   associated Pipeline selector is read-only during an update. Switch to
+   **YAML** mode and update the Pipeline reference in the Run Template's
+   `PipelineRun` resource to the new Hub Pipeline version.
+5. Return to the form view and check new or changed parameters. Configure fixed
+   defaults or `Set at Runtime` in the existing Run Template when required.
+6. Check Workspaces, Integrations, deployment targets, and other run settings.
+7. Run the updated Run Template directly in development or test and validate
+   parameters, Workspaces, artifacts, and deployment results.
+8. Validate the Run Template's associated Triggers and ScheduledTriggers,
+   including event variable scenarios.
+9. When development and test validation succeeds, update the corresponding
+   production Run Template in the same way and validate the production start
+   methods.
+10. Keep the previous Hub Pipeline version available for rollback planning. If
+    rollback is required, change the existing Run Template's Pipeline reference
+    back to that version; a separate old Run Template is not required.
+
+## Run Configuration Management
+
+### Stable configuration
+
+Examples of stable configuration include:
+
+- Environment name.
+- Deployment target.
+- Default image repository.
+- Default Workspace.
+- Stable Integration.
+
+When these values are filled in the Run Template and are not set to `Set at
+Runtime`, they are used as run inputs, so users do not need to care about them.
+
+### Runtime configuration
+
+Examples of content that may be set to `Set at Runtime` include:
+
+- Git branch.
+- Commit SHA.
+- Image tag.
+- Release batch.
+- Temporary verification flags.
+
+When running directly from a Run Template, users supply this runtime content.
+Fixed values are already stored in the Run Template and are not shown for
+editing; update the Run Template first when a fixed value must change.
+
+## Best Practices
+
+### Central platform team
+
+- Use clear and stable Hub Pipeline names.
+- Publish release notes for every version.
+- Explain compatibility and behavior changes that affect parameters or
+  deployment.
+- Validate critical tasks, artifacts, and deployment steps before publishing.
+- State which versions are suitable for development, test, and production.
+- Maintain consistent TriggerBinding conventions for common events.
+
+### Project teams
+
+- Include the service and environment in Run Template names.
+- Keep one primary usage scenario in each template.
+- For long-term repeated use, operate directly from the Run Template list or
+  details page.
+- Review event variable defaults when one template is reused by several start
+  methods.
+- Review associated Triggers, ScheduledTriggers, and recent runs before a
+  production change.
+- Validate a copied or updated template in development or test before changing
+  a production template.
+
+### Change reviewers
+
+- Review production deployment targets, credentials, branches, and image tags.
+- Confirm that event-driven execution does not bypass required release
+  approvals.
+- Confirm that Hub Pipeline upgrades have been validated for every affected
+  Run Template and start method.
+- Keep enough change history to trace a run to its Run Template and Pipeline
+  version.
+
+## Frequently Asked Questions
+
+### Must one Hub Pipeline have one Run Template?
+
+No. One Hub Pipeline can have multiple Run Templates, usually separated by
+project, service, or environment.
+
+### Should every team share one Run Template?
+
+Sharing is possible, but production scenarios usually benefit from separate
+templates. Share the Hub Pipeline, and create independent Run Templates where
+the impact of a configuration change must remain limited.
+
+### How should event variables be handled when a Run Template has multiple start methods?
+
+Manual execution, Triggers, and ScheduledTriggers use the same Run Template but
+may provide different event variables. Configure default values for referenced
+event variables to provide a stable fallback. A Run Template can also be
+associated with more than one Event; variables with the same name are merged.
+See the [Run Template event
+variable guidance](run_template.mdx#event-variables-and-different-run-contexts).
+
+### When should centralized management be used?
+
+One-time experiments, temporary debugging, and short-lived independent flows
+can use a project Pipeline and a one-time run configuration. Use Hub Pipeline
+and Run Template when a process must be reused across projects, environments,
+or start methods.
+
+## Related Topics
+
+- [Run Template](run_template.mdx)
+- [Hub Pipelines](../concepts/pipeline_concept)
+- [TriggerBinding](../../triggers/concepts/triggerbinding_concept)
+- [ScheduledTrigger](../../triggers/concepts/scheduledtrigger_concept)
