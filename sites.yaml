@@ -4,3 +4,6 @@
 - name: postgresql
   base: /postgresql
   version: "4.0"
+- name: artifacthub-shim
+  base: /alauda-devops-artifacthub-shim
+  version: "main"

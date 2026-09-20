@@ -2,22 +2,30 @@
 weight: 250
 ---
 
-# Upgrade
+# Upgrade `Alauda DevOps Pipelines` Operator
 
-This document provides instructions for upgrading the Tekton Operator to a newer version using the Marketplace/OperatorHub interface in your cluster. The upgrade process is designed to be straightforward while ensuring minimal disruption to existing Tekton resources.
+This document provides instructions for upgrading the `Alauda DevOps Pipelines` Operator to a newer version using the `Marketplace`/`OperatorHub` interface in your cluster. The upgrade process is designed to be straightforward while ensuring minimal disruption to existing Tekton resources.
 
 ## Upgrade Overview
 
-Upgrading the Tekton Operator allows you to access new features, bug fixes, and improvements to the Tekton ecosystem. The Operator handles the upgrade of all Tekton components (Pipelines, Triggers, Hub, etc.) according to your configuration.
+Upgrading the `Alauda DevOps Pipelines` Operator allows you to access new features, bug fixes, and improvements to the Tekton ecosystem. The `Alauda DevOps Pipelines` Operator handles the upgrade of all Tekton components (Pipelines, Triggers, Hub, etc.) according to your configuration.
 
 ## Before You Begin
 
-Before upgrading the Tekton Operator, ensure you:
+Before upgrading the `Alauda DevOps Pipelines` Operator, ensure you:
 
 - Have administrative access to your cluster
 - Review the release notes for the new version to understand any breaking changes
-- Check if your existing Tekton component configurations are compatible with the new version
-- Check the Tekton components is ready state
+- Verify that your existing Tekton component configurations are compatible with the new version
+- Confirm that all Tekton components are in a ready state
+
+:::note
+Starting from `v4.0.18`, fresh installations no longer deploy the in-cluster `Tekton Hub` by default. When upgrading from an earlier `v4.0.x` release that already has `Tekton Hub` deployed, the existing Hub and its catalog artifacts are preserved so existing Task and Pipeline references continue to resolve.
+
+The `AUTOINSTALL_TEKTONHUB` setting supports `preserve` (default), `true`, and `false`. Do not set it to `false` during a routine patch upgrade because that value explicitly removes an existing Hub.
+
+For fresh installations or a planned migration from the built-in Hub, see [Configuring Tekton to Use ArtifactHub Shim](./hub/configure/configuring-artifacthub-shim.mdx).
+:::
 
 ### Confirm Target Channel First
 
@@ -25,7 +33,7 @@ Before you approve an upgrade, confirm which channel your `Subscription` uses:
 
 - `stable` (default from `v4.0.17`): Tracks `v4.0.z` LTS patch releases. Recommended for production.
 - `latest`: Tracks every `v4.0.z` release. Equivalent to `stable` on the 4.0 LTS line, and was the default prior to `v4.0.17`.
-- `pipelines-4.0`: Tracks `v4.0.z` patch updates only — same content as `stable`.
+- `pipelines-4.0`: Tracks `v4.0.z` patch updates only - same content as `stable`.
 
 :::note
 All three channels carry the same `v4.0.z` patch stream on the release-4.0 line. The channel choice mostly affects which channel name appears in your Subscription; upgrade behavior is the same across all three.
@@ -33,45 +41,144 @@ All three channels carry the same `v4.0.z` patch stream on the release-4.0 line.
 
 ## Upgrade Process
 
-### Using Marketplace/OperatorHub
+### Using `Marketplace`/`OperatorHub`
 
-1. **Access the Marketplace/OperatorHub**
+1. **Access the `Marketplace`/`OperatorHub`**
    - Log in to your cluster's management console
-   - Navigate to the "Marketplace" or "OperatorHub" section
+   - Navigate to the `Marketplace` or `OperatorHub` section
 
-2. **Locate the Tekton Operator**
-   - Search for "Tekton" or "Alauda DevOps Pipelines" in the search bar
-   - Click on the Tekton Operator card
+2. **Locate the `Alauda DevOps Pipelines` Operator**
+   - Search for `Alauda DevOps Pipelines` in the search bar
+   - Click on the `Alauda DevOps Pipelines` card
 
 3. **View Available Versions**
-   - On the Operator details page, you'll see information about the currently installed version
+   - On the `Alauda DevOps Pipelines` Operator details page, you'll see information about the currently installed version
    - The interface will indicate if a newer version is available
+   - You can click different `Channels` to view all available versions
 
 4. **Initiate the Upgrade**
-   - Click the "Upgrade" or "Update" button next to the new version
-   - Review the upgrade details and confirm your selection
+   - If the target version is in a different `Channel`, switch to the corresponding `Channel` in the `Subscription` first
+   - If the current `Channel` has a newer version available, you will see a prompt:
+     - **New Version Detected**
+       - To upgrade only the current Operator, click `Confirm` to upgrade.
 
 5. **Configure Upgrade Settings (if applicable)**
    - Some upgrades may present configuration options
    - In most cases, the default settings will preserve your existing configuration
 
 6. **Confirm and Start the Upgrade**
-   - Click "Upgrade" or "Install" to begin the process
-   - The system will update the Operator while maintaining your custom resources
+   - Click `Confirm` to begin the process
+   - Review the upgrade details and confirm your selection
+   - The system will update the `Alauda DevOps Pipelines` Operator while maintaining your custom resources
 
 7. **Monitor the Upgrade**
-   - The upgrade progress will be displayed in the OperatorHub interface
+   - The upgrade progress will be displayed in the `OperatorHub` interface
    - You can also check the status in the `tekton-operator` namespace:
      ```bash
-     kubectl get pods -n tekton-operator
+     $ kubectl get pods -n tekton-operator
      ```
+     When all pods are in `Running` state, the operator upgrade is complete.
+     The operator will then automatically upgrade components such as `Pipelines`, `Triggers`, `Hub`, `Chains`, etc.
+   - Check the components upgrade status:
+     ```bash
+     $ kubectl get tektoninstallerset -A
+     $ kubectl get pods -n tekton-pipelines
+     ```
+     When all components and pods are in `Ready` state, the components upgrade is complete.
 
 8. **Verify the Upgrade**
-   - Check that the Operator version has been updated:
+   - Check that the `Alauda DevOps Pipelines` Operator version has been updated:
      ```bash
-     kubectl get csv -n tekton-operator
+     $ kubectl get csv -n tekton-operator
+
+     NAME                        DISPLAY                   VERSION   REPLACES   PHASE
+     tektoncd-operator.v4.x.x    Alauda DevOps Pipelines   4.x.x     x          Succeeded
      ```
+     When the `VERSION` matches the new version, the upgrade is complete.
    - Verify that your Tekton components are functioning correctly
+     - Test that your pipelines can run successfully
+
+### Using `kubectl` CLI
+
+You can also upgrade the `Alauda DevOps Pipelines` Operator using the command line interface. This method is useful for automation or when you prefer CLI-based operations.
+
+1. **Check Current Subscription**
+   - First, identify the current subscription and its channel:
+     ```bash
+     $ kubectl get subscriptions.operators.coreos.com -A | grep tektoncd-operator
+
+     NAMESPACE               NAME                    PACKAGE                 SOURCE     CHANNEL
+     tekton-operator         tektoncd-operator       tektoncd-operator       platform   stable
+     ```
+
+2. **Switch to Target Channel**
+   - If you need to upgrade to a version in a different channel, patch the subscription:
+     ```bash
+     $ kubectl patch subscriptions.operators.coreos.com tektoncd-operator --type merge -p '{"spec":{"channel": "<target-channel>"}}' -n tekton-operator
+     ```
+     Replace `<target-channel>` with the desired channel (for example, `stable`, `latest`, or `pipelines-4.0`).
+
+3. **Wait for UpgradePending State**
+   - Monitor the subscription status until it shows `UpgradePending`:
+     ```bash
+     $ kubectl get subscriptions.operators.coreos.com tektoncd-operator -n tekton-operator -o yaml
+
+     status:
+       installplan:
+         apiVersion: operators.coreos.com/v1alpha1
+         kind: InstallPlan
+         name: install-abc123
+       state: UpgradePending
+     ```
+     Look for the `state: UpgradePending` in the output.
+
+4. **Approve the InstallPlan**
+   - When the subscription is in `UpgradePending` state, find the corresponding InstallPlan:
+     ```bash
+     $ kubectl get installplan -n tekton-operator
+
+     NAME            CSV                        APPROVAL   APPROVED
+     install-abc123  tektoncd-operator.v4.x.x   Manual     false
+     ```
+
+   - Approve the InstallPlan by setting the `approved` field to `true`:
+     ```bash
+     $ kubectl patch installplans.operators.coreos.com <installplan-name> --type merge -p '{"spec":{"approved":true}}' -n tekton-operator
+     ```
+     Replace `<installplan-name>` with the actual InstallPlan name from the previous step.
+
+5. **Monitor the Upgrade Progress**
+   - Watch the subscription status until it becomes ready:
+     ```bash
+     $ kubectl get subscriptions.operators.coreos.com tektoncd-operator -n tekton-operator -o yaml -w
+     ```
+
+   - Check the operator pods status:
+     ```bash
+     $ kubectl get pods -n tekton-operator
+     ```
+     Wait until all pods are in `Running` state.
+
+6. **Verify the Upgrade**
+   - Confirm the operator version has been updated:
+     ```bash
+     $ kubectl get csv -n tekton-operator
+
+     NAME                        DISPLAY                   VERSION   REPLACES   PHASE
+     tektoncd-operator.v4.x.x    Alauda DevOps Pipelines   4.x.x     x          Succeeded
+     ```
+
+7. **Monitor Component Upgrades**
+   - The operator will automatically upgrade Tekton components. Monitor their progress:
+     ```bash
+     $ kubectl get tektoninstallerset -A
+     $ kubectl get pods -n tekton-pipelines
+     ```
+     Ensure all components and pods reach `Ready` state.
+
+:::note
+The CLI upgrade process follows the same underlying mechanism as the GUI method. The main difference is that you manually control the channel switching and InstallPlan approval steps.
+:::
 
 ## Post-Upgrade Steps
 
@@ -92,39 +199,61 @@ After the upgrade completes successfully:
    - If the new version introduces changes to CRDs, you may need to update your custom resources
    - Refer to the release notes for specific migration steps
 
+### Verify Preserved Tekton Hub Resources
+
+If the cluster had an in-cluster `Tekton Hub` before upgrading to `v4.0.18`, perform these additional checks:
+
+1. Confirm that the `TektonHub` resource is present and ready:
+   ```bash
+   kubectl get tektonhub -A
+   ```
+2. Confirm that the Hub API and catalog sidecar are running:
+   ```bash
+   kubectl get pods -A | grep tekton-hub-api
+   ```
+   Confirm that the `READY` count for the `tekton-hub-api` pod is complete.
+3. Run an existing pipeline that uses `resolver: hub` and verify that its `PipelineRun` succeeds.
+
+For a fresh `v4.0.18` installation, the absence of an in-cluster `Tekton Hub` is expected with the default settings. Configure and verify catalog resolution through the [ArtifactHub Shim](./hub/configure/configuring-artifacthub-shim.mdx) instead.
+
 ## Rollback Procedure
 
 If you encounter issues with the new version, you can roll back to the previous version:
 
-1. Return to the Marketplace/OperatorHub interface
-2. Select the Tekton Operator
-3. Choose the previous version from the version list
-4. Follow the installation process for that version
+1. Return to the `Marketplace`/`OperatorHub` interface
+2. Select the `Alauda DevOps Pipelines` Operator
+3. `Uninstall` the current version
+4. Choose the previous version from the version list
+5. Follow the installation process for that version
 
-Note that downgrading may require additional steps to ensure compatibility of your resources with the older version.
+:::note
+Downgrading may require additional steps to ensure compatibility of your resources with the older version.
+
+This depends on the differences between the version you upgraded from and the version you upgraded to. If the differences are large, you may need to manually migrate resources.
+:::
 
 ## Troubleshooting
 
 If you encounter issues during or after the upgrade:
 
-- Check the Operator pod logs:
+- Check the `Alauda DevOps Pipelines` Operator pod logs:
   ```bash
-  kubectl logs -l name=tekton-operator -n tekton-operator
+  $ kubectl logs -l name=tekton-operator -n tekton-operator
   ```
 
 - Verify the status of your Tekton resources:
   ```bash
-  kubectl get tektonconfig config -o yaml
+  $ kubectl get tektonconfig config -o yaml
   ```
 
 - Ensure that all components have the expected status:
   ```bash
-  kubectl get tektoninstallerset
+  $ kubectl get tektoninstallerset
   ```
 
 ## Next Steps
 
-After successfully upgrading the Tekton Operator:
+After successfully upgrading the `Alauda DevOps Pipelines` Operator:
 
 - Explore new features introduced in the latest version
 - Update your CI/CD pipelines to leverage new capabilities
