@@ -1,0 +1,71 @@
+---
+weight: 45
+---
+
+# Tutorials
+
+Build and deliver a small application with Alauda DevOps Pipelines. Start by
+running one component manually, then reuse its configuration for automatic
+builds and approved releases. Each tutorial ends with a checkpoint; complete
+that checkpoint before adding the next capability.
+
+If you have not run a Task or Pipeline before, complete the
+[Hello World quick start](../quick_start.mdx) first. You do not need to know
+every Tekton resource to begin these tutorials.
+
+## Application CI/CD Learning Path
+
+The sample has a Node.js frontend and a Go backend in **separate Git
+repositories**. The frontend displays a message from the backend through one
+application Ingress. Each component has independent CI and CD runs: a frontend
+change does not rebuild or redeploy the backend.
+
+```text
+Frontend repository -> Node.js CI -> staging image -> approval -> frontend CD
+Backend repository  -> Go CI      -> staging image -> approval -> backend CD
+                                                                      |
+                                                      application Ingress
+                                                       /       /api
+                                                   frontend   backend
+```
+
+| Tutorial | Practice | Completion checkpoint |
+| --- | --- | --- |
+| [1. Prepare the application and environment](./application-cicd-setup.mdx) | Separate administrator setup from developer work; prepare repositories, Connectors, and storage. | Both repositories contain buildable source and the CI prerequisites are ready. |
+| [2. Build and run component CI](./application-cicd-ci.mdx) | Create a Pipeline, connect Tasks, bind parameters and Workspaces, inspect results, and save a Run Template. | A manual build publishes an image digest for each component. You can stop here to practice basic Pipeline operations. |
+| [3. Automate CI with events](./application-cicd-triggers.mdx) | Reuse Run Templates with authenticated GitLab webhooks; filter events and understand artifact handoff. | A push starts only the intended component; an unrelated or unauthenticated event starts no run. |
+| [4. Approve and deliver a release](./application-cicd-delivery.mdx) | Promote an immutable image, protect Connectors, deploy, verify health, and roll back. | An approved release updates one component by digest and the application remains healthy. |
+
+## Before You Start
+
+Use dedicated practice namespaces and repositories. The destination named
+`production` in the examples is a **practice release environment**, not an
+instruction to use a live production cluster.
+
+The first two tutorials need Pipelines, the installed catalog, Git and OCI
+Connectors, and workspace storage. Add Triggers for tutorial 3. Add the Manual
+Approval Gate, protected destination Connectors, and an application namespace
+for tutorial 4. An administrator can prepare each stage when you reach it;
+you do not need the complete delivery environment to learn CI.
+
+| Role | Responsibility |
+| --- | --- |
+| Platform administrator | Installation, approved images, namespaces, identities, storage, Connector credentials, webhook ingress, and release policies. |
+| Application developer | Source, tests, Pipeline configuration, manual CI, Run Templates, and event verification. |
+| Release approver | Review the selected digest and target, approve or reject a release, and inspect the audit record. |
+
+## How to Use the Examples
+
+The tutorials contain the application source and the complete Kubernetes
+resources. Short snippets are shown where a concept is easier to understand
+than a full manifest; the longer, copyable resources are inside tabs or
+collapsed sections. Copy a block into a local file only when the step asks you
+to apply it with `kubectl`.
+
+Replace every `<placeholder>` before applying a resource. Keep credentials in
+Connector-backed Secrets and platform-managed identities; never put tokens,
+passwords, kubeconfig files, private keys, or certificates in these examples.
+The examples are intentionally dependency-free so they can be mirrored and
+used in an air-gapped environment.
+
+Start with [Prepare the application and environment](./application-cicd-setup.mdx).

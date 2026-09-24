@@ -14,12 +14,32 @@ The dynamic form configuration feature allows you to declaratively configure a f
 - Dynamic data fetching: Supports dynamically loading option data through APIs.
 - Field links: Adds product or external links to specific fields.
 - Metadata-only configuration: Adds labels, descriptions, tooltips, disabled state, preview, or links without overriding the field's default component.
+- Structured array editing: Splits each item of a string array into one or more editable fields.
+- Combined inputs: Presents several related controls for one Pipeline parameter and combines their values before execution.
+- Nested forms: Loads the configuration of a selected resource and presents its parameters inside the current form.
+- Localized metadata: Maintains display names, descriptions, and tooltips in multiple languages while preserving the original Tekton names and values.
+
+Dynamic form behavior is reused across the main Pipeline workflows:
+
+| Product area | How dynamic forms are used |
+| --- | --- |
+| Pipeline and Task authoring | Configure parameter controls and maintain display metadata for Params, Workspaces, Results, and Tasks. |
+| Pipeline and Task details | Display business-friendly labels, descriptions, and tooltips while keeping the original Tekton names visible. |
+| PipelineRun, TaskRun, and Run Template execution | Reuse the selected Pipeline or Task descriptors for selectors, structured editors, nested forms, previews, and runtime settings. |
+| Integration configuration | Use descriptors supplied by the selected ResourceInterface or Connector for Integration-specific controls and options. |
+| Trigger and ScheduledTrigger configuration | Reuse the target Run Template's run configuration. Event variables are configured through the TriggerBinding and the selected start method. |
+
+If a field does not have a supported descriptor, the product keeps its normal
+input control and native Tekton behavior.
 
 ## Use Cases
 
 - Pipeline orchestration/runtime: Allow users to fill in parameters such as namespace and secrets through friendly forms when orchestrating or triggering `Pipeline`
 - Task reuse: Provide default values, dropdown options, and validation for common parameters at the `Task` or `Pipeline` template level
 - Multi-environment selection: Dynamically query available environments or configurations from APIs and use them as selection options
+- Structured configuration: Edit values such as `KEY=VALUE`, JSON strings, or other structured array items without manually formatting each string
+- Resource-backed configuration: Select a resource and configure its parameters inline, such as values for a selected template
+- Consistent Pipeline authoring and execution: Reuse the same parameter metadata and dynamic controls in Pipeline editing, Task configuration, PipelineRun, and TaskRun forms
 
 ## Quick Start
 
@@ -39,7 +59,8 @@ metadata:
 
 **Configuration Description**
 
-- `path`: Specifies the parameter path in the format `params.parameter-name`
+- `path`: Use `params.<parameter-name>`, `workspaces.<workspace-name>`, or
+  `results.<result-name>` according to the resource field being described.
 - `x-descriptors`: Configuration item array, each configuration item starts with `urn:alm:descriptor:`
 
 **Simple Example**
@@ -85,6 +106,9 @@ Use the following table to choose the smallest descriptor set that matches your 
 | Preview referenced resource content | [Preview descriptors](#preview-component) | Not required; can combine with one |
 | Add a field link to product guidance or an external URL | [Link descriptors](#link-configuration) | Not required; can combine with one |
 | Split one parameter into multiple sub-inputs | [Combine component](#combine-component) | Required |
+| Edit each item of a string array as structured fields | [Array table component](#array-table-component) | Required |
+| Show the parameters of a selected resource inside the current field | [Inline form component](#inline-form-component) | Required |
+| Maintain display metadata in multiple languages | [Descriptor metadata for Params, Workspaces, and Results](#descriptor-metadata-for-params-workspaces-and-results) | Not required |
 
 ## Basic Metadata \{#basic-metadata}
 
@@ -168,6 +192,106 @@ To make a metadata-only field read-only, add the disabled descriptor:
 ```yaml
 - urn:alm:descriptor:com.tectonic.ui:disabled
 ```
+
+### Advanced and basic form modes
+
+For parameters with a supported dynamic form descriptor, the product can show
+an **Advanced** form that uses the configured control or widget. A **Basic**
+form remains available as a fallback when the advanced control is not needed or
+cannot be used in the current context.
+
+The actual Pipeline parameter value is unchanged by switching modes. The mode
+only changes how the value is edited. This lets users use a friendly selector
+or structured editor when it is available, while retaining a direct input
+method for troubleshooting or exceptional values.
+
+When a parameter is already supplied by a Pipeline Integration, the form can
+show the Integration configuration first. After the Integration binding is
+removed, the parameter can return to its descriptor-defined dynamic control.
+
+## Descriptor Metadata for Params, Workspaces, and Results \{#descriptor-metadata-for-params-workspaces-and-results}
+
+Dynamic form metadata is not limited to parameter input controls. Pipeline
+authors can also configure the display name, description, and tooltip for
+Pipeline Params, Workspaces, and Results.
+
+Open the Pipeline configuration form, select a Param, Workspace, or Result, and
+open **Advanced Form Configuration**. You can maintain the metadata in Form
+mode or edit the complete descriptor in YAML mode.
+
+The metadata is reused in:
+
+- Pipeline and Task details.
+- Pipeline and Task execution forms.
+- Pipeline task configuration.
+- Result variable suggestions.
+
+The original Tekton name remains visible together with the configured display
+name, and references inserted into Pipeline definitions continue to use the
+original Tekton name. For example, a Result displayed as **Artifact URL** still
+inserts `$(tasks.build.results.artifact-url)`.
+
+### Multiple languages
+
+The Form editor uses English by default. A language selector appears when the
+descriptor contains metadata in more than one language. You can select a
+language and update its display name, description, and tooltip without
+overwriting the other languages.
+
+Use YAML mode when you need to maintain the complete descriptor, including
+component, validation, dynamic option, or widget settings. Form mode is
+intended for common display metadata and keeps the rest of the descriptor
+configuration intact.
+
+### Workspace and Result boundaries
+
+Workspace and Result descriptors enhance display information only. They do not
+turn a Workspace or Result into an input control, and their component,
+validation, default, dynamic option, and widget settings are not applied.
+Workspace and Result required or optional behavior continues to come from the
+Pipeline declaration.
+
+### Run Template behavior
+
+Run Template uses the Pipeline descriptor as the base configuration for its
+parameters. A Run Template can provide its own descriptor configuration when a
+specific template needs different labels, controls, defaults, or visibility.
+
+When editing a Run Template, all Pipeline parameters are available for
+configuration. Use **Set at Runtime** to identify values that should be
+supplied when the template is run. During execution, users see the parameters
+that the Run Template exposes for runtime input; fixed values remain part of
+the saved template.
+
+Changing a Pipeline descriptor does not automatically replace a Run Template's
+specific configuration. Review the Run Template after changing the Pipeline,
+especially when adding parameters or changing their runtime behavior.
+
+The descriptor source depends on the form context. Pipeline and Task forms
+read descriptors from the selected Pipeline or Task. Integration forms read
+Integration descriptors from the selected ResourceInterface or Connector.
+Trigger and ScheduledTrigger forms reuse the Run Template configuration; their
+event-variable values are maintained through the TriggerBinding and the
+corresponding start method.
+
+### Example metadata for a Workspace and Result
+
+```yaml
+- path: workspaces.source
+  x-descriptors:
+    - urn:alm:descriptor:label:en:Source Workspace
+    - urn:alm:descriptor:description:en:Workspace used for source files
+    - urn:alm:descriptor:tooltip:en:Provide storage that contains the source code
+- path: results.image-url
+  x-descriptors:
+    - urn:alm:descriptor:label:en:Published Image
+    - urn:alm:descriptor:description:en:Image produced by the Pipeline
+    - urn:alm:descriptor:tooltip:en:Use this Result in downstream tasks
+```
+
+These descriptors improve presentation only. The Pipeline still uses the
+original `source` Workspace and `image-url` Result names in its definitions
+and variable references.
 
 ## Component Types \{#component-types}
 
@@ -281,6 +405,11 @@ In dynamic API paths, you can use `${variable}` to reference runtime context inf
 | ------------------- | ------------------------------------------------------------ |
 | `${context.params}` | Parameters object, e.g., `${context.params.repo}` can reference the current value of the `repo` parameter in the form |
 
+For Integration forms, `${context.connectorClass}` is the selected
+ConnectorClass object. Schema expressions can access the same object as
+`context.connectorClass`, for example when resolving an OpenAPI schema from
+the ConnectorClass definition.
+
 These variables are typically used in combination with API URLs to dynamically construct request addresses in different environments, enabling environment-aware option loading logic. For example:
 
 ```yaml
@@ -335,11 +464,41 @@ When user types "test" in the dropdown, the actual request will be:
 /kubernetes/.../pipelineruns?search=test
 ```
 
+#### Schema-based options
+
+In Integration scenarios, a select can use an OpenAPI schema exposed by the
+selected Connector instead of describing each API request and option mapping
+manually:
+
+```yaml
+- urn:alm:descriptor:widgets:select
+- urn:alm:descriptor:expression:props.options:schema:openapi:context.connectorClass.spec.api.openapi:listProjects
+```
+
+The platform uses the schema to build the available options and their form
+behavior. This is useful when the Connector provides a standard API for
+projects, branches, tags, or merge requests.
+
+#### Computed option fields
+
+For more complex responses, use expressions to calculate the option list or
+each option's label, value, and description:
+
+```yaml
+- urn:alm:descriptor:expression:props.options:path.exp:$.items.flatMap(item => item.spec.targets || [])
+- urn:alm:descriptor:expression:props.options:label:path.exp:`${$.name} (${$.status})`
+- urn:alm:descriptor:expression:props.options:value:path.exp:$.id
+- 'urn:alm:descriptor:expression:props.options:description:path.exp:`Target: ${$.name}`'
+```
+
+The expression receives the current option as `$`. Expressions can also use
+the current form context, such as `context.params`, to calculate a value.
+
 
 **Advanced Usage**: Supports JavaScript expressions, for example:
 
 ```yaml
-${context.params.map(p => p.name).join(',')}
+${Object.keys(context.params || {}).join(',')}
 ```
 
 ## Enhancements
@@ -481,6 +640,21 @@ For example, when a user selects a ConfigMap from a dropdown to use as a volume 
 2. A preview button appears next to the dropdown.
 3. Clicking the preview button fetches the selected ConfigMap from the Kubernetes API.
 4. The raw YAML content is displayed in a preview panel with syntax highlighting.
+
+The preview request can use `GET` or `POST`. A POST preview can build a
+PipelineRun or TaskRun request from the current form values and show the
+result returned by the server.
+
+Preview content can be displayed as:
+
+- YAML or another resource representation.
+- An article with a subject and HTML body, such as a rendered notification
+  message.
+
+Preview is intended for checking the result before execution. Runtime-only
+variables that are unavailable in the preview context may remain unresolved,
+so the preview should be treated as a reference rather than a guarantee of
+the final execution output.
 
 ### Link Configuration \{#link-configuration}
 
@@ -634,6 +808,111 @@ To achieve this, you can use the **Combine Component (`widgets:combine`)**. It a
         - sts:db-1
     ```
 
+### Array table component \{#array-table-component}
+
+The **Array Table Component (`widgets:arrayTable`)** edits a string array as
+structured rows. Use it when each array item contains multiple business
+values, such as `KEY=VALUE`, `name|protocol|description`, or a JSON string.
+
+The Pipeline parameter remains a `string[]`. The form only changes how each
+item is edited and converts each row back to one string before the Pipeline
+starts.
+
+```yaml
+- path: params.buildArgs
+  x-descriptors:
+    - urn:alm:descriptor:widgets:arrayTable
+    - urn:alm:descriptor:arrayTable:separator:=
+    - urn:alm:descriptor:arrayTable:items:
+        - path: key
+          x-descriptors:
+            - urn:alm:descriptor:label:en:Key
+            - urn:alm:descriptor:com.tectonic.ui:text
+        - path: value
+          x-descriptors:
+            - urn:alm:descriptor:label:en:Value
+            - urn:alm:descriptor:com.tectonic.ui:text
+```
+
+For `MESSAGE=left=middle=right`, the first separator divides the key and the
+remaining text is kept in the value. This prevents additional separators in
+the last field from being lost.
+
+The layout adapts to the number of row fields:
+
+- One field: a full-width row without a separate header.
+- Two fields: fields are shown in columns with a shared header.
+- More than two fields: fields are shown vertically with labels in each row.
+
+For JSON or another format that cannot be represented by a separator, define
+`urn:alm:descriptor:arrayTable:parse.exp:` and
+`urn:alm:descriptor:arrayTable:stringify.exp:`. The parse expression receives
+`parent` (the stored string) and `context`, and must return an object containing
+all configured item paths. The stringify expression receives `items` (the
+current row values) and `context`, and must return a string.
+
+For example, a JSON array item can be edited as two fields and converted back
+to the stored string:
+
+```yaml
+- path: params.jsonItems
+  x-descriptors:
+    - urn:alm:descriptor:widgets:arrayTable
+    - urn:alm:descriptor:arrayTable:items:
+        - path: key
+          x-descriptors:
+            - urn:alm:descriptor:label:en:Key
+            - urn:alm:descriptor:com.tectonic.ui:text
+        - path: value
+          x-descriptors:
+            - urn:alm:descriptor:label:en:Value
+            - urn:alm:descriptor:com.tectonic.ui:text
+    - 'urn:alm:descriptor:arrayTable:parse.exp:parse(parent)'
+    - 'urn:alm:descriptor:arrayTable:stringify.exp:stringify(items)'
+```
+
+Invalid conversion results are shown as form errors and do not silently
+overwrite the original value.
+
+Do not use Array Table for a simple list of independent strings. Use the
+standard array input or `tagsInput` for that case.
+
+### Inline form component \{#inline-form-component}
+
+The **Inline Form Component (`widgets:inlineForm`)** displays the parameters of
+a selected resource inside the current parameter field. It is useful when one
+selection determines the next set of inputs, such as selecting a message
+template and then entering the template's variables.
+
+The inline form can load its resource from an API or from a value already
+available in the current form context. The descriptor identifies:
+
+- The resource to load.
+- The resource path that contains the selected object.
+- The resource's parameter and descriptor paths.
+- How to convert the nested form value to and from the parent parameter value.
+
+Example:
+
+```yaml
+- path: params.templateValues
+  x-descriptors:
+    - urn:alm:descriptor:widgets:inlineForm
+    - urn:alm:descriptor:inlineForm:resource:api:/kubernetes/${context.cluster}/api/v1/namespaces/kube-public/configmaps?fieldSelector=metadata.name%3D${context.params.templateName}
+    - urn:alm:descriptor:inlineForm:resource:path:items[0]
+    - 'urn:alm:descriptor:inlineForm:params:path.exp:parse($.metadata.annotations["style.tekton.dev/descriptors"] || "")?.map(d => ({type: "string", name: d.path.split("params.")[1]}))'
+    - 'urn:alm:descriptor:inlineForm:stringify:$?.length ? stringify($.reduce((acc, cur) => { acc[cur.name] = cur.value; return acc; }, {})) : ""'
+    - 'urn:alm:descriptor:inlineForm:parse:Object.entries(parse($ || "") || {}).map(([name, value]) => ({name, value}))'
+```
+
+When the resource or its parameters change, the inline form is refreshed for
+the current context. Nested validation is propagated to the parent field, so
+the Pipeline cannot be submitted with an invalid inline configuration.
+
+Inline forms can be combined with [Preview Component](#preview-component).
+For example, users can configure the selected template's variables and then
+preview the rendered result without leaving the Pipeline form.
+
 ## Full Examples
 
 ### Configure Metadata-only Dynamic Forms in Task
@@ -774,9 +1053,15 @@ spec:
 
 ## Troubleshooting
 
-- **Form not displayed or configuration not taking effect**: Check if the YAML format of `style.tekton.dev/descriptors` is correct, confirm `path` is configured as `params.parameter-name`, verify each descriptor starts with `- urn:alm:descriptor:`
+- **Form not displayed or configuration not taking effect**: Check if the YAML format of `style.tekton.dev/descriptors` is correct, confirm `path` is configured as `params.parameter-name`, `workspaces.workspace-name`, or `results.result-name` as appropriate, and verify each descriptor starts with `- urn:alm:descriptor:`
 - **Dynamic options not loading**: Confirm the API path is correct, check if the current user has permission to access the specified API resource, verify `path`, `label` and `value` configurations point to fields that exist in the returned data
 - **Default value not taking effect**: Confirm fixed default value uses `expression:props.default:value` format, expression default value uses `===` instead of `=`, check if variables (option, index, length, context) in the expression are spelled correctly
 - **Context variables not resolved**: Verify variable names are correct (e.g., `context.namespace` not `context.namespaces`), confirm variables are used in descriptors that support expressions, check if JavaScript expression syntax has errors
 - **Link not displayed**: Confirm `enhance:docLink` uses either `productDoc` or `external`, verify `docLink:link` is present, and ensure external links use full `http` or `https` URLs
 - **Field is displayed but cannot be edited**: Check whether `urn:alm:descriptor:com.tectonic.ui:disabled` is configured for the field
+- **Advanced control is not displayed**: Check that the descriptor path matches an existing parameter, that the required widget capability is present, and that the current entry supports the configured control. Use the Basic form to verify the underlying value separately.
+- **Array table does not render**: Check that `arrayTable:items` contains at least one item with a unique, non-empty `path`. Invalid item definitions fall back to the regular array form.
+- **Array value changes are not saved**: Check the separator or the `parse.exp` and `stringify.exp` expressions. A failed conversion or invalid nested field does not overwrite the original array value.
+- **Inline form is empty**: Check that the selected resource, resource path, parameter path, and descriptor path resolve in the current context. Also verify that the current user can read the resource API.
+- **Preview is different from the final run**: Check whether the preview depends on runtime-only variables. Preview results are for reference when the execution context is not available.
+- **Workspace or Result control is unchanged**: Workspace and Result descriptors provide display metadata only. Required, optional, and binding behavior still comes from the Pipeline declaration.

@@ -1,0 +1,680 @@
+---
+weight: 35
+category: howto
+---
+
+# Constrain Tekton Pipeline Execution with Kyverno
+
+Use Kyverno to answer questions such as: "May teams run their own Tasks?", "Which template
+must they use?", and "Which tool images may execute?" A Task defines steps; a Pipeline
+connects Tasks; TaskRuns and PipelineRuns execute those definitions. Kyverno checks their
+Kubernetes API requests against rules written by a platform administrator.
+
+It can check the object submitted to the Kubernetes API, the Pod created for a
+TaskRun, and selected fields written to a completed run. It does not replace Tekton's
+execution semantics or prove what an arbitrary shell command will do.
+
+This guide is a capability map with generic examples. The values in angle brackets are
+intentional placeholders. Replace them with values owned by your platform team before
+applying a policy. For a concrete CI scenario, see <ExternalSiteLink name="artifacthub-shim"
+href="/catalog/how_to/constrain_catalog_pipeline_usage_with_kyverno.html"
+children="Constrain Catalog Pipeline Usage with Kyverno" />. That companion page uses a
+Pipeline delivered by ArtifactHub Shim and shows how to turn these generic controls into
+practical restrictions on user configuration, parameters, and scan results. The design
+rationale is in [Pipeline Policy Constraints with Tekton and Kyverno](https://github.com/alauda/knowledge/blob/main/docs/en/solutions/Pipeline_Policy_Constraints_with_Tekton_and_Kyverno.md).
+
+## What can be constrained
+
+Kyverno sees different objects at different points in a Tekton execution. Choose the
+object that contains the fact you want to govern.
+
+| Object and point | Fields that can be checked | Typical result |
+| --- | --- | --- |
+| `Task` admission | `metadata`, `spec.params`, `spec.workspaces`, `spec.steps`, and `spec.sidecars` | Require ownership labels, disallow privileged steps, or restrict tool images in locally registered Tasks. |
+| `Pipeline` admission | `spec.tasks`, `spec.finally`, `taskRef`, `taskSpec`, `when`, and `onError` | Reject inline tasks, require a scanner dependency, or forbid ignoring a gate's failure in locally registered Pipelines. |
+| `PipelineRun` or `TaskRun` admission | Resolver parameters, references, `spec.params`, `taskRunTemplate`, `taskRunSpecs`, and pod templates | Require a reviewed template, keep a scan enabled, restrict execution ServiceAccounts, or limit runtime overrides. |
+| Tekton Pod admission | Every resolved step, sidecar, and init-container image plus Pod security fields | Limit image registries and enforce a Pod security baseline after resolution. |
+| `PipelineRun/status` or `TaskRun/status` audit | Completion condition and `status.results` | Record missing results, unexpected outcomes, or a threshold violation after execution. |
+
+The timing matters. A resolver reference is available when a `PipelineRun` is admitted,
+but the fetched Pipeline and its labels are not guaranteed to be available yet. A user
+can also submit a label that looks like a platform label. Use resolver parameters for an
+admission decision and labels or results for post-execution audit.
+
+The lifecycle is: run admission, remote resolution, child TaskRun admission, Pod admission,
+then status updates. A remotely fetched Task or Pipeline is not automatically submitted
+as a Kubernetes Task or Pipeline, so policies on those definitions do not validate fetched
+YAML. A child TaskRun's reference is visible at its admission, but a remote Task's body may
+still be unresolved. Pod admission sees the resolved container configuration.
+
+Kyverno is one layer in the control. Use RBAC to decide who may create or update Tekton
+objects, use the operator's inline-spec feature flag for a cluster-wide baseline, keep
+catalog and Pipeline sources under review, and keep image registries available in an
+air-gapped cluster. No single policy provides template integrity by itself.
+
+## Prerequisites
+
+- Tekton Pipelines and its validating webhook are installed and configured to fail closed
+  for invalid Tekton resources.
+- Kyverno admission, background, and reports controllers are Ready. The examples were
+  verified with Kyverno engine 1.15.9 and Tekton `v1` resources. This guide uses the
+  `kyverno.io/v1` `ClusterPolicy` API and the `kyverno.io/v2` `PolicyException` API.
+- You can create policies and, if your exception process permits it, narrowly scoped
+  `PolicyException` objects.
+- The governed namespace, resolver catalog, and internal image registries are known.
+- In an air-gapped cluster, install Kyverno, resolver configuration, policy YAML, and all
+  referenced images from an approved offline repository.
+
+Start with `Audit` in one disposable namespace. Move a policy to `Enforce` only after its
+match scope and legitimate exceptions are understood. `background: false` is used below
+because these examples are intended to evaluate admission or status updates rather than
+rewrite history. The examples are opt-in policies, not installed product defaults.
+
+### Read and install a policy
+
+| Field | Meaning |
+| --- | --- |
+| `match` | Which resources and namespaces this rule checks. Use qualified Tekton kinds to avoid similarly named platform APIs. |
+| `exclude` | Trusted identities or resources that do not pass through this rule. |
+| `preconditions` | When a matching rule should run, for example only after completion. |
+| `validate` | The required pattern or conditions that cause a denial. Expressions in `{{ ... }}` read the admission request with JMESPath. |
+| `validate.failureAction` | Set on each validation rule: `Audit` allows a violation and records it; `Enforce` rejects it. Changing one rule does not change the others. |
+| `webhookConfiguration.failurePolicy` | `Fail` rejects a request when validation cannot be performed. It is different from a resource failing a rule. |
+
+The policy-level `spec.validationFailureAction` is **deprecated** and will be removed in a
+future Kyverno release. Use `spec.rules[].validate.failureAction` as shown below; see
+[Kyverno validation rules](https://kyverno.io/docs/policy-types/cluster-policy/validate/).
+When migrating an older policy, move its action into every validation rule and remove
+the policy-level field.
+
+Put each complete policy below in its own YAML file, replace its placeholders, and first
+set `validate.failureAction: Audit` on every rule. For example, after changing all four
+rules in the first policy:
+
+```bash
+kubectl apply --dry-run=server -f tekton-no-inline-execution-specs.yaml
+kubectl apply -f tekton-no-inline-execution-specs.yaml
+kubectl wait --for=condition=Ready clusterpolicy/tekton-no-inline-execution-specs --timeout=60s
+```
+
+Use the same apply/wait procedure for the other policies. A `Ready` policy alone is not
+proof that it matches a run: execute the positive and negative checks below.
+
+## 1. Close inline and direct-run bypasses
+
+**Use case:** require work to enter through a reviewed Pipeline and prevent a user from
+embedding a `taskSpec` or `pipelineSpec` in a run or definition.
+
+**Enforcement point:** admission on `TaskRun` create requests and `PipelineRun` or
+`Pipeline` create/update requests. A denied request never reaches a Tekton controller.
+
+The standalone `TaskRun` rule checks only `CREATE`. The Tekton controller ServiceAccount is
+excluded because it creates child TaskRuns for an accepted PipelineRun. Change the
+ServiceAccount and namespace when the cluster uses a customized Tekton installation. This
+is an authenticated request identity, not `spec.serviceAccountName` or an owner label that
+a user can supply. RBAC must prevent users from impersonating this identity or running
+their own Pods under it. Do not extend this rule to `UPDATE`: the `tekton-results-watcher`
+and `tekton-chains-controller` components update TaskRun metadata and finalizers on the
+main resource, so denying those updates can stop result storage, signing, and finalizer
+removal. If another trusted component creates TaskRuns, add its ServiceAccount to the
+narrow exclusion as well.
+
+```yaml
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: tekton-no-inline-execution-specs
+spec:
+  background: false
+  webhookConfiguration:
+    failurePolicy: Fail
+  rules:
+    - name: deny-standalone-taskrun
+      match:
+        any:
+          - resources:
+              kinds:
+                - tekton.dev/v1/TaskRun
+              namespaces:
+                - <governed-namespace>
+      exclude:
+        any:
+          - subjects:
+              - kind: ServiceAccount
+                name: tekton-pipelines-controller
+                namespace: tekton-pipelines
+      validate:
+        failureAction: Enforce
+        message: "Create TaskRuns through an approved PipelineRun; standalone TaskRuns are disabled."
+        deny:
+          conditions:
+            any:
+              - key: "{{ request.operation }}"
+                operator: Equals
+                value: CREATE
+    - name: deny-pipelinerun-inline-pipelinespec
+      match:
+        any:
+          - resources:
+              kinds:
+                - tekton.dev/v1/PipelineRun
+              namespaces:
+                - <governed-namespace>
+      validate:
+        failureAction: Enforce
+        message: "Use pipelineRef with the approved resolver; inline pipelineSpec is disabled."
+        deny:
+          conditions:
+            any:
+              - key: "{{ request.object.spec.pipelineSpec || '' }}"
+                operator: NotEquals
+                value: ""
+    - name: deny-pipeline-inline-taskspec
+      match:
+        any:
+          - resources:
+              kinds:
+                - tekton.dev/v1/Pipeline
+              namespaces:
+                - <governed-namespace>
+      validate:
+        failureAction: Enforce
+        message: "Use taskRef entries from an approved source; inline taskSpec entries are disabled."
+        deny:
+          conditions:
+            any:
+              - key: "{{ length(request.object.spec.tasks[?taskSpec] || `[]`) }}"
+                operator: GreaterThan
+                value: 0
+    - name: deny-pipeline-inline-finally-taskspec
+      match:
+        any:
+          - resources:
+              kinds:
+                - tekton.dev/v1/Pipeline
+              namespaces:
+                - <governed-namespace>
+      validate:
+        failureAction: Enforce
+        message: "Use taskRef entries from an approved source; inline finally taskSpec entries are disabled."
+        deny:
+          conditions:
+            any:
+              - key: "{{ length(request.object.spec.finally[?taskSpec] || `[]`) }}"
+                operator: GreaterThan
+                value: 0
+```
+
+Tekton also has an operator-managed baseline. The following is a configuration fragment
+for the existing `TektonPipeline`, not a new installation. If `TektonConfig` owns that
+resource, set the corresponding `spec.pipeline.disable-inline-spec` field there instead:
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonPipeline
+metadata:
+  name: <tekton-pipeline-resource>
+spec:
+  disable-inline-spec: "taskrun,pipelinerun,pipeline"
+```
+
+The feature flag is useful when every namespace follows the same rule. Kyverno is useful
+when rollout scope, denial messages, PolicyReports, or exceptions matter. The flag does
+not create a policy report and neither option replaces RBAC.
+The flag prohibits inline specs, but it does **not** prohibit a standalone TaskRun using
+`taskRef`. A Kyverno PolicyException cannot bypass the Tekton feature flag.
+
+## 2. Require a reviewed resolver reference
+
+**Use case:** require every governed `PipelineRun` to identify a remote Pipeline through
+the hub resolver. The generic rule checks only the reference shape. The catalog name and
+version belong in the companion Catalog guide.
+
+**Enforcement point:** `PipelineRun` admission. This rule does not inspect the remote
+Pipeline body.
+
+```yaml
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: tekton-pipelineruns-use-hub-resolver
+spec:
+  background: false
+  webhookConfiguration:
+    failurePolicy: Fail
+  rules:
+    - name: require-hub-reference-shape
+      match:
+        any:
+          - resources:
+              kinds:
+                - tekton.dev/v1/PipelineRun
+              namespaces:
+                - <governed-namespace>
+      validate:
+        failureAction: Enforce
+        message: "PipelineRuns must use a hub resolver with catalog, pipeline kind, name, and version."
+        deny:
+          conditions:
+            any:
+              - key: "{{ request.object.spec.pipelineRef.resolver || '' }}"
+                operator: NotEquals
+                value: hub
+              - key: "{{ request.object.spec.pipelineRef.params[?name=='catalog'].value | [0] || '' }}"
+                operator: Equals
+                value: ""
+              - key: "{{ request.object.spec.pipelineRef.params[?name=='kind'].value | [0] || '' }}"
+                operator: NotEquals
+                value: pipeline
+              - key: "{{ request.object.spec.pipelineRef.params[?name=='name'].value | [0] || '' }}"
+                operator: Equals
+                value: ""
+              - key: "{{ request.object.spec.pipelineRef.params[?name=='version'].value | [0] || '' }}"
+                operator: Equals
+                value: ""
+```
+
+Add a second policy with an allowlist of `name@version` pairs. Keep that allowlist in the
+Catalog guide when it contains Catalog-specific names; the current Java example is
+in <ExternalSiteLink name="artifacthub-shim"
+href="/catalog/how_to/constrain_catalog_pipeline_usage_with_kyverno.html"
+children="Constrain Catalog Pipeline Usage with Kyverno" />.
+
+## 3. Limit the images that can execute
+
+**Use case:** prevent a resolved Task from starting with an image outside approved
+registries. This is the first point at which every resolved step image is visible.
+
+**Enforcement point:** Pod admission, before the Task starts. The list must include
+Tekton helper images and any platform-injected init image as well as the main tool images.
+Replace both registry hosts in both expressions with your actual approved hosts. Escape
+literal dots and retain the trailing `/` so look-alike registry names cannot match.
+
+```yaml
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: tekton-pod-images-from-approved-registries
+spec:
+  background: false
+  webhookConfiguration:
+    failurePolicy: Fail
+  rules:
+    - name: check-step-images
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - <governed-namespace>
+              selector:
+                matchExpressions:
+                  - key: tekton.dev/taskRun
+                    operator: Exists
+      validate:
+        failureAction: Enforce
+        message: "Every Tekton step image must come from an approved registry."
+        foreach:
+          - list: "request.object.spec.containers || `[]`"
+            deny:
+              conditions:
+                any:
+                  - key: "{{ regex_match('^(registry[.]example[.]com|registry[.]internal[.]example[.]com)/', element.image) }}"
+                    operator: Equals
+                    value: false
+    - name: check-init-images
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - <governed-namespace>
+              selector:
+                matchExpressions:
+                  - key: tekton.dev/taskRun
+                    operator: Exists
+      validate:
+        failureAction: Enforce
+        message: "Every Tekton init-container image must come from an approved registry."
+        foreach:
+          - list: "request.object.spec.initContainers || `[]`"
+            deny:
+              conditions:
+                any:
+                  - key: "{{ regex_match('^(registry[.]example[.]com|registry[.]internal[.]example[.]com)/', element.image) }}"
+                    operator: Equals
+                    value: false
+```
+
+The selector keeps unrelated application Pods out of this example. A dedicated pipeline
+namespace is often simpler. Inspect a server-side dry run before switching to `Enforce`
+because an admission webhook can inject an internal helper image after the submitted Pod
+template is rendered.
+This policy checks executable images, not build output destinations, images pulled inside
+a build step, image signatures, or arbitrary network traffic. Use parameter policies,
+registry permissions, and network controls for those concerns. Restrict direct Pod
+creation with RBAC; users who can create unlabelled Pods can avoid this selector.
+
+## 4. Audit what a completed run reports
+
+**Use case:** detect a missing or unexpected template label after a resolver has finished,
+without treating a user-controlled label as an admission identity.
+
+**Enforcement point:** `PipelineRun/status` updates. The rule is `Audit`; it never blocks
+the initial `PipelineRun` request. Kyverno cannot use background scans for a status
+subresource, so this records new status changes rather than historical runs.
+A passing label check is a consistency signal, not proof of provenance: a manually supplied
+label remains forgeable even after completion. Never use `Enforce` on a result rule to try
+to stop work that has already happened; rejecting controller status writes can leave runs
+stuck without undoing their effects.
+
+For status rules, check reports-controller permissions explicitly:
+
+```bash
+# Substitute the namespace and reports-controller identity of your installation.
+POLICY_NAMESPACE="<governed-namespace>"
+KYVERNO_NAMESPACE="<kyverno-namespace>"
+REPORTS_CONTROLLER_SERVICEACCOUNT="<reports-controller-serviceaccount>"
+kubectl auth can-i get pipelineruns.tekton.dev --subresource=status \
+  --as="system:serviceaccount:${KYVERNO_NAMESPACE}:${REPORTS_CONTROLLER_SERVICEACCOUNT}" \
+  -n "$POLICY_NAMESPACE"
+```
+
+If policy installation reports missing permissions, an administrator can grant the
+following read-only access in the governed namespace. It also covers the companion
+Catalog TaskRun audit. Replace every placeholder first; both the Role and RoleBinding
+must keep `metadata.namespace: <governed-namespace>` so that the binding references the
+Role in the same namespace. Apply the Role and RoleBinding before the status policies:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tekton-policy-report-reader
+  namespace: <governed-namespace>
+rules:
+  - apiGroups:
+      - tekton.dev
+    resources:
+      - pipelineruns
+      - pipelineruns/status
+      - taskruns
+      - taskruns/status
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tekton-policy-report-reader
+  namespace: <governed-namespace>
+subjects:
+  - kind: ServiceAccount
+    name: <reports-controller-serviceaccount>
+    namespace: <kyverno-namespace>
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tekton-policy-report-reader
+```
+
+```yaml
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: tekton-resolved-template-label-audit
+spec:
+  background: false
+  rules:
+    - name: completed-run-has-template-label
+      match:
+        any:
+          - resources:
+              kinds:
+                - tekton.dev/v1/PipelineRun
+                - tekton.dev/v1/PipelineRun/status
+              namespaces:
+                - <governed-namespace>
+      preconditions:
+        all:
+          - key: "{{ request.object.status.conditions[?type=='Succeeded'].status | [0] || '' }}"
+            operator: AnyIn
+            value:
+              - "True"
+              - "False"
+      validate:
+        failureAction: Audit
+        message: "The completed PipelineRun does not carry the expected template label."
+        pattern:
+          metadata:
+            labels:
+              "<template-label-key>": "<approved-template-label-value>"
+```
+
+Use a similar `TaskRun/status` policy for task results. Result names and value formats are
+Task-specific; do not invent a common result contract. The Catalog guide demonstrates the
+real `sonarqube-scanner` and `trivy-scanner` contracts for one Pipeline version.
+
+## Roll out and make exceptions safely
+
+1. Set every rule's `validate.failureAction` to `Audit`, install the policy in a disposable
+   namespace, and inspect `PolicyReport`.
+2. Create both a valid object and an intentional violation. A missing report can mean the
+   rule did not match, so check the namespace, GVK, and preconditions.
+3. For each admission policy, change every rule's `validate.failureAction` to `Enforce`,
+   starting with the narrowest namespace. Keep status audit rules in `Audit`.
+4. Keep an exception that names one policy, one rule, one namespace, and one resource.
+5. Give the exception an owner and expiry. Existing objects are not retroactively rejected,
+   but updates and newly created child objects can be.
+
+   ```yaml
+   apiVersion: kyverno.io/v2
+   kind: PolicyException
+   metadata:
+     name: <temporary-pipeline-policy-exception>
+     namespace: <exception-namespace>
+   spec:
+     exceptions:
+       - policyName: tekton-pipelineruns-use-hub-resolver
+         ruleNames:
+           - require-hub-reference-shape
+     match:
+       any:
+         - resources:
+             kinds:
+               - tekton.dev/v1/PipelineRun
+             namespaces:
+               - <governed-namespace>
+             names:
+               - <specific-run-name>
+   ```
+
+Do not grant a cluster-wide wildcard exception. Kyverno must be configured to allow
+`PolicyException` resources. Configure the Kyverno admission controller (or the equivalent
+chart values) with both `--enablePolicyException=true` and
+`--exceptionNamespace=<exception-namespace>`. In Kyverno 1.15, enabling the feature without
+an allowed namespace, or creating the object in a different namespace, produces an
+admission warning but still stores the `PolicyException`; the exception selector does not
+use it, so it has no effect. Configure the allowed namespace first and create the object
+there, then treat any admission warning as a failed exception setup. RBAC must also
+restrict who can create exceptions. The allowed exception namespace can differ from the
+matched run namespace. Expiry is a review/deletion process unless your platform separately
+automates it; the resource above has no automatic TTL. An exception skips only its named
+rules, not other policies matching the same run.
+
+By default, Kyverno allows updates that preserve a pre-existing violation. Set
+`validate.allowExistingViolations: false` on a rule if those updates must also be denied,
+after assessing the effect on running workloads. Keep status audit policies in `Audit`.
+
+## Self-validation
+
+Run these checks in a disposable namespace after replacing the placeholders. Set every
+rule's `validate.failureAction` in the first three policies to `Enforce`, leaving the label
+audit rule in `Audit`. Test this generic set
+before installing the Catalog-specific allowlist; otherwise the additional Catalog rules
+must also allow each positive request. Server dry runs exercise admission without starting
+builds or pulling images. They do not create persistent PolicyReports.
+
+```bash
+# The namespace must match the installed policies.
+export POLICY_NAMESPACE="<governed-namespace>"
+
+kubectl create namespace "$POLICY_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+
+# Rejected by deny-standalone-taskrun, even though taskRef is not inline.
+kubectl apply --dry-run=server -n "$POLICY_NAMESPACE" -f - <<'YAML'
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: policy-negative-taskrun
+spec:
+  taskRef:
+    name: local-task
+YAML
+
+# Allowed by the generic resolver-shape policy; no remote template is executed.
+kubectl apply --dry-run=server -n "$POLICY_NAMESPACE" -f - <<'YAML'
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: policy-positive-pipelinerun
+spec:
+  pipelineRef:
+    resolver: hub
+    params:
+      - name: catalog
+        value: <catalog-name>
+      - name: type
+        value: artifact
+      - name: kind
+        value: pipeline
+      - name: name
+        value: <pipeline-name>
+      - name: version
+        value: "<pipeline-version>"
+YAML
+
+# Rejected by deny-pipeline-inline-finally-taskspec. Moving inline-cleanup into
+# tasks tests deny-pipeline-inline-taskspec instead.
+kubectl apply --dry-run=server -n "$POLICY_NAMESPACE" -f - <<'YAML'
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: policy-negative-finally
+spec:
+  tasks:
+    - name: reviewed-task
+      taskRef:
+        name: reviewed-task
+  finally:
+    - name: inline-cleanup
+      taskSpec:
+        steps:
+          - name: cleanup
+            image: registry.example.com/tools/busybox:latest
+            script: echo cleanup
+YAML
+
+# Rejected by check-step-images. Substitute an approved local registry to test
+# admission success; include any platform-injected init-image registry in the policy.
+kubectl apply --dry-run=server -n "$POLICY_NAMESPACE" -f - <<'YAML'
+apiVersion: v1
+kind: Pod
+metadata:
+  name: policy-image-check
+  labels:
+    tekton.dev/taskRun: policy-image-check
+spec:
+  restartPolicy: Never
+  containers:
+    - name: step-check
+      image: unapproved.example.com/tools/busybox:latest
+      command:
+        - "true"
+YAML
+```
+
+Additional checks for the same policies:
+
+| Change | Expected decision |
+| --- | --- |
+| Replace the positive run's `pipelineRef` with a valid inline `pipelineSpec` | Denied by `deny-pipelinerun-inline-pipelinespec` and the resolver rule. |
+| Set its resolver to `git`, or omit the version | Denied by `require-hub-reference-shape`. |
+| Add an unapproved image under the Pod's `initContainers` | Denied by `check-init-images`. |
+| Use `registry.example.com.unapproved.example.com` | Denied; the allowed registry prefix includes `/`. |
+
+For a real status audit, submit a deliberately nonexistent template to the configured local
+catalog. This does not execute a Task or need an external image. It should be admitted,
+then fail remote resolution and generate a missing-label audit:
+
+```bash
+kubectl apply -n "$POLICY_NAMESPACE" -f - <<'YAML'
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: policy-audit-missing-template
+spec:
+  pipelineRef:
+    resolver: hub
+    params:
+      - name: type
+        value: artifact
+      - name: catalog
+        value: <catalog-name>
+      - name: kind
+        value: pipeline
+      - name: name
+        value: policy-nonexistent-template
+      - name: version
+        value: "0.1"
+YAML
+kubectl wait -n "$POLICY_NAMESPACE" --for=condition=Succeeded=False \
+  pipelinerun/policy-audit-missing-template --timeout=180s
+kubectl get policyreport -n "$POLICY_NAMESPACE"
+kubectl describe policyreport -n "$POLICY_NAMESPACE"
+```
+
+Allow the reports controller time to reconcile. Find a `fail` result for
+`completed-run-has-template-label` on this run. Tekton's resolution failure is separate
+from the audit; Kyverno did not deny the request. For the passing case, run an approved
+template that propagates the configured label and check for `pass` instead. A result in
+`error`, or no matching result, does not prove compliance.
+
+After testing, delete only the example runs, policies, exception, Role and RoleBinding you
+created. Delete the namespace only if it is disposable. Do not remove shared policies.
+
+## Troubleshooting
+
+- **A child TaskRun create is rejected for the controller.** Add the actual Tekton controller
+  ServiceAccount to the rule exclusion; do not exempt the whole namespace. Metadata updates
+  from `tekton-results-watcher` or `tekton-chains-controller` are intentionally outside this
+  create-only rule.
+- **A resolver-shaped run is rejected.** Resolver parameters must be separate entries with
+  the exact names `catalog`, `type`, `kind`, `name`, and `version`. Runtime Pipeline
+  parameters belong under `spec.params`.
+- **A Pod is rejected after the PipelineRun passed.** Pod admission sees the final resolved
+  image list. Add every approved helper registry or create a narrow exception.
+- **An Audit rule has no report.** Check the status subresource match, terminal-condition
+  precondition, reports-controller permissions, and the resource's namespace.
+- **An existing violation remains.** Admission does not rewrite history. Use reports or
+  update the object through the approved path.
+
+## Related documentation
+
+- <ExternalSiteLink name="artifacthub-shim"
+  href="/catalog/how_to/constrain_catalog_pipeline_usage_with_kyverno.html"
+  children="Constrain Catalog Pipeline Usage with Kyverno" /> — a concrete CI example
+  for limiting user configuration on the delivered Java Pipeline, including
+  Catalog-specific parameters and result fields.
+- [Pipeline Policy Constraints with Tekton and Kyverno](https://github.com/alauda/knowledge/blob/main/docs/en/solutions/Pipeline_Policy_Constraints_with_Tekton_and_Kyverno.md)
+  — design rationale and control boundaries.
+- [Tekton Hub resolver concepts](../concepts/resolver_concept.mdx) — resolver behavior
+  and reference syntax.
+- [Comply with Pod Security Restricted Standard](./comply_with_pod_security_restricted.mdx)
+  — Pod security context requirements.
+- [Tekton Chains verification guides](../../chains/how_to/index.mdx) — signing, SBOM, and
+  vulnerability verification, which are separate from the execution policies here.

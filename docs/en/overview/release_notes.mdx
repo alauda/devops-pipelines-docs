@@ -74,40 +74,37 @@ For details about channel behavior and upgrade targeting, see [Upgrade Path](../
 
 ### New and Optimized Features
 
-**Web Console**
-
-- With this update, the run configuration templates that the console previously listed as plain `TriggerTemplate` resources are presented as a dedicated product concept named `Run Template`, with its own entry in the Pipeline navigation. A `TriggerTemplate` carrying the `triggertemplate.triggers.tekton.dev/usage: runtime-config` label is shown as a Run Template; every other `TriggerTemplate` stays a native resource on the **Triggers** page. The Kubernetes resource and its API semantics are unchanged.
-- With this update, a Run Template has a detail page that shows the Pipeline it runs — the Pipeline name links to the Pipeline itself and the topology is rendered inline — together with params, workspaces, results, YAML, and the PipelineRuns started from that template.
-- With this update, a Run Template declares its runtime inputs per parameter instead of per Integration. Params, workspaces, and Integration parameters that are not marked `Set as Runtime` are persisted as hidden descriptors and are filtered out when the template is executed, so a template can expose only the inputs its consumers are meant to fill in.
-- With this update, saving the configuration of a run can also update an existing Run Template. The save dialog offers `update an existing template` and `create a new one` as two explicit modes, the primary button states which one is about to happen, and the target template and the effect of overwriting it stay visible before submission. When the run dialog has already applied a template, that template is preselected as the update target.
-- With this update, a Run Template can be duplicated. The copy is named `<name>-copy` by default and falls back to `-1`, `-2`, and so on when that name is taken; the copy is always submitted as a new template.
-- With this update, the PipelineRuns produced by a Run Template are matched back to their source through the `triggertemplate.triggers.tekton.dev/name` label, so the execution records listed on a template contain only its own runs, and re-running a PipelineRun preserves that source label.
-- With this update, a Task can be executed directly from the Task context instead of going through the TaskRun list first. The execution form is prefilled from the selected Task and covers the params and workspaces the TaskRun needs; creating a TaskRun from the TaskRun list is unaffected.
-- With this update, a TaskRun can be re-run from the TaskRun list or its detail page. The new TaskRun reuses the original `spec` and Integration configuration, can be adjusted before submission, and records its origin in the `tekton.dev/re-run-of` annotation, which the detail page renders as a link back to the source run. The original TaskRun, including its status and logs, is left untouched.
-- With this update, the Task detail page aggregates the TaskRun execution records of that Task — status, name, creation time, and completion time — with direct entry points into the TaskRun detail and its logs, and an empty state when the Task has never run.
-- With this update, PipelineRun and TaskRun views render the fan-out produced by a `matrix` PipelineTask, so the result of a matrix no longer has to be read from YAML or from the underlying resources. Configuring a matrix from the console is not part of this release, and runs without a matrix are displayed exactly as before.
-- With this update, several console details are refined, including refitting the task log terminal after a tab resize, tolerating dotted resource names in catalog detail deep links, keeping the PipelineRun name prefix correct when a list is opened before the Pipeline reference resolves, and aligning the navigation of pipelines that belong to a plugin.
-
 **Operator**
 
-- This release keeps the `v4.14.0` component baseline: Tekton Pipelines `v1.12`, Triggers `v0.36`, Chains `v0.27`, Results `v0.19`, Pipelines as Code `v0.48`, Manual Approval Gate `v0.9`, Pruner `v0.4`, and the `tkn` CLI `v0.45`. See the [Compatibility and support matrix](#compatibility-and-support-matrix) for the full mapping. Functionally this is a Web Console release; the operator side carries maintenance and security updates only.
-- With this update, the `pipelines-as-code` dependency compiled into the operator binaries moves from `v0.47.0` to `v0.48.1`. It picks up the upstream fixes for CVE-2026-54167, where a forged `X-GitHub-Enterprise-Host` header could redirect the GitHub App token request, and CVE-2026-54168, where the installation token was not scoped to the repository carried in the payload. The Pipelines as Code operand shipped by this release already ran `v0.48.1`.
-- With this update, the operator and the component images it ships are rebuilt on the Go `1.26.6` toolchain with refreshed dependencies and base images, including `golang.org/x/mod` `v0.40.0`, `google.golang.org/grpc`, `golang.org/x/crypto`, `rekor` `v1.5.4`, and the Alpine base of the `tkn` image.
+- With this update, the operator and the component images it ships are rebuilt with refreshed dependencies and base images that carry the latest security fixes. The Tekton component baseline is unchanged from `v4.14.0`; see the [Compatibility and support matrix](#compatibility-and-support-matrix) for the full mapping.
+
+**Web Console**
+
+- With this update, the run configuration templates that the console previously listed as plain `TriggerTemplate` resources are presented as `Run Template`, with their own entry in the Pipeline navigation. A `TriggerTemplate` carrying the `triggertemplate.triggers.tekton.dev/usage: runtime-config` label is shown as a Run Template; every other `TriggerTemplate` stays a native resource on the **Triggers** page. For details about the label conventions, see [Runtime Configuration Templates](../triggers/concepts/triggertemplate_concept.mdx#runtime-configuration-templates).
+- With this update, a Run Template has a detail page that shows the Pipeline it runs — the Pipeline name links to the Pipeline itself and the topology is rendered inline — together with params, workspaces, results, YAML, and the PipelineRuns started from that template.
+- With this update, a Run Template declares its runtime inputs per parameter instead of per Integration. Params, workspaces, and Integration parameters that are not marked `Set as Runtime` are hidden and filtered out when the template is executed, so a template can expose only the inputs its consumers are meant to fill in.
+- With this update, saving the configuration of a run can update an existing Run Template instead of only creating a new one. The save dialog offers the two modes explicitly and preselects the template that the run dialog has already applied; an existing Run Template can also be duplicated into a new one.
+- With this update, the PipelineRuns produced by a Run Template are matched back to their source through the `triggertemplate.triggers.tekton.dev/name` label, so the execution records listed on a template contain only its own runs, and re-running a PipelineRun preserves that source label.
+- With this update, a Task can be executed directly from the Task context instead of going through the TaskRun list first. The execution form is prefilled from the selected Task and covers the params and workspaces the TaskRun needs; creating a TaskRun from the TaskRun list is unaffected.
+- With this update, a TaskRun can be re-run from the TaskRun list or its detail page. The new TaskRun reuses the original `spec` and Integration configuration, can be adjusted before submission, and records its origin in the `tekton.dev/re-run-of` annotation, which the detail page renders as a link back to the source run.
+- With this update, the Task detail page aggregates the TaskRun execution records of that Task — status, name, creation time, and completion time — with direct entry points into the TaskRun detail and its logs.
+- With this update, the fan-out produced by a `matrix` PipelineTask is visible in the PipelineRun and TaskRun views. Configuring a matrix from the console is not part of this release, and runs without a matrix are displayed exactly as before.
+- With this update, several console details are refined, including refitting the task log terminal after a tab resize, tolerating dotted resource names in catalog detail deep links, and aligning the navigation of pipelines that belong to a plugin.
 
 ### Breaking Changes
 
-- Starting from this release, the console splits the former single `TriggerTemplate` list into two entries with different capabilities. A `TriggerTemplate` labeled `triggertemplate.triggers.tekton.dev/usage: runtime-config` is presented as a Run Template under the Pipeline navigation, where it can be run directly, has its own detail page, and lists the PipelineRuns it produced. Every other `TriggerTemplate` is listed on the **Triggers** page under a `TriggerTemplates` tab, which is not filtered by that label and keeps the native create, update, delete, and YAML operations; that tab intentionally offers no direct execution, no execution records, and no detail page.
+- Starting from this release, the console lists run configuration templates and native trigger templates separately. A `TriggerTemplate` labeled `triggertemplate.triggers.tekton.dev/usage: runtime-config` is presented as a Run Template under the Pipeline navigation, where it can be run directly and lists the PipelineRuns it produced. Every other `TriggerTemplate` is listed on the **Triggers** page under a `TriggerTemplates` tab, which keeps the native create, update, delete, and YAML operations but intentionally offers no direct execution, no execution records, and no detail page.
 
-  - No Kubernetes resource is created, renamed, migrated, or relabeled by this change: both entries operate on the same `TriggerTemplate` API. What changes is where a template is found in the console and which operations that entry exposes.
+  - No Kubernetes resource is created, renamed, migrated, or relabeled by this change: both entries operate on the same `TriggerTemplate` API, with unchanged API semantics.
   - Saved links to the previous list may no longer resolve to the expected view. Use the Run Template entry in the Pipeline navigation for run configuration templates, and the `TriggerTemplates` tab on the **Triggers** page for native trigger templates.
 
 ### Upgrade Notes
 
 **Web Console**
 
-- The upgrade does not touch existing `TriggerTemplate` resources. A template that already carries the `triggertemplate.triggers.tekton.dev/usage: runtime-config` label appears as a Run Template after the upgrade; one that does not appears on the `TriggerTemplates` tab of the **Triggers** page. Nothing is relabeled automatically, so a template created before this release keeps whatever entry its current label implies.
-- Execution records on a Run Template are matched by the `triggertemplate.triggers.tekton.dev/name` source label. PipelineRuns created before this release do not carry it and are therefore not listed retroactively; no backfill is performed and no run is associated by Pipeline name or by time window.
-- Existing Run Templates have no per-parameter runtime descriptors yet. Until such a template is edited and saved again, every declaration it exposes is treated as visible at execution time; the hidden descriptors that drive `Set as Runtime` filtering are written on the next save.
+- Nothing is relabeled automatically by the upgrade, so a template created before this release keeps whatever entry its current label implies.
+- Execution records on a Run Template are matched by the `triggertemplate.triggers.tekton.dev/name` source label. PipelineRuns created before this release do not carry it and are therefore not listed retroactively; no backfill is performed.
+- Existing Run Templates have no per-parameter runtime descriptors yet. Until such a template is edited and saved again, every declaration it exposes is treated as visible at execution time; `Set as Runtime` filtering takes effect from the next save onwards.
 
 ### Fixed Issues
 
@@ -116,69 +113,3 @@ For details about channel behavior and upgrade targeting, see [Upgrade Path](../
 ### Known Issues
 
 {/* release-notes-for-bugs?template=unfixed&project=DEVOPS&version=v4.15.0 */}
-
-## v4.14.0
-
-### New and Optimized Features
-
-**Operator**
-
-- With this update, the whole Tekton stack moves to a new baseline: Tekton Pipelines `v1.12`, Triggers `v0.36`, Chains `v0.27`, Results `v0.19`, Pipelines as Code `v0.48`, Manual Approval Gate `v0.9`, Pruner `v0.4`, and the `tkn` CLI `v0.45`. See the [Compatibility and support matrix](#compatibility-and-support-matrix) for the full mapping.
-
-**Triggers**
-
-- With this update, an EventListener export rule can be exposed through Gateway API `HTTPRoute` by setting `type: HTTPRoute`, in addition to the existing `Ingress` mode. This makes automatic webhook exposure work on clusters that provide no `IngressClass` and route external traffic through a Gateway implementation such as Envoy Gateway. An empty `type` still defaults to `Ingress`, so existing rules are unaffected. For details, see [Gateway API (HTTPRoute) mode](../triggers/how_to/trigger-wrapper-config.mdx#gateway-api-httproute-mode).
-- With this update, the time zone used to render the `$(context.date)` and `$(context.datetime)` placeholders injected by `ScheduledTrigger` is defined and documented: the same effective zone evaluates the cron `schedule` and renders the placeholders, resolved from `spec.timeZone`, then the controller's process time zone, and finally **UTC** as the out-of-the-box default. Previously the value carried whatever local zone the controller image happened to bake in, so the same `ScheduledTrigger` produced different offsets on different clusters. For details, see [Time Zone Resolution for Context Parameters](../triggers/how_to/scheduledtriggers.mdx#time-zone-resolution-for-context-parameters).
-
-**Pipelines as Code**
-
-- With this update, Pipelines as Code is configured through `TektonConfig` on Kubernetes. On the default `spec.profile: all` the operator derives the `OpenShiftPipelinesAsCode` CR from `TektonConfig` and keeps it in sync, so `TektonConfig` is the only resource to edit. For details, see [Manage PAC Component](../pac/install/manage_pac.mdx).
-- With this update, PAC resolves catalog resources through the in-cluster `artifacthub-shim` service. An administrator-configured hub URL is preserved, and additional PAC controllers are covered as well, including controllers declared after the upgrade.
-
-**Catalog**
-
-- With this update, legacy `TektonHub` custom catalog configuration is migrated to <ExternalSiteLink name="artifacthub-shim" href="/" children="ArtifactHub Shim" /> before the removed Tekton Hub runtime is cleaned up. The operator reads `TektonHub.spec.catalogs[]` and the old `tekton-hub-api` ConfigMap `CATALOGS` data, then creates an ArtifactHub Shim repository ConfigMap named `artifacthub-shim-legacy-tekton-hub-catalogs`.
-- Migrated catalog entries are generated as `<catalog>` for Tasks, `<catalog>-pipelines` for Pipelines, and `<catalog>-stepactions` for StepActions. Generated entries use `optional: true`; Pipeline and StepAction entries also use `legacyCatalogAliases` so old resolver references can keep using the original catalog name.
-- If the legacy Tekton Hub SSH credential Secret `tekton-hub-api-ssh-crds` exists in the old Hub target namespace, the operator normalizes it into the ArtifactHub Shim namespace as `artifacthub-shim-legacy-tekton-hub-ssh-creds` and references it from migrated SSH catalog repositories. The normalized Secret contains `sshPrivateKey` and `known_hosts`; if `known_hosts` is missing or multiple private key candidates are present, the catalog entry is still migrated without `credentialRef`.
-- With this update, the default backend of the Hub resolver is the in-cluster `artifacthub-shim` service using Artifact Hub-compatible APIs. For details, see [Resolvers](../pipelines/concepts/resolver_concept.mdx).
-
-**Web Console**
-
-- With this update, the run dialog can configure `computeResources` — CPU and memory requests and limits — for a PipelineRun without hand-editing YAML. The values are preserved when the run is saved as a `TriggerTemplate` and when the PipelineRun is executed again.
-- With this update, the run configuration also covers timeouts, with unit selection and validation, so the common PipelineRun execution settings no longer require switching to YAML.
-- With this update, re-running a PipelineRun falls back to the run configuration recorded in the original PipelineRun when the console cannot resolve its `pipelineRef`. Params, workspaces, and `taskRunTemplate` are no longer lost or reset when a Pipeline is referenced through a resolver the console does not fully parse.
-- With this update, a pipeline can bind Integrations of different types at the same time through Multi Connector.
-- With this update, Hub catalog requests carry the current Workspace namespace, and list, detail, and manifest caches are isolated per cluster and namespace. Switching Workspace no longer shows or resolves catalog resources that are invisible in the target namespace.
-- With this update, Task and Pipeline lists use a lightweight pagination API and load README and manifest content on demand, which shortens the time to first render on large catalogs.
-- With this update, multiple UI details are refined, including dynamic form authoring (multi-language display fields for workspaces and results, code editing for string fields, Integration form-mode compatibility, and Result type and object property rendering), pipeline topology layout, detail pages defaulting to the Details tab, breadcrumbs and browser title, tag-triggered run source navigation, and `cluster` resolver PipelineRuns in the Repository detail page.
-
-### Breaking Changes
-
-- Starting from this release, the built-in `Tekton Hub` runtime is **no longer shipped**. The operator carries no Tekton Hub manifests, and the `AUTOINSTALL_TEKTONHUB` switch introduced in `v4.12.0` has been removed, so the built-in `Tekton Hub` cannot be re-enabled after upgrading. The `Hub` column of the compatibility matrix is empty from `4.14.x` onward for this reason.
-
-  - Catalog publishing and consumption are served by <ExternalSiteLink name="artifacthub-shim" href="/" children="ArtifactHub Shim" />, which has its own lifecycle. Custom catalog configuration is migrated automatically — see **Catalog** above and the **Upgrade Notes** below for what the migration does and does not cover.
-  - The Tekton Hub documentation section has been removed along with the runtime. For catalog authoring and consumption guides, see <ExternalSiteLink name="artifacthub-shim" href="/catalog/index.html" children="ArtifactHub Shim Catalog" />.
-
-- Starting from this release, `TektonConfig` owns the Pipelines as Code deployment on the Kubernetes platform. Up to `v4.12.x` there was no PAC block in `TektonConfig` on Kubernetes, so PAC was configured by editing the `OpenShiftPipelinesAsCode` CR directly. That CR is now **derived** from `TektonConfig`: the operator sets an owner reference on it and overwrites `targetNamespace`, `config`, `settings`, `options`, and `additionalPACControllers` on every reconcile. Read it for troubleshooting, but write to `TektonConfig`. Note that PAC is only reconciled on `spec.profile: all`; on `basic` or `lite` the operator does not touch PAC at all. For details, see [Manage PAC Component](../pac/install/manage_pac.mdx).
-
-### Upgrade Notes
-
-**Pipelines as Code**
-
-- Upgrading a Kubernetes cluster that configured a standalone `OpenShiftPipelinesAsCode` CR copies its settings, its `additionalPACControllers`, and the Alauda-specific settings that `TektonConfig` has no field for into `TektonConfig` before adoption overwrites them. A value already present in `TektonConfig` is never overwritten, and the standalone CR is never deleted. `spec.config` has no per-component equivalent in `TektonConfig`; the operator warns about it rather than guessing.
-- Adoption also relocates PAC into the `TektonConfig` target namespace. The Git provider credential Secret `pipelines-as-code-secret` is copied and the global `Repository` is moved into the new namespace, both annotated with `operator.tekton.dev/copied-from-namespace`. Neither overwrites an object that already exists in the target namespace, and user-created `Repository` resources are left untouched.
-- A catalog that genuinely speaks the Tekton Hub API must now declare `catalog-<n>-type: tektonhub` explicitly. Catalog type auto-detection no longer probes the network from the admission path, so it cannot stall on an air-gapped cluster.
-
-**Catalog**
-
-- The migration writes resources into the ArtifactHub Shim namespace resolved from `TektonConfig.spec.pipeline.hub-resolver-config.artifact-hub-api`; when that value is unavailable, the default namespace is `artifacthub-shim-system`.
-- The migration does not fetch `TektonHub.spec.api.hubConfigUrl` and does not clone Git repositories. Make sure custom catalog definitions are present in `TektonHub.spec.catalogs[]` or in the in-cluster `tekton-hub-api` ConfigMap `CATALOGS` data before upgrading. For details about configuring migrated custom catalog sources, see <ExternalSiteLink name="artifacthub-shim" href="/how_to/configure_custom_git_repositories.mdx" children="Configure Custom Git Repositories" />.
-- The operator skips generated entries that conflict with existing ArtifactHub Shim repository names or same-kind aliases. It also preserves same-name ConfigMaps or Secrets that were not generated by this migration.
-
-### Fixed Issues
-
-{/* release-notes-for-bugs?template=fixed&project=DEVOPS&version=v4.14.0 */}
-
-### Known Issues
-
-{/* release-notes-for-bugs?template=unfixed&project=DEVOPS&version=v4.14.0 */}

@@ -1,0 +1,530 @@
+---
+weight: 70
+---
+
+# Run Template
+
+## Overview
+
+Run Template saves a reusable set of Pipeline execution settings. You can save
+Pipeline parameters, Workspaces, Integrations, and other run options in a
+template, then reuse the same configuration for manual execution, event-driven
+execution through a Trigger, or scheduled execution through a
+ScheduledTrigger.
+
+Run Template is useful when you have already verified how a Pipeline should
+run. Values that are filled in the Run Template and are not set to `Set at
+Runtime` are used as run inputs, so users do not need to care about them.
+Only values that are expected to change need to be supplied for a particular
+run.
+
+:::tip
+The product name for reusable Pipeline execution settings is **Run Template**.
+Trigger-related materials may use the underlying term **TriggerTemplate**. When
+managing reusable run configurations, use the Run Template entry.
+:::
+
+In this guide, **Hub Pipeline** means a Pipeline obtained through the Tekton
+`hub` resolver or the product catalog. In current releases, catalog resources
+are served by the standalone ArtifactHub Shim component; the legacy embedded
+Tekton Hub runtime is not shipped. For resolver behavior, see
+[Hub Resolver](../concepts/resolver_concept.mdx) and
+<ExternalSiteLink name="artifacthub-shim" href="/catalog/index.html" children="ArtifactHub Shim Catalog" />.
+
+## Use Cases
+
+Run Template is useful for:
+
+- Preparing separate execution configurations for development, test, and
+  production environments.
+- Saving build, test, scan, or deployment settings for different services.
+- Saving a verified configuration from an existing PipelineRun.
+- Reusing one execution configuration with manual, event-driven, and scheduled
+  starts.
+
+## Core Concepts
+
+| Concept | Description |
+| --- | --- |
+| Pipeline | Defines the steps and flow of a Pipeline execution. |
+| Hub Pipeline | Provides a shared, versioned Pipeline maintained by a central team. |
+| Run Template | Saves the execution configuration for a project, service, or environment. |
+| Trigger | Starts a Pipeline when a matching external event is received. |
+| TriggerBinding | Defines which event variables are available and how they are named. |
+| Event variable | A variable provided by a TriggerBinding and referenced in run content, such as `$(tt.params.project-id)`. |
+| ScheduledTrigger | Starts a Pipeline according to a schedule. |
+| PipelineRun | Records one actual Pipeline execution. |
+
+Run Template saves **how** to run a Pipeline. It does not copy or modify the
+Pipeline definition. One Pipeline can have multiple Run Templates, for example
+separate templates for development, test, and production.
+
+## What a Run Template Contains
+
+A Run Template usually contains:
+
+| Configuration | Description |
+| --- | --- |
+| Pipeline | The Pipeline to run, from the current project or Hub. |
+| Parameters | Default values for Pipeline parameters, or parameters to be supplied at runtime. |
+| Workspaces | Workspace configuration for source code, configuration, caches, or artifacts. |
+| Integrations | Code repository, image repository, credentials, or other platform integrations. |
+| Other run options | Execution identity, timeouts, or other supported run settings. |
+
+Run content generally falls into two categories:
+
+- **Stable configuration**: Content that has a fixed value in the Run Template
+  and is not set to `Set at Runtime`. It is used as a run input, so users do
+  not need to care about it.
+- **Runtime configuration**: Content such as a Git branch, commit, image tag,
+  or release batch that is expected to change for each run. It is supplied by
+  the user or by a Trigger event.
+
+## Create a Run Template
+
+### Create from the Run Template list
+
+1. Open **Run Template**.
+2. Click **Create**.
+3. Select the Pipeline to run.
+4. Configure Pipeline parameters, Workspaces, Integrations, and other run
+   options.
+5. Set values that need to change for each run to `Set at Runtime`.
+6. Optionally, in the **Event** section, select one or more Events whose
+   variables the template should use. Event variables with the same name are
+   merged.
+7. Save the Run Template.
+
+### Copy an existing Run Template
+
+1. Find an existing Run Template.
+2. Open its details or action menu.
+3. Click **Copy**.
+4. Enter a name for the new template.
+5. Check the copied Pipeline, parameters, Workspaces, Integrations, and
+   runtime settings.
+6. Save the new Run Template.
+
+Copying is useful for creating a similar configuration for another service or
+environment. The copied template is maintained independently from the
+original.
+
+:::tip
+After copying a template, check the environment, deployment target,
+Workspaces, credentials, and associated Triggers before using it for
+production.
+:::
+
+### Save from an existing PipelineRun
+
+When a PipelineRun already has a verified configuration, use **Save Run
+Template** from the PipelineRun execution entry. In **Save mode**, choose:
+
+- **Create a new Run Template** to save the current run configuration as a
+  new template.
+- **Update an existing Run Template** to replace the configuration of a
+  template that already uses this Pipeline. Select the target template, then
+  save.
+
+This is useful for:
+
+- Capturing a successful execution as a team template.
+- Creating a test or release template quickly.
+- Starting a new template from a known execution configuration.
+- Updating an existing template after a verified run.
+
+Use a name that describes the service, environment, and purpose, such as
+`order-service-dev`, `order-service-test`, or `order-service-prod`.
+
+:::warning
+Updating an existing Run Template can affect later manual execution and any
+Triggers or ScheduledTriggers that reference it. Review those start methods
+before saving.
+:::
+
+## Run a Pipeline with a Run Template
+
+### Run directly from Run Template
+
+You can start a run from the Run Template list or details page:
+
+1. Find the Run Template.
+2. Click the run action.
+3. Supply content marked as `Set at Runtime`.
+4. Check the runtime Parameters, Workspaces, or Integrations for this run.
+5. Submit the run.
+
+The run form shows only content marked as `Set at Runtime`. Parameters,
+Workspaces, and Integrations that have a fixed value in the Run Template are
+used as run inputs and are not shown for editing. Typical runtime content
+includes:
+
+- **Parameters**, such as a Git branch, commit, image tag, or release batch.
+- **Workspaces**, when a different workspace is needed for this run.
+- **Integrations**, when a different repository, registry, or credential is
+  needed for this run.
+
+### Reuse a Run Template from a regular run entry
+
+You can also select an existing Run Template from a regular Pipeline run entry
+and apply its values to the current run.
+
+**This approach is suitable for temporarily reusing a configuration. For
+long-term repeated use, run the Pipeline directly from the Run Template list or
+details page so that the run configuration can be maintained in one place.**
+
+## Configure a Trigger for a Run Template
+
+### Trigger responsibilities
+
+A Trigger starts a Pipeline when an external event matches its conditions. In a
+Run Template workflow:
+
+- Run Template stores the reusable run configuration.
+- Trigger defines which external event can start the run.
+- TriggerBinding defines the event variables available to the Trigger.
+- EventListener receives the external event and passes it to the matching
+  Trigger.
+
+For the complete Trigger configuration procedure, see
+[Centralized Trigger Management with Hub Pipeline and Run
+Template](hub_pipeline_run_template_centralized_management.mdx).
+
+This page focuses on the relationship between the Trigger event and Run
+Template event variables:
+
+- The Event selected while creating a Trigger determines which event
+  conditions the Trigger handles. A Run Template can be associated with more
+  than one Event.
+- Parameters, Workspaces, and Integrations set to `Set at Runtime` in the Run
+  Template can be associated with event variables when the Trigger is created.
+
+### Create a Trigger from a Run Template
+
+1. Open the Run Template details page.
+2. Open the **Triggers** tab and create a Trigger. The current Run Template is
+   already selected as a fixed reference. **Template Type** is not shown.
+3. Configure the event and trigger conditions according to the
+   [Trigger configuration](hub_pipeline_run_template_centralized_management.mdx#centralized-trigger-management)
+   guidance.
+4. If the Run Template has runtime content and this Trigger needs to complete
+   runtime values, inject event variables, or associate a new Event, select
+   **Synchronize updates to TriggerTemplate**.
+5. As needed, associate event variables from the TriggerBinding with Pipeline
+   parameters.
+6. Save the Trigger.
+
+When the Run Template has runtime content, use
+[Synchronize updates to TriggerTemplate](#synchronize-updates-to-a-run-template)
+if this Trigger needs to complete required runtime values, inject event
+variables, or associate a new Event with the Run Template. That form shows
+only content marked as `Set at Runtime`. If the option is selected and the
+Event is not yet associated with this Run Template, saving the Trigger first
+writes the Event and its event-variable declarations back to the Run Template,
+then creates the Trigger.
+
+The synchronization option defaults to selected when the referenced Run
+Template contains runtime Parameters, Workspaces, or Integrations. It defaults
+to cleared when the template has no runtime content. For a ScheduledTrigger
+without runtime content, the option is not shown.
+
+Associating event variables and sending a test event are optional steps. Use
+them when the Trigger needs event-specific values or when you need to validate
+the complete event-to-run flow. The product does not send a test event from
+this form. To perform this validation, deliver an event through the configured
+EventListener or another supported event sender, then inspect the resulting
+PipelineRun.
+
+### Synchronize updates to TriggerTemplate \{#synchronize-updates-to-a-run-template\}
+
+When a Trigger or ScheduledTrigger references a Run Template, the form can
+include **Synchronize updates to TriggerTemplate**.
+
+Select this option when you need to:
+
+- Complete required runtime Parameters, Workspaces, or Integrations.
+- Inject event variables into the Run Template runtime content from a
+  Trigger.
+- Complete required parameters from a ScheduledTrigger.
+
+When the option is selected, the form shows only Run Template content marked
+as `Set at Runtime`. Changes to that content are written back to the Run
+Template and affect later manual runs and other Triggers that reference it.
+
+When the option is cleared:
+
+- The Event variables, runtime Parameters, Workspaces, and Integrations
+  forms are hidden.
+- The Run Template is not updated. Missing Events, event-variable
+  declarations, and runtime values are not written back.
+- The Trigger or ScheduledTrigger is still saved with its own Event and
+  schedule configuration.
+
+### Event variable source
+
+Event variables are defined by the TriggerBinding used by the Trigger. The
+available variables can differ between event types, event sources, and
+TriggerBindings.
+
+When configuring a Trigger, check:
+
+- Which TriggerBinding the Trigger uses.
+- Which event variables the TriggerBinding provides.
+- Which Run Template content should reference event variables.
+- Whether the resulting PipelineRun contains the value from the event.
+
+## Event Variables and Different Run Contexts \{#event-variables-and-different-run-contexts}
+
+Manual execution, Trigger execution, and ScheduledTrigger execution use the
+same Run Template, but their run contexts are different. The variables
+available in each context may also be different:
+
+- **Trigger execution**: When the TriggerBinding for the current event provides
+  a variable, `$(tt.params.xxx)` uses the value from that event.
+- **Manual execution**: No external event provides variables. If a run value
+  contains `$(tt.params.xxx)`, manual execution renders it with the variable's
+  default value. If no default value is configured, the entire value is
+  cleared.
+- **Trigger execution without a value**: In the current Tekton Triggers
+  `v0.36.0` implementation, if the TriggerTemplate declares the parameter
+  without a default and the TriggerBinding does not provide it, the
+  PipelineRun can retain the literal `$(tt.params.xxx)` value. This is
+  different from manual Run Template execution, where the frontend clears the
+  entire value.
+- **ScheduledTrigger execution**: A ScheduledTrigger supplies values through its
+  scheduled template parameters. Configure a value or a default for every
+  referenced event variable that the scheduled run requires.
+
+As a result, the same Run Template can produce different run values depending
+on how it is started. Do not assume that every Trigger, ScheduledTrigger, and
+manual execution provides the same event variables.
+
+### Configure default values for event variables
+
+To keep a Run Template reusable across multiple start methods, configure
+default values for event variables that are referenced by its run content. A
+default value is used when the current run context does not provide the
+variable. When an event provides a value with the same name, the event value is
+used.
+
+For example, if a Run Template uses the following value:
+
+```text
+$(tt.params.project-id)
+```
+
+Set the default value of the `project-id` event variable to
+`frontend-project`. Then:
+
+- A Trigger whose event provides `project-id` uses the value from the event.
+- Manual execution renders the value as `frontend-project`.
+- Another Trigger that does not provide `project-id` uses
+  `frontend-project`, instead of leaving an unresolved variable expression.
+- ScheduledTrigger execution uses `frontend-project`.
+
+To configure the default:
+
+1. Open the Run Template update entry.
+2. In the **Event** section, select one or more Events (TriggerBindings) that
+   provide the variable.
+3. In **Event variables**, find the variable, such as `project-id`.
+4. Enter the default in **Default value**, such as `frontend-project`.
+5. Save the Run Template.
+
+A Run Template can be associated with more than one Event. Event variables
+with the same name are merged into one variable. Duplicate names do not block
+saving.
+
+The saved default is shared Run Template configuration and affects later
+manual, Trigger, and ScheduledTrigger executions. The **In use** marker in
+**Event variables** indicates that the variable is referenced by the current
+Run Template run content. Run Template maintains the default values and usage
+relationships of associated event variables; the variable names and available
+values are determined by the associated TriggerBinding, and mappings are
+maintained in the Trigger.
+
+:::warning
+Updating a Run Template can affect its manual execution, associated Triggers,
+and associated ScheduledTriggers. Review those start methods before saving a
+shared configuration change.
+:::
+
+## Configure a ScheduledTrigger
+
+ScheduledTrigger starts a Run Template according to a time rule. It can be
+used for nightly builds, periodic scans, regression tests, or scheduled
+releases.
+
+1. Open the Run Template details page.
+2. Open the **ScheduledTriggers** tab and create a ScheduledTrigger. The
+   current Run Template is already selected as a fixed reference.
+3. Set the schedule and time zone.
+4. If the ScheduledTrigger needs to complete required runtime values, select
+   **Synchronize updates to TriggerTemplate**. See
+   [Synchronize updates to TriggerTemplate](#synchronize-updates-to-a-run-template).
+5. Check the Run Template and its runtime content.
+6. Save the ScheduledTrigger.
+
+When a ScheduledTrigger runs, fixed Run Template content is used as run input.
+Values that need to change can be configured as ScheduledTrigger parameters.
+These parameters provide values for the corresponding
+`$(tt.params.<name>)` event variables in the Run Template; they are not
+arbitrary overrides for every Pipeline parameter. A value supplied by the
+ScheduledTrigger takes precedence for the matching event variable. If it does
+not supply that variable, the Run Template event-variable default is used.
+
+## Pipeline Changes and Run Templates
+
+The Run Template execution form follows the latest definition of its Pipeline.
+After changing a Pipeline, review every Run Template that uses it.
+
+### Add a Pipeline parameter
+
+When a Pipeline adds a parameter, that parameter is shown by default when the
+Run Template is executed. The template does not yet have a `Set at Runtime`
+setting for the new parameter, so the execution form treats it as visible
+runtime content.
+
+If you need a fixed default value, or you need `Set at Runtime` for the
+parameter, update and save the Run Template. Values that are not marked `Set
+at Runtime` are stored as fixed run inputs and are hidden on later executions.
+New Pipeline parameters remain visible until you save the template again.
+
+### Rename, remove, or change a parameter
+
+If a Pipeline parameter is renamed, removed, or changes type, an existing Run
+Template configuration may no longer apply. Check:
+
+- Whether the parameter name still matches.
+- Whether the value still conforms to the new definition.
+- Whether TriggerBinding event variables still map to the correct Pipeline
+  parameter.
+
+### Add or change a Workspace
+
+If a Pipeline adds a Workspace or changes how a Workspace must be provided,
+update the Run Template and check the Workspace binding for the target
+environment.
+
+### Change other run requirements
+
+If a Pipeline changes its Integration requirements, task-level run
+requirements, or other execution settings, review the corresponding Run
+Template content and validate direct, Trigger, and ScheduledTrigger execution.
+
+### Change a Hub Pipeline version \{#change-a-hub-pipeline-version}
+
+When the Run Template uses a Hub Pipeline, update the existing Run Template
+after reviewing the new Hub Pipeline version. In the Run Template update
+dialog, the Pipeline selector is read-only in the form view. To change the
+associated Hub Pipeline version without creating another Run Template, switch
+to **YAML** mode and update the Pipeline reference in the Run Template's
+`PipelineRun` resource. Then return to the form view and check the resulting
+parameters, Workspaces, Integrations, and runtime settings before saving.
+
+For a Hub Pipeline reference, keep the existing catalog, kind, and Pipeline
+name, and change the `version` value to the version that you reviewed:
+
+```yaml
+spec:
+  resourcetemplates:
+    - kind: PipelineRun
+      spec:
+        pipelineRef:
+          resolver: hub
+          params:
+            - name: catalog
+              value: <catalog>
+            - name: kind
+              value: pipeline
+            - name: name
+              value: <pipeline-name>
+            - name: version
+              value: <new-version>
+```
+
+Keep the other Run Template settings unchanged unless the new Hub Pipeline
+requires a corresponding configuration change.
+
+Validate the updated Run Template directly, and then validate every associated
+Trigger and ScheduledTrigger. Keep the previous Hub Pipeline version available
+until the new version has passed these checks so that the existing Run Template
+can be changed back if rollback is required.
+
+## Manage Run Templates
+
+### Update
+
+You can update parameters, Workspaces, Integrations, event variable defaults,
+and other run settings in the form view. To change the associated Pipeline
+reference, use YAML mode as described in [Change a Hub Pipeline
+version](#change-a-hub-pipeline-version). Later manual runs and Triggers use
+the updated configuration.
+
+### Delete
+
+Delete a Run Template when it is no longer used. Before deleting it, review
+its associated Triggers, ScheduledTriggers, and execution history.
+
+## Best Practices
+
+1. Create separate templates for development, test, and production instead of
+   switching environments by editing one shared template.
+2. Keep fixed values that are not set to `Set at Runtime` in the template, so
+   users do not need to care about them during execution.
+3. For long-term repeated use, run directly from the Run Template list or
+   details page.
+4. Include the service, environment, and purpose in the template name.
+5. Configure default values for event variables used across multiple Triggers
+   or start methods.
+6. After changing event variable mappings, deliver an event through the
+   configured EventListener or another supported event sender and validate the
+   resulting PipelineRun.
+7. Protect production Run Templates and Triggers with appropriate permissions
+   and change review.
+
+## Frequently Asked Questions
+
+### Which values do I need to provide for a direct run?
+
+Provide only the Parameters, Workspaces, and Integrations that are set to `Set
+at Runtime`. Fixed values already stored in the Run Template are used as run
+inputs and are not shown for editing. To change a fixed value, update the Run
+Template first.
+
+### Why did an event variable not reach the Pipeline?
+
+Check the Trigger's TriggerBinding, event variable mapping, and the
+PipelineRun created by the Trigger. Confirm that the event actually provides
+the variable.
+
+### Why did a new Pipeline parameter appear in the run form?
+
+The Run Template does not yet have a `Set at Runtime` setting for that
+parameter. New Pipeline parameters stay visible until you update and save the
+Run Template.
+
+### What does Synchronize updates to TriggerTemplate do?
+
+It controls whether a Trigger or ScheduledTrigger can change the referenced
+Run Template's runtime content. See [Synchronize updates to
+TriggerTemplate](#synchronize-updates-to-a-run-template).
+
+### Do Pipeline changes require a Run Template update?
+
+New Pipeline parameters are shown by default when the Run Template is
+executed. If the new parameter needs a fixed default value or `Set at Runtime`,
+update and save the Run Template. Also review parameter, Workspace,
+Integration, and event variable changes.
+
+### Does deleting a Run Template delete historical runs?
+
+No. Deleting a Run Template removes its configuration. Existing PipelineRuns
+remain available according to the platform's execution history policy.
+
+## Related Topics
+
+- [Hub Pipeline and Run Template Centralized Management](hub_pipeline_run_template_centralized_management.mdx)
+- [TriggerBinding](../../triggers/concepts/triggerbinding_concept)
+- [ScheduledTrigger](../../triggers/concepts/scheduledtrigger_concept)
+- [TriggerTemplate](../../triggers/concepts/triggertemplate_concept)

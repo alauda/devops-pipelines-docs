@@ -1,0 +1,331 @@
+---
+weight: 10
+---
+
+# 1. Prepare the Application and Environment
+
+Prepare two small repositories and the access needed for a manual build. At
+the end of this tutorial, you will have source code to build and a completed
+environment checklist. No application deployment or release approval is needed
+yet.
+
+Prerequisites: complete the [quick start](../quick_start.mdx) and have an
+administrator available for the platform-owned steps below.
+
+## 1. Administrator: Prepare the CI Environment
+
+Use a new practice namespace, for example `cicd-tutorial`, as
+`<pipeline-namespace>`. Replace placeholders consistently in the examples; do
+not change your global kubectl context to a production namespace.
+
+| Required for CI | What to check |
+| --- | --- |
+| Tekton Pipelines | The [installed components](../../install.mdx) are ready and you can create Pipelines and PipelineRuns in the practice namespace. |
+| ArtifactHub Shim | The approved catalog snapshot is available through the in-cluster `hub` resolver. Install the catalog once; do not copy individual Tasks into the namespace. |
+| Workspace storage | A storage class can dynamically provision a 1 GiB `ReadWriteOnce` PVC. Tasks in a run must be able to mount it across Pods. |
+| CI identity | `<pipeline-service-account>` can use the selected Connectors and pull the approved private tool images. Review [Pipeline permissions](../permissions.mdx). |
+| Git Connector | It is Ready and can read both application repositories. |
+| Staging OCI Connector | It is Ready and can push the frontend and backend image repositories. |
+| Buildah security | The approved builder works with the namespace and node security policies. |
+
+See <ExternalSiteLink name="artifacthub-shim" href="/quick_start.html" children="ArtifactHub Shim installation" />
+and [Hub resolver](../concepts/resolver_concept.mdx) for catalog setup.
+
+The examples resolve `git-clone:0.9`, `nodejs:0.1`, `golang:0.1`, and
+`buildah:0.10` from `catalog: catalog`, with `type: artifact` and `kind: task`.
+Confirm those versions exist in your installed snapshot.
+
+:::warning
+The default catalog Buildah Task requires usable non-root user namespaces.
+If the nodes disable them, an administrator must select an approved alternative
+Task and any required namespace exception. Replacing only `builderImage` does
+not change the Task's security context. Do not disable Pod Security controls
+just to make the tutorial run. See
+[Pod Security Restricted](../how_to/comply_with_pod_security_restricted.mdx).
+:::
+
+### Mirror Images and Configure Trust
+
+Fill the `<internal-...-image>` placeholders in the Pipeline examples and
+Containerfiles with approved internal references pinned by digest. Mirror the
+**catalog tool images**, which may include helper programs, not just plain
+Node.js or Go base images. The Node.js example needs version 22 or later; the
+Go example needs version 1.23 or later.
+
+Task Pods and node image pullers must both reach and trust the registry. An
+address that works only from inside a Pod is not sufficient for a Deployment
+image. Configure internal CA trust and private-image pull credentials using
+your platform's normal workflow. Keep TLS verification enabled.
+
+The application has no third-party dependencies. Its first CI runs do not
+require a package Connector. For a real project, mirror packages and use an
+internal NPM or Go proxy before adding dependencies. Do not enable public
+package access as a workaround in an air-gapped environment.
+
+### Select Connectors Without Copying Credentials
+
+Open the platform's Connector management page and select or create the Git and
+staging OCI Connectors. Verify their Ready state, endpoint, repository
+permissions, and trust configuration. Record only their names and namespace in
+the Pipeline examples.
+
+See <ExternalSiteLink name="connectors" href="/connectors-git/quick_start.html" children="Git Connector" />
+and <ExternalSiteLink name="connectors" href="/connectors-oci/how_to/using_oci_connector_reverse_proxy_in_tekton_pipeline.html" children="OCI Connector" />.
+Credentials stay in Connector-backed Secrets, not Pipeline parameters.
+
+## 2. Developer: Create Two Minimal Repositories
+
+Create empty internal Git repositories for `frontend` and `backend`, each with
+a `main` branch. Copy the corresponding example below to the repository root.
+The files use only the Node.js and Go standard libraries, so no public package
+service is required.
+
+<Tabs>
+<Tab label="Node.js frontend">
+
+`package.json`:
+
+```json
+{
+  "name": "application-cicd-frontend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test server.test.mjs",
+    "lint": "node --check server.mjs",
+    "build": "node build.mjs",
+    "start": "node dist/server.mjs"
+  }
+}
+```
+
+```javascript
+// server.mjs
+import { createServer } from 'node:http';
+import { readFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+
+// page is the static document returned for the root route.
+const page = readFileSync(new URL('./index.html', import.meta.url));
+
+// handleRequest serves the page and the probes used by Kubernetes.
+export function handleRequest(request, response) {
+  if (request.url === '/readyz' || request.url === '/healthz') {
+    response.writeHead(200, { 'Content-Type': 'text/plain' });
+    response.end('ok');
+    return;
+  }
+  if (request.url === '/') {
+    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    response.end(page);
+    return;
+  }
+  response.writeHead(404, { 'Content-Type': 'text/plain' });
+  response.end('Not found');
+}
+
+// Start the listener only when this file is executed as the container command.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  createServer(handleRequest).listen(8080, '0.0.0.0');
+}
+```
+
+```html
+<!-- index.html -->
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>Application CI/CD Demo</title></head>
+  <body>
+    <h1>Application CI/CD Demo</h1>
+    <output id="message">Loading backend message...</output>
+    <script type="module">
+      // Fetch the backend through the same Ingress host.
+      // response is the HTTP response returned by the backend route.
+      const response = await fetch('/api/message');
+      // payload is the JSON body displayed in the page.
+      const payload = await response.json();
+      document.querySelector('#message').textContent = payload.message;
+    </script>
+  </body>
+</html>
+```
+
+```javascript
+// build.mjs
+import { copyFileSync, mkdirSync } from 'node:fs';
+
+mkdirSync('dist', { recursive: true });
+copyFileSync('server.mjs', 'dist/server.mjs');
+copyFileSync('index.html', 'dist/index.html');
+```
+
+```javascript
+// server.test.mjs
+import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
+import { once } from 'node:events';
+import test from 'node:test';
+import { handleRequest } from './server.mjs';
+
+// Check the handler without binding the application's fixed port.
+test('frontend serves the page and probes', async (context) => {
+  // server uses an ephemeral port so this test can run beside other tests.
+  const server = createServer(handleRequest).listen(0, '127.0.0.1');
+  context.after(() => server.close());
+  await once(server, 'listening');
+  // address identifies the local test listener.
+  const address = `http://127.0.0.1:${server.address().port}`;
+  assert.equal((await fetch(address)).status, 200);
+  assert.equal((await fetch(`${address}/readyz`)).status, 200);
+  assert.equal((await fetch(`${address}/healthz`)).status, 200);
+});
+```
+
+```dockerfile
+# Containerfile
+FROM <internal-node-runtime-image>
+WORKDIR /app
+COPY --chown=65532:65532 dist/ ./
+USER 65532
+EXPOSE 8080
+CMD ["node", "server.mjs"]
+```
+
+</Tab>
+<Tab label="Go backend">
+
+`go.mod`:
+
+```go
+module example.com/application-cicd/backend
+
+go 1.23.0
+```
+
+```go
+// cmd/server/main.go
+package main
+
+import (
+  "encoding/json"
+  "log"
+  "net/http"
+  "os"
+  "time"
+)
+
+// handler serves the API and the independent Kubernetes probes.
+func handler() http.Handler {
+  // mux keeps API requests and probes on separate paths.
+  mux := http.NewServeMux()
+  mux.HandleFunc("/api/message", func(response http.ResponseWriter, request *http.Request) {
+    // message is supplied by the workload ConfigMap.
+    message := os.Getenv("APP_MESSAGE")
+    if message == "" {
+      message = "Hello from the Go backend"
+    }
+    response.Header().Set("Content-Type", "application/json")
+    _ = json.NewEncoder(response).Encode(map[string]string{"message": message})
+  })
+  // probe returns success without depending on the frontend or a registry.
+  probe := func(response http.ResponseWriter, request *http.Request) {
+    response.WriteHeader(http.StatusOK)
+  }
+  mux.HandleFunc("/readyz", probe)
+  mux.HandleFunc("/healthz", probe)
+  return mux
+}
+
+// main starts the single listener used by the container and its probes.
+func main() {
+  // server is the single listener used by the container and its probes.
+  server := &http.Server{Addr: ":8080", Handler: handler(), ReadHeaderTimeout: 5 * time.Second}
+  log.Fatal(server.ListenAndServe())
+}
+```
+
+```dockerfile
+# Containerfile
+FROM <internal-static-image>
+COPY --chown=65532:65532 bin/server /app/server
+USER 65532
+EXPOSE 8080
+ENTRYPOINT ["/app/server"]
+```
+
+</Tab>
+</Tabs>
+
+The Node.js repository contains `package.json`, `server.mjs`,
+`server.test.mjs`, `build.mjs`, `index.html`, and `Containerfile`. The Go
+repository contains `go.mod`, `cmd/server/main.go`, and `Containerfile`.
+Do not nest either application under an extra directory. The CI Tasks run from
+the repository root.
+
+Replace the Containerfile base-image placeholders, then commit and push the
+source. Record each clone URL and full commit SHA. Do not commit `dist/`,
+`bin/`, local credentials, or platform configuration files to the application
+repositories.
+
+The frontend serves a page on port 8080 and requests `/api/message`. The Go
+backend serves that API and reads `APP_MESSAGE` from its environment. Both
+components provide `/readyz` and `/healthz`.
+
+If you have Node.js and Go locally, run the checks shown in tutorial 2. You can
+also perform those checks in the CI Tasks.
+
+## 3. Record the Run Configuration
+
+Use the Pipeline and Run Template examples in tutorial 2 to fill the
+placeholders. Keep the following values fixed for each component:
+
+| Keep fixed for the component | Supply for each run |
+| --- | --- |
+| Pipeline, repository URL, Connector references, service account, storage class, and build command | Git revision and the staging component image reference with a new tag, such as `manual-001` |
+
+The `source` Workspace uses `volumeClaimTemplate`: Tekton provisions a new PVC
+for each PipelineRun. Never bind all runs to one fixed source PVC; one clone
+could overwrite another run's files. An `emptyDir` works for a cache inside one
+Task Pod, but cannot pass source files from the clone Task to the build Task.
+
+The Integration annotation associates Git and OCI Connector interfaces with
+Task parameters and Workspaces. Keep it on both the Pipeline and the generated
+PipelineRun. Use the provided mappings initially; consult
+[Pipeline Integration](../concepts/integrate_with_connector.mdx) when adapting
+them to another Task.
+
+## 4. Administrator: Prepare Later Stages When Needed
+
+Do not block the first CI run on these release features:
+
+| Stage | Additional preparation |
+| --- | --- |
+| Automatic CI | Tekton Triggers, a dedicated EventListener identity, an internal TLS webhook endpoint, and a GitLab webhook Secret. |
+| Delivery | Manual Approval Gate, authorized approver, protected release identity, destination OCI and Kubernetes Connectors, and Connector approval policies. |
+| Application access | A separate practice runtime namespace, image pull Secret for both registries, Ingress controller, application DNS name, and TLS Secret. |
+| Artifact events | A separate EventListener identity and endpoint, plus a Harbor webhook authentication Secret. |
+
+The workload manifest in tutorial 4 contains a ConfigMap, two Deployments, two
+Services, and an Ingress. The Deployments have readiness and liveness probes,
+resource requests and limits, and non-root security settings. The Ingress
+routes `/` to the frontend and `/api` to the backend. The pull and TLS Secrets
+must already exist; their values are intentionally not included.
+
+**Prepare the values now, but apply the workload in tutorial 4**, after CI has
+produced the two initial image digests. A Kubernetes Connector gives Tasks
+deployment access; it does not replace the nodes' registry pull credentials.
+
+## Checkpoint
+
+Confirm both repositories contain the minimal source at their roots, the Git
+and OCI Connectors are Ready, and the CI identity, catalog, images, and storage
+are available. Only the files for later stages should still contain unresolved
+placeholders.
+
+| Problem | First check |
+| --- | --- |
+| Connector is not Ready | Endpoint, credentials, CA trust, and Connector type installation. |
+| Task version is unavailable | ArtifactHub Shim readiness and the installed catalog snapshot. |
+| No approved builder is available | Ask the administrator to resolve the builder prerequisite before continuing. |
+
+Next: [Build and run component CI](./application-cicd-ci.mdx).

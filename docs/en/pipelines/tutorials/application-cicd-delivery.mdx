@@ -1,0 +1,1181 @@
+---
+weight: 40
+---
+
+# 4. Approve and Deliver a Release
+
+Promote one of the tested images to a destination registry, deploy that exact
+image after approval, and verify the application. Finish by practicing a
+rollback and cleaning up the exercise.
+
+Prerequisites: successful frontend and backend CI runs, their recorded staging
+digests, and the event-driven CI checkpoint. Manual delivery can be learned
+independently of webhooks.
+
+## 1. Administrator: Prepare the Release Boundary
+
+Use a separate practice runtime namespace, such as `cicd-tutorial-app`.
+Install the [Manual Approval Gate](../how_to/manual_approval_gate.mdx),
+authorize the selected release approver, and prepare the following:
+
+| Resource | Required configuration |
+| --- | --- |
+| Destination OCI Connector | Push access to the practice release registry. |
+| Kubernetes Connector | Deployment access restricted to the practice application namespace. |
+| Release service account | `<delivery-service-account>` can use those Connectors and pull tool images. |
+| Application pull Secret | Nodes can pull the initial staging images and subsequent destination images. |
+| Catalog | `run-script:0.1`, `skopeo-copy:0.1`, and `workload-apply:0.1`, with the digest result contract used below. |
+| Approval policy | Connector approval and proxy permission checks are enabled. |
+
+See <ExternalSiteLink name="connectors" href="/connectors-k8s/quick_start.html" children="Kubernetes Connector" />
+and <ExternalSiteLink name="connectors" href="/connectors/concepts/connectors_approval.html" children="Connector approval" />.
+Set `enable-connectors-approval` and `enable-connector-proxy-permissions`
+through the supported Connector configuration workflow.
+
+Apply the following AccessPolicy in the **Connector namespace** after replacing
+its placeholders:
+
+:::details{title="Complete destination AccessPolicy YAML"}
+
+```yaml
+apiVersion: connectors.alauda.io/v1alpha1
+kind: AccessPolicy
+metadata:
+  name: application-cicd-production
+  namespace: <connector-namespace>
+  labels:
+    app.kubernetes.io/part-of: application-cicd-demo
+spec:
+  connector:
+    names:
+      - <production-oci-connector>
+      - <production-kubernetes-connector>
+  checkGrantedPermission:
+    spec:
+      checks:
+        - name: manual-approval
+          ref:
+            configMap:
+              name: connectors-approvals-in-pipeline
+      roleTemplate:
+        ref:
+          configMap:
+            name: connectors-use-connectors-proxy-in-pod
+```
+
+:::
+
+```bash
+kubectl apply -f production-access-policy.yaml
+```
+
+`ApprovalTask` pauses execution and records the decision. `AccessPolicy`
+controls Connector proxy permissions; task ordering alone is not a credential
+authorization policy. Verify that the installed Connectors use the approval
+contract for the current PipelineRun.
+
+:::warning
+Fixed Run Template fields are not a security boundary. A user who can create
+arbitrary PipelineRuns may select another service account or change the graph.
+These examples share a practice Pipeline namespace for learning. Before using
+real production credentials, isolate delivery in a protected namespace and
+restrict Pipeline, template, approval, identity, and policy changes using the
+platform's authorization controls. Do not grant ordinary CI authors a release
+identity they can reuse freely.
+:::
+
+## 2. Create and Verify the Initial Application
+
+Fill the following workload manifest with the frontend and backend staging
+digests from tutorial 2. Both values include `sha256:`. Set the runtime
+namespace, registry pull Secret, Ingress class, hostname, and TLS Secret.
+
+:::details{title="Complete application workload YAML"}
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: application-cicd-settings
+  namespace: <runtime-namespace>
+  labels:
+    app.kubernetes.io/part-of: application-cicd-demo
+data:
+  APP_MESSAGE: Hello from the Go backend (from ConfigMap)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: application-cicd-backend
+  namespace: <runtime-namespace>
+  labels:
+    app.kubernetes.io/part-of: application-cicd-demo
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: application-cicd-backend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: application-cicd-backend
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: <runtime-image-pull-secret>
+      containers:
+        - name: backend
+          image: <staging-registry>/<team>/backend@<backend-initial-digest>
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: application-cicd-settings
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: application-cicd-frontend
+  namespace: <runtime-namespace>
+  labels:
+    app.kubernetes.io/part-of: application-cicd-demo
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: application-cicd-frontend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: application-cicd-frontend
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: <runtime-image-pull-secret>
+      containers:
+        - name: frontend
+          image: <staging-registry>/<team>/frontend@<frontend-initial-digest>
+          ports:
+            - name: http
+              containerPort: 8080
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: application-cicd-backend
+  namespace: <runtime-namespace>
+  labels:
+    app.kubernetes.io/part-of: application-cicd-demo
+spec:
+  selector:
+    app.kubernetes.io/name: application-cicd-backend
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: application-cicd-frontend
+  namespace: <runtime-namespace>
+  labels:
+    app.kubernetes.io/part-of: application-cicd-demo
+spec:
+  selector:
+    app.kubernetes.io/name: application-cicd-frontend
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: application-cicd
+  namespace: <runtime-namespace>
+  labels:
+    app.kubernetes.io/part-of: application-cicd-demo
+spec:
+  ingressClassName: <ingress-class>
+  tls:
+    - hosts: [<application-host>]
+      secretName: <application-tls-secret>
+  rules:
+    - host: <application-host>
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: application-cicd-backend
+                port:
+                  name: http
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: application-cicd-frontend
+                port:
+                  name: http
+```
+
+:::
+
+Apply it using the **runtime cluster context**, which may differ from the
+Pipeline cluster. In a single-cluster exercise, use the same context:
+
+```bash
+kubectl --context <runtime-context> apply -f workloads.yaml
+kubectl --context <runtime-context> -n <runtime-namespace> rollout status deployment/application-cicd-backend --timeout=5m
+kubectl --context <runtime-context> -n <runtime-namespace> rollout status deployment/application-cicd-frontend --timeout=5m
+curl --fail https://<application-host>/api/message
+```
+
+The API should return `{"message":"Hello from the Go backend (from ConfigMap)"}`. Open
+`https://<application-host>/` in a browser and confirm the page displays that
+message. Use the approved CA trust store if the endpoint uses an internal CA;
+do not disable TLS verification.
+
+**Verify:** both Deployments are available, both Services have ready endpoints,
+and the browser reaches the backend through `/api`. Fix application, registry,
+and Ingress access before adding CD. The delivery Task updates an existing
+Deployment; it does not create the application's Services or Ingress.
+
+## 3. Create the Component CD Pipelines and Run Templates
+
+Paste the matching Pipeline and Run Template from the tabs below into the YAML
+editor. Keep separate component resources so a frontend release cannot select
+the backend workload accidentally.
+
+```text
+validate-digest -> wait-for-approval -> promote-image -> deploy
+```
+
+| Task | What you should observe |
+| --- | --- |
+| `validate-digest` | Reject a malformed source digest or release tag before asking for approval. |
+| `wait-for-approval` | Pause for the configured approver, showing the source image, target namespace, and workload. |
+| `promote-image` | Copy the source image by digest to one destination and record its actual destination digest. |
+| `deploy` | Update the selected container by destination digest, wait for readiness, and attempt rollback if rollout fails. |
+
+<Tabs>
+<Tab label="Backend resources">
+
+:::details{title="Complete backend CD Pipeline YAML"}
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: application-cicd-backend-cd
+  namespace: <pipeline-namespace>
+  annotations:
+    integrations.tekton.dev/integrations: |
+      - name: source-image
+        interface:
+          apiVersion: connectors.alauda.io/v1alpha1
+          category: OCIArtifact
+        connectorRef:
+          setAtRuntime: true
+          apiVersion: connectors.alauda.io/v1alpha1
+        workspaces:
+          - name: registry-config
+            workspace: source-registry-config
+            refPath:
+              - tasks.promote-image.workspaces.src-registry-config
+      - name: destination-image
+        interface:
+          apiVersion: connectors.alauda.io/v1alpha1
+          category: OCIArtifact
+        connectorRef:
+          setAtRuntime: true
+          apiVersion: connectors.alauda.io/v1alpha1
+        workspaces:
+          - name: registry-config
+            workspace: destination-registry-config
+            refPath:
+              - tasks.promote-image.workspaces.dst-registry-config
+      - name: deployment
+        interface:
+          apiVersion: connectors.alauda.io/v1alpha1
+          category: Kubernetes
+        connectorRef:
+          setAtRuntime: true
+          apiVersion: connectors.alauda.io/v1alpha1
+        workspaces:
+          - name: kubeconfig
+            workspace: kubeconfig
+            refPath:
+              - tasks.deploy.workspaces.kubeconfig
+    integrations.tekton.dev/set-at-runtime: "true"
+  labels:
+    app.kubernetes.io/part-of: application-cicd-demo
+spec:
+  params:
+    - name: source-image
+      type: string
+      description: Image in the protected source repository, qualified by an immutable
+        sha256 digest.
+    - name: target-repository
+      type: string
+      description: Protected destination repository without a tag or digest; fixed by
+        the Run Template.
+    - name: target-namespace
+      type: string
+      description: Protected workload namespace fixed by the Run Template.
+    - name: workload-name
+      type: string
+      description: Deployment or StatefulSet to update.
+    - name: container-name
+      type: string
+      description: Container in the workload to replace.
+    - name: release-label
+      type: string
+      default: manual
+      description: Audit label for the release.
+  workspaces:
+    - name: source-registry-config
+    - name: destination-registry-config
+    - name: kubeconfig
+  tasks:
+    - name: validate-digest
+      taskRef:
+        resolver: hub
+        params:
+          - name: catalog
+            value: catalog
+          - name: type
+            value: artifact
+          - name: kind
+            value: task
+          - name: name
+            value: run-script
+          - name: version
+            value: "0.1"
+      params:
+        - name: image
+          value: <internal-script-image>
+        - name: script
+          value: |
+            #!/bin/sh
+            set -eu
+            # Reject malformed references before requesting approval.
+            case "$1$2" in *[[:space:]]*) exit 1 ;; esac
+            printf "%s\n" "$1" | grep -Eq "^[^@[:space:]]+@sha256:[0-9a-f]{64}$"
+            printf "%s\n" "$2" | grep -Eq "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$"
+        - name: args
+          value:
+            - $(params.source-image)
+            - $(params.release-label)
+    - name: wait-for-approval
+      runAfter:
+        - validate-digest
+      taskRef:
+        apiVersion: openshift-pipelines.org/v1alpha1
+        kind: ApprovalTask
+      timeout: 24h
+      params:
+        - name: approvers
+          value:
+            - <release-manager>
+        - name: numberOfApprovalsRequired
+          value: "1"
+        - name: description
+          value: Approve $(params.source-image) for
+            $(params.target-namespace)/$(params.workload-name), release
+            $(params.release-label).
+    - name: promote-image
+      runAfter:
+        - wait-for-approval
+      taskRef:
+        resolver: hub
+        params:
+          - name: catalog
+            value: catalog
+          - name: type
+            value: artifact
+          - name: kind
+            value: task
+          - name: name
+            value: skopeo-copy
+          - name: version
+            value: "0.1"
+      params:
+        - name: srcImage
+          value: $(params.source-image)
+        - name: dstImages
+          value:
+            - $(params.target-repository):$(params.release-label)
+        - name: srcTLSVerify
+          value: "true"
+        - name: dstTLSVerify
+          value: "true"
+        - name: continueOnError
+          value: "false"
+        - name: skopeoImage
+          value: <internal-skopeo-image>
+      workspaces:
+        - name: src-registry-config
+          workspace: source-registry-config
+        - name: dst-registry-config
+          workspace: destination-registry-config
+    - name: deploy
+      runAfter:
+        - promote-image
+      taskRef:
+        resolver: hub
+        params:
+          - name: catalog
+            value: catalog
+          - name: type
+            value: artifact
+          - name: kind
+            value: task
+          - name: name
+            value: workload-apply
+          - name: version
+            value: "0.1"
+      params:
+        - name: workloadKind
+          value: deployment
+        - name: namespace
+          value: $(params.target-namespace)
+        - name: workloadName
+          value: $(params.workload-name)
+        - name: workloadContainers
+          value:
+            - $(params.container-name)=$(params.target-repository)@$(tasks.promote-image.results.dst-IMAGE_DIGEST)
+        - name: rolloutTimeout
+          value: 10m
+        - name: rollback
+          value: "true"
+        - name: kubectlImage
+          value: <internal-kubectl-image>
+      workspaces:
+        - name: kubeconfig
+          workspace: kubeconfig
+  results:
+    - name: deployed-image
+      value: $(tasks.promote-image.results.IMAGES)
+    - name: rollout-status
+      value: $(tasks.deploy.results.rollout-status)
+```
+
+:::
+
+:::details{title="Complete backend CD Run Template YAML"}
+
+```yaml
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: application-cicd-backend-promotion
+  namespace: <pipeline-namespace>
+  labels:
+    triggertemplate.triggers.tekton.dev/usage: runtime-config
+    tekton.dev/pipeline: application-cicd-backend-cd
+    app.kubernetes.io/part-of: application-cicd-demo
+spec:
+  params:
+    - name: artifact-digest
+    - name: release-label
+      default: event
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        generateName: application-cicd-backend-promotion-
+        namespace: <pipeline-namespace>
+        annotations:
+          integrations.tekton.dev/integrations: |
+            - name: source-image
+              interface:
+                apiVersion: connectors.alauda.io/v1alpha1
+                category: OCIArtifact
+              connectorRef:
+                setAtRuntime: false
+                name: <staging-oci-connector>
+                namespace: <connector-namespace>
+                apiVersion: connectors.alauda.io/v1alpha1
+              workspaces:
+                - name: registry-config
+                  workspace: source-registry-config
+                  refPath:
+                    - tasks.promote-image.workspaces.src-registry-config
+                    - pipelineRuns.0.workspaces.source-registry-config
+            - name: destination-image
+              interface:
+                apiVersion: connectors.alauda.io/v1alpha1
+                category: OCIArtifact
+              connectorRef:
+                setAtRuntime: false
+                name: <production-oci-connector>
+                namespace: <connector-namespace>
+                apiVersion: connectors.alauda.io/v1alpha1
+              workspaces:
+                - name: registry-config
+                  workspace: destination-registry-config
+                  refPath:
+                    - tasks.promote-image.workspaces.dst-registry-config
+                    - pipelineRuns.0.workspaces.destination-registry-config
+            - name: deployment
+              interface:
+                apiVersion: connectors.alauda.io/v1alpha1
+                category: Kubernetes
+              connectorRef:
+                setAtRuntime: false
+                name: <production-kubernetes-connector>
+                namespace: <connector-namespace>
+                apiVersion: connectors.alauda.io/v1alpha1
+              workspaces:
+                - name: kubeconfig
+                  workspace: kubeconfig
+                  refPath:
+                    - tasks.deploy.workspaces.kubeconfig
+                    - pipelineRuns.0.workspaces.kubeconfig
+          integrations.tekton.dev/set-at-runtime: "true"
+          style.tekton.dev/descriptors: |
+            - path: params.source-image
+              x-descriptors: []
+            - path: params.target-repository
+              x-descriptors:
+                - urn:alm:descriptor:com.tectonic.ui:hidden
+            - path: params.target-namespace
+              x-descriptors:
+                - urn:alm:descriptor:com.tectonic.ui:hidden
+            - path: params.workload-name
+              x-descriptors:
+                - urn:alm:descriptor:com.tectonic.ui:hidden
+            - path: params.container-name
+              x-descriptors:
+                - urn:alm:descriptor:com.tectonic.ui:hidden
+            - path: params.release-label
+              x-descriptors: []
+            - path: workspaces.source-registry-config
+              x-descriptors:
+                - urn:alm:descriptor:com.tectonic.ui:hidden
+            - path: workspaces.destination-registry-config
+              x-descriptors:
+                - urn:alm:descriptor:com.tectonic.ui:hidden
+            - path: workspaces.kubeconfig
+              x-descriptors:
+                - urn:alm:descriptor:com.tectonic.ui:hidden
+        labels:
+          app.kubernetes.io/part-of: application-cicd-demo
+          app.kubernetes.io/component: backend
+      spec:
+        pipelineRef:
+          name: application-cicd-backend-cd
+        params:
+          - name: source-image
+            value: <staging-registry>/<team>/backend@$(tt.params.artifact-digest)
+          - name: target-repository
+            value: <production-registry>/<team>/backend
+          - name: target-namespace
+            value: <runtime-namespace>
+          - name: workload-name
+            value: application-cicd-backend
+          - name: container-name
+            value: backend
+          - name: release-label
+            value: $(tt.params.release-label)
+        workspaces:
+          - name: source-registry-config
+            csi:
+              driver: connectors-csi
+              readOnly: true
+              volumeAttributes:
+                connector.name: <staging-oci-connector>
+                connector.namespace: <connector-namespace>
+                configuration.names: registry-config
+          - name: destination-registry-config
+            csi:
+              driver: connectors-csi
+              readOnly: true
+              volumeAttributes:
+                connector.name: <production-oci-connector>
+                connector.namespace: <connector-namespace>
+                configuration.names: registry-config
+          - name: kubeconfig
+            csi:
+              driver: connectors-csi
+              readOnly: true
+              volumeAttributes:
+                connector.name: <production-kubernetes-connector>
+                connector.namespace: <connector-namespace>
+                configuration.names: kubeconfig
+        taskRunTemplate:
+          serviceAccountName: <delivery-service-account>
+        timeouts:
+          pipeline: 25h
+          tasks: 25h
+```
+
+:::
+
+</Tab>
+<Tab label="Frontend resources">
+
+:::details{title="Complete frontend CD Pipeline YAML"}
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: application-cicd-frontend-cd
+  namespace: <pipeline-namespace>
+  annotations:
+    integrations.tekton.dev/integrations: |
+      - name: source-image
+        interface:
+          apiVersion: connectors.alauda.io/v1alpha1
+          category: OCIArtifact
+        connectorRef:
+          setAtRuntime: true
+          apiVersion: connectors.alauda.io/v1alpha1
+        workspaces:
+          - name: registry-config
+            workspace: source-registry-config
+            refPath:
+              - tasks.promote-image.workspaces.src-registry-config
+      - name: destination-image
+        interface:
+          apiVersion: connectors.alauda.io/v1alpha1
+          category: OCIArtifact
+        connectorRef:
+          setAtRuntime: true
+          apiVersion: connectors.alauda.io/v1alpha1
+        workspaces:
+          - name: registry-config
+            workspace: destination-registry-config
+            refPath:
+              - tasks.promote-image.workspaces.dst-registry-config
+      - name: deployment
+        interface:
+          apiVersion: connectors.alauda.io/v1alpha1
+          category: Kubernetes
+        connectorRef:
+          setAtRuntime: true
+          apiVersion: connectors.alauda.io/v1alpha1
+        workspaces:
+          - name: kubeconfig
+            workspace: kubeconfig
+            refPath:
+              - tasks.deploy.workspaces.kubeconfig
+    integrations.tekton.dev/set-at-runtime: "true"
+  labels:
+    app.kubernetes.io/part-of: application-cicd-demo
+spec:
+  params:
+    - name: source-image
+      type: string
+      description: Image in the protected source repository, qualified by an immutable
+        sha256 digest.
+    - name: target-repository
+      type: string
+      description: Protected destination repository without a tag or digest; fixed by
+        the Run Template.
+    - name: target-namespace
+      type: string
+      description: Protected workload namespace fixed by the Run Template.
+    - name: workload-name
+      type: string
+      description: Deployment or StatefulSet to update.
+    - name: container-name
+      type: string
+      description: Container in the workload to replace.
+    - name: release-label
+      type: string
+      default: manual
+      description: Audit label for the release.
+  workspaces:
+    - name: source-registry-config
+    - name: destination-registry-config
+    - name: kubeconfig
+  tasks:
+    - name: validate-digest
+      taskRef:
+        resolver: hub
+        params:
+          - name: catalog
+            value: catalog
+          - name: type
+            value: artifact
+          - name: kind
+            value: task
+          - name: name
+            value: run-script
+          - name: version
+            value: "0.1"
+      params:
+        - name: image
+          value: <internal-script-image>
+        - name: script
+          value: |
+            #!/bin/sh
+            set -eu
+            # Reject malformed references before requesting approval.
+            case "$1$2" in *[[:space:]]*) exit 1 ;; esac
+            printf "%s\n" "$1" | grep -Eq "^[^@[:space:]]+@sha256:[0-9a-f]{64}$"
+            printf "%s\n" "$2" | grep -Eq "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$"
+        - name: args
+          value:
+            - $(params.source-image)
+            - $(params.release-label)
+    - name: wait-for-approval
+      runAfter:
+        - validate-digest
+      taskRef:
+        apiVersion: openshift-pipelines.org/v1alpha1
+        kind: ApprovalTask
+      timeout: 24h
+      params:
+        - name: approvers
+          value:
+            - <release-manager>
+        - name: numberOfApprovalsRequired
+          value: "1"
+        - name: description
+          value: Approve $(params.source-image) for
+            $(params.target-namespace)/$(params.workload-name), release
+            $(params.release-label).
+    - name: promote-image
+      runAfter:
+        - wait-for-approval
+      taskRef:
+        resolver: hub
+        params:
+          - name: catalog
+            value: catalog
+          - name: type
+            value: artifact
+          - name: kind
+            value: task
+          - name: name
+            value: skopeo-copy
+          - name: version
+            value: "0.1"
+      params:
+        - name: srcImage
+          value: $(params.source-image)
+        - name: dstImages
+          value:
+            - $(params.target-repository):$(params.release-label)
+        - name: srcTLSVerify
+          value: "true"
+        - name: dstTLSVerify
+          value: "true"
+        - name: continueOnError
+          value: "false"
+        - name: skopeoImage
+          value: <internal-skopeo-image>
+      workspaces:
+        - name: src-registry-config
+          workspace: source-registry-config
+        - name: dst-registry-config
+          workspace: destination-registry-config
+    - name: deploy
+      runAfter:
+        - promote-image
+      taskRef:
+        resolver: hub
+        params:
+          - name: catalog
+            value: catalog
+          - name: type
+            value: artifact
+          - name: kind
+            value: task
+          - name: name
+            value: workload-apply
+          - name: version
+            value: "0.1"
+      params:
+        - name: workloadKind
+          value: deployment
+        - name: namespace
+          value: $(params.target-namespace)
+        - name: workloadName
+          value: $(params.workload-name)
+        - name: workloadContainers
+          value:
+            - $(params.container-name)=$(params.target-repository)@$(tasks.promote-image.results.dst-IMAGE_DIGEST)
+        - name: rolloutTimeout
+          value: 10m
+        - name: rollback
+          value: "true"
+        - name: kubectlImage
+          value: <internal-kubectl-image>
+      workspaces:
+        - name: kubeconfig
+          workspace: kubeconfig
+  results:
+    - name: deployed-image
+      value: $(tasks.promote-image.results.IMAGES)
+    - name: rollout-status
+      value: $(tasks.deploy.results.rollout-status)
+```
+
+:::
+
+:::details{title="Complete frontend CD Run Template YAML"}
+
+```yaml
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: application-cicd-frontend-promotion
+  namespace: <pipeline-namespace>
+  labels:
+    triggertemplate.triggers.tekton.dev/usage: runtime-config
+    tekton.dev/pipeline: application-cicd-frontend-cd
+    app.kubernetes.io/part-of: application-cicd-demo
+spec:
+  params:
+    - name: artifact-digest
+    - name: release-label
+      default: event
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        generateName: application-cicd-frontend-promotion-
+        namespace: <pipeline-namespace>
+        annotations:
+          integrations.tekton.dev/integrations: |
+            - name: source-image
+              interface:
+                apiVersion: connectors.alauda.io/v1alpha1
+                category: OCIArtifact
+              connectorRef:
+                setAtRuntime: false
+                name: <staging-oci-connector>
+                namespace: <connector-namespace>
+                apiVersion: connectors.alauda.io/v1alpha1
+              workspaces:
+                - name: registry-config
+                  workspace: source-registry-config
+                  refPath:
+                    - tasks.promote-image.workspaces.src-registry-config
+                    - pipelineRuns.0.workspaces.source-registry-config
+            - name: destination-image
+              interface:
+                apiVersion: connectors.alauda.io/v1alpha1
+                category: OCIArtifact
+              connectorRef:
+                setAtRuntime: false
+                name: <production-oci-connector>
+                namespace: <connector-namespace>
+                apiVersion: connectors.alauda.io/v1alpha1
+              workspaces:
+                - name: registry-config
+                  workspace: destination-registry-config
+                  refPath:
+                    - tasks.promote-image.workspaces.dst-registry-config
+                    - pipelineRuns.0.workspaces.destination-registry-config
+            - name: deployment
+              interface:
+                apiVersion: connectors.alauda.io/v1alpha1
+                category: Kubernetes
+              connectorRef:
+                setAtRuntime: false
+                name: <production-kubernetes-connector>
+                namespace: <connector-namespace>
+                apiVersion: connectors.alauda.io/v1alpha1
+              workspaces:
+                - name: kubeconfig
+                  workspace: kubeconfig
+                  refPath:
+                    - tasks.deploy.workspaces.kubeconfig
+                    - pipelineRuns.0.workspaces.kubeconfig
+          integrations.tekton.dev/set-at-runtime: "true"
+          style.tekton.dev/descriptors: |
+            - path: params.source-image
+              x-descriptors: []
+            - path: params.target-repository
+              x-descriptors:
+                - urn:alm:descriptor:com.tectonic.ui:hidden
+            - path: params.target-namespace
+              x-descriptors:
+                - urn:alm:descriptor:com.tectonic.ui:hidden
+            - path: params.workload-name
+              x-descriptors:
+                - urn:alm:descriptor:com.tectonic.ui:hidden
+            - path: params.container-name
+              x-descriptors:
+                - urn:alm:descriptor:com.tectonic.ui:hidden
+            - path: params.release-label
+              x-descriptors: []
+            - path: workspaces.source-registry-config
+              x-descriptors:
+                - urn:alm:descriptor:com.tectonic.ui:hidden
+            - path: workspaces.destination-registry-config
+              x-descriptors:
+                - urn:alm:descriptor:com.tectonic.ui:hidden
+            - path: workspaces.kubeconfig
+              x-descriptors:
+                - urn:alm:descriptor:com.tectonic.ui:hidden
+        labels:
+          app.kubernetes.io/part-of: application-cicd-demo
+          app.kubernetes.io/component: frontend
+      spec:
+        pipelineRef:
+          name: application-cicd-frontend-cd
+        params:
+          - name: source-image
+            value: <staging-registry>/<team>/frontend@$(tt.params.artifact-digest)
+          - name: target-repository
+            value: <production-registry>/<team>/frontend
+          - name: target-namespace
+            value: <runtime-namespace>
+          - name: workload-name
+            value: application-cicd-frontend
+          - name: container-name
+            value: frontend
+          - name: release-label
+            value: $(tt.params.release-label)
+        workspaces:
+          - name: source-registry-config
+            csi:
+              driver: connectors-csi
+              readOnly: true
+              volumeAttributes:
+                connector.name: <staging-oci-connector>
+                connector.namespace: <connector-namespace>
+                configuration.names: registry-config
+          - name: destination-registry-config
+            csi:
+              driver: connectors-csi
+              readOnly: true
+              volumeAttributes:
+                connector.name: <production-oci-connector>
+                connector.namespace: <connector-namespace>
+                configuration.names: registry-config
+          - name: kubeconfig
+            csi:
+              driver: connectors-csi
+              readOnly: true
+              volumeAttributes:
+                connector.name: <production-kubernetes-connector>
+                connector.namespace: <connector-namespace>
+                configuration.names: kubeconfig
+        taskRunTemplate:
+          serviceAccountName: <delivery-service-account>
+        timeouts:
+          pipeline: 25h
+          tasks: 25h
+```
+
+:::
+
+</Tab>
+</Tabs>
+
+The Run Template fixes the destination repository, workload, container,
+namespace, and Connector bindings. For manual execution, only `source-image`
+and `release-label` are set at runtime. Replace the entire `source-image` value
+with a complete digest-qualified reference from the component's staging
+repository, including the repository and `@sha256:...`; do not edit only the
+digest portion or leave the event placeholder empty. The `artifact-digest`
+parameter has no manual default and is populated only by the artifact Trigger.
+For event execution, the template instead composes the reference from its
+fixed staging repository and that event variable. Event variables are not
+additional manual run-form fields.
+
+The template sets `spec.timeouts.pipeline` and `spec.timeouts.tasks` to `25h`
+to accommodate the approval Task's `24h` timeout and the work after it. The
+platform's timeout limits must allow these values.
+
+### Follow the Digest Through Promotion
+
+The source is `<staging-repository>@sha256:...`. The copy creates a destination
+tag for human reference, but deployment does not use that mutable tag:
+
+```yaml
+- name: workloadContainers
+  value:
+    - $(params.container-name)=$(params.target-repository)@$(tasks.promote-image.results.dst-IMAGE_DIGEST)
+```
+
+`dst-IMAGE_DIGEST` is the `skopeo-copy` result for the first successful
+destination; this example copies to exactly one destination and sets
+`continueOnError: "false"`. The destination digest is authoritative because
+registry or manifest transformations can make it differ from the source.
+Confirm this result exists in your installed catalog snapshot before using the
+example. Do not silently substitute a release tag if it is unavailable.
+
+The Pipeline's `deployed-image` result forwards the copy Task's `IMAGES`
+result. Because the example has exactly one destination, this is one complete
+`repository@sha256:...` reference that you can compare with the running
+workload's image.
+
+## 4. Run and Approve One Manual Release
+
+Start `application-cicd-backend-promotion` from **Run Template**. Supply the
+backend's staging image reference qualified by its successful CI digest and a
+fresh release label, such as `release-001`. Run one release per component at a
+time; concurrent releases can race to update the same Deployment. Use unique
+labels and an immutable-tag policy where available.
+
+Before approval, inspect the PipelineRun and **Approvals** view:
+
+- The digest belongs to the expected component's successful CI run.
+- The run is waiting at `wait-for-approval`; promotion and deployment have not
+  started and the Deployment image is unchanged.
+- Connector permission checks have not granted release access before approval.
+
+As the configured approver, review the digest and target, then approve. Watch
+`promote-image` and `deploy` finish. On the PipelineRun results, check
+`deployed-image` and `rollout-status`. On the runtime cluster, confirm the
+Deployment uses that exact `deployed-image`:
+
+```bash
+kubectl --context <runtime-context> -n <runtime-namespace> get deployment application-cicd-backend -o jsonpath='{.spec.template.spec.containers[0].image}'
+curl --fail https://<application-host>/api/message
+```
+
+Check the frontend page too. Repeat with the frontend's own digest and Run
+Template. Keep the other component unchanged during each release.
+
+Test a second practice release and **reject** it. It must terminate without
+copying an image or changing a Deployment. An unauthorized user must not be
+able to approve it. A pending or timed-out approval is not a successful release.
+
+## 5. Enable Artifact-Driven Delivery \{#artifact-delivery\}
+
+After manual delivery and rejection work, return to the Harbor Trigger block in
+[tutorial 3](./application-cicd-triggers.mdx) and apply it. The administrator
+creates `application-cicd-harbor-webhook` in the Pipeline namespace with key
+`authorization`, containing the exact configured Harbor Authorization header
+value. The CEL interceptor compares the header to that Secret; verify its
+Secret access under the installed Triggers configuration.
+
+Configure the staging Harbor webhook to use the separate artifact listener's
+internal TLS endpoint and matching authentication. Enable `PUSH_ARTIFACT` for
+only the staging project. Do not register the production registry as a sender
+to this listener; promotion must not trigger itself.
+
+Push a new commit to one application repository and let its Git-triggered CI
+publish a commit-SHA image tag. That event creates the matching CD run, which
+must stop at approval. Manual tags such as `manual-001` are intentionally
+filtered out. The example accepts one image resource per event and validates
+the digest and tag shape; adapt it explicitly if your Harbor version uses a
+different payload or batched events.
+
+Verify that an invalid Authorization header, another repository, or a malformed
+digest creates no CD run. Correlate the accepted digest with the successful CI
+results before approving; `PUSH_ARTIFACT` is not a scan or signature verdict.
+
+## 6. Verify Rollback and Keep an Audit Record
+
+Record the component, source commit, CI run, source digest, destination digest,
+CD run, approval decision, and rollout result for each release. Preserve them
+in the platform's run history before pruning practice resources.
+
+To roll back deliberately, run the **same component's CD Run Template** with a
+previous known-good **staging image reference qualified by digest**, a new
+release label, and a new approval. Do not rebuild an old commit to recreate an
+image. Retain the original source image in staging for the rollback period;
+this example reads from that fixed source repository.
+
+`workload-apply` also has `rollback: "true"`: if rollout fails, it attempts to
+restore the previous workload. Inspect its `rollout-status`, `rollback-status`,
+and logs. An attempted rollback is not proof of recovery, and the failed
+release remains failed even if recovery succeeds. Check Deployment readiness
+and the application endpoint again.
+
+## Troubleshooting
+
+| Symptom | First check |
+| --- | --- |
+| Approval does not appear | Approval operator readiness, CustomRun state, and the Task's approver parameters. |
+| Run times out while waiting | Approval Task timeout, PipelineRun timeouts, and platform maximums. |
+| Connector access is denied | Connector namespace, selected AccessPolicy, approval check, and AccessRequest state. |
+| Copy fails | Source digest availability, source/destination Connector permissions, CA trust, and registry quota. |
+| Rollout fails | Existing workload name, container name, image pull Secret, node registry access, and probe results. |
+| Page loads but backend is unavailable | Backend Service endpoints, Ingress `/api` routing, and backend logs. |
+
+## 7. Clean Up the Practice Resources
+
+Disable the GitLab and Harbor webhooks first. Stop or finish active runs and
+preserve any audit evidence you need. The examples all use the
+`app.kubernetes.io/part-of=application-cicd-demo` label, so you can clean up
+resources created by this exercise without relying on local YAML files. Run the
+Pipeline-cluster commands against the context where Tekton and Connectors are
+installed, and run the workload command against `<runtime-context>`:
+
+```bash
+kubectl -n <pipeline-namespace> delete \
+  eventlistener,trigger,triggerbinding,pipelinerun,pipeline,triggertemplate,customrun \
+  -l app.kubernetes.io/part-of=application-cicd-demo --ignore-not-found
+kubectl -n <connector-namespace> delete accesspolicy \
+  -l app.kubernetes.io/part-of=application-cicd-demo --ignore-not-found
+kubectl --context <runtime-context> -n <runtime-namespace> delete \
+  configmap,deployment,service,ingress \
+  -l app.kubernetes.io/part-of=application-cicd-demo --ignore-not-found
+```
+
+Per-run PVCs normally follow their PipelineRun owner. Check for retained
+volumes, approval resources, listener ingress rules, and registry images under
+your platform's retention policy. Ask the administrator to remove only the
+Secrets, Connectors, identities, and policies created exclusively for this
+exercise. Do not delete shared credentials, cluster components, or an entire
+namespace containing someone else's resources.
+
+## Checkpoint and Next Steps
+
+You have built each component, automated its CI, delivered an approved image by
+digest, checked the application, and practiced rollback and cleanup.
+
+Previous: [Automate CI with events](./application-cicd-triggers.mdx).
