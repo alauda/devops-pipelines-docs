@@ -1,0 +1,896 @@
+---
+weight: 20
+---
+
+# 2. Build and Run Component CI
+
+Create a three-Task Pipeline, run the frontend manually, and turn its verified
+configuration into a Run Template. Then repeat for the Go backend. At the end,
+each component has a published image digest and reusable execution settings.
+
+Prerequisite: the CI checkpoint in
+[Prepare the application and environment](./application-cicd-setup.mdx).
+You do not need Triggers, an application Deployment, or release approval yet.
+
+## 1. Create the Component Pipelines
+
+Open **Pipelines**, select the practice namespace, and choose **Create**. Use
+the YAML editor to paste the corresponding complete example below. The graph
+is intentionally the same for both languages:
+
+```text
+clone -> test -> build-image
+```
+
+| Task | Catalog entry | Input | Output |
+| --- | --- | --- | --- |
+| `clone` | `git-clone:0.9` | Repository URL, revision, and Git authentication Workspace | Source files and the resolved commit SHA |
+| `test` | `nodejs:0.1` or `golang:0.1` | Source Workspace and the test/build command | Passing checks and the build output |
+| `build-image` | `buildah:0.10` | Source Workspace, Containerfile, image reference, and registry configuration | Pushed image and digest |
+
+<Tabs>
+<Tab label="Node.js Pipeline">
+
+:::details{title="Complete Node.js Pipeline YAML"}
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: application-cicd-node
+  namespace: <pipeline-namespace>
+  annotations:
+    integrations.tekton.dev/integrations: |
+      - name: code
+        interface:
+          apiVersion: connectors.alauda.io/v1alpha1
+          category: GitCodeRepository
+        connectorRef:
+          setAtRuntime: true
+          apiVersion: connectors.alauda.io/v1alpha1
+        attributes:
+          - name: url
+            param: git-url
+            refPath: [tasks.clone.params.url]
+          - name: revision
+            param: revision
+            refPath: [tasks.clone.params.revision]
+        workspaces:
+          - name: git-basic-auth
+            workspace: git-auth
+            refPath: [tasks.clone.workspaces.basic-auth]
+      - name: image
+        interface:
+          apiVersion: connectors.alauda.io/v1alpha1
+          category: OCIArtifact
+        connectorRef:
+          setAtRuntime: true
+          apiVersion: connectors.alauda.io/v1alpha1
+        workspaces:
+          - name: registry-config
+            workspace: registry-config
+            refPath: [tasks.build-image.workspaces.registry-config]
+    integrations.tekton.dev/set-at-runtime: "true"
+  labels:
+    app.kubernetes.io/part-of: application-cicd-demo
+spec:
+  params:
+    - name: git-url
+      type: string
+      description: Repository URL. The component Run Template normally fixes this value.
+    - name: revision
+      type: string
+      default: refs/heads/main
+      description: Branch, tag, or commit to build.
+    - name: image
+      type: string
+      description: Registry image reference, including the tag to publish.
+    - name: node-command
+      type: string
+      default: npm test && npm run lint && npm run build
+      description: Verified Node.js test, lint, and build command.
+    - name: skip-push
+      type: string
+      default: "false"
+      description: Set true only for local validation that must not publish an image.
+  workspaces:
+    - name: source
+    - name: git-auth
+    - name: npm-config
+      optional: true
+    - name: ca-bundle
+      optional: true
+    - name: npm-cache
+      optional: true
+    - name: registry-config
+  results:
+    - name: source-commit
+      value: $(tasks.clone.results.commit)
+    - name: image-url
+      value: $(tasks.build-image.results.IMAGE_URL)
+    - name: image-digest
+      value: $(tasks.build-image.results.IMAGE_DIGEST)
+  tasks:
+    - name: clone
+      taskRef:
+        resolver: hub
+        params:
+          - name: catalog
+            value: catalog
+          - name: type
+            value: artifact
+          - name: kind
+            value: task
+          - name: name
+            value: git-clone
+          - name: version
+            value: "0.9"
+      params:
+        - name: url
+          value: $(params.git-url)
+        - name: revision
+          value: $(params.revision)
+        - name: deleteExisting
+          value: "true"
+        - name: gitInitImage
+          value: <internal-git-image>
+      workspaces:
+        - name: output
+          workspace: source
+        - name: basic-auth
+          workspace: git-auth
+    - name: test
+      runAfter:
+        - clone
+      taskRef:
+        resolver: hub
+        params:
+          - name: catalog
+            value: catalog
+          - name: type
+            value: artifact
+          - name: kind
+            value: task
+          - name: name
+            value: nodejs
+          - name: version
+            value: "0.1"
+      params:
+        - name: command
+          value: $(params.node-command)
+        - name: nodeImage
+          value: <internal-node-image>
+      workspaces:
+        - name: source
+          workspace: source
+        - name: npm-config
+          workspace: npm-config
+        - name: ca-bundle
+          workspace: ca-bundle
+        - name: cache
+          workspace: npm-cache
+    - name: build-image
+      runAfter:
+        - test
+      taskRef:
+        resolver: hub
+        params:
+          - name: catalog
+            value: catalog
+          - name: type
+            value: artifact
+          - name: kind
+            value: task
+          - name: name
+            value: buildah
+          - name: version
+            value: "0.10"
+      params:
+        - name: images
+          value:
+            - $(params.image)
+        - name: containerfile
+          value: ./Containerfile
+        - name: context
+          value: .
+        - name: storageDriver
+          value: vfs
+        - name: skipPush
+          value: $(params.skip-push)
+        - name: builderImage
+          value: <internal-buildah-image>
+      workspaces:
+        - name: source
+          workspace: source
+        - name: registry-config
+          workspace: registry-config
+```
+
+:::
+
+</Tab>
+<Tab label="Go Pipeline">
+
+:::details{title="Complete Go Pipeline YAML"}
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: application-cicd-go
+  namespace: <pipeline-namespace>
+  annotations:
+    integrations.tekton.dev/integrations: |
+      - name: code
+        interface:
+          apiVersion: connectors.alauda.io/v1alpha1
+          category: GitCodeRepository
+        connectorRef:
+          setAtRuntime: true
+          apiVersion: connectors.alauda.io/v1alpha1
+        attributes:
+          - name: url
+            param: git-url
+            refPath: [tasks.clone.params.url]
+          - name: revision
+            param: revision
+            refPath: [tasks.clone.params.revision]
+        workspaces:
+          - name: git-basic-auth
+            workspace: git-auth
+            refPath: [tasks.clone.workspaces.basic-auth]
+      - name: image
+        interface:
+          apiVersion: connectors.alauda.io/v1alpha1
+          category: OCIArtifact
+        connectorRef:
+          setAtRuntime: true
+          apiVersion: connectors.alauda.io/v1alpha1
+        workspaces:
+          - name: registry-config
+            workspace: registry-config
+            refPath: [tasks.build-image.workspaces.registry-config]
+    integrations.tekton.dev/set-at-runtime: "true"
+  labels:
+    app.kubernetes.io/part-of: application-cicd-demo
+spec:
+  params:
+    - name: git-url
+      type: string
+      description: Repository URL. The component Run Template normally fixes this value.
+    - name: revision
+      type: string
+      default: refs/heads/main
+      description: Branch, tag, or commit to build.
+    - name: image
+      type: string
+      description: Registry image reference, including the tag to publish.
+    - name: go-command
+      type: string
+      default: go test -mod=readonly ./... && go vet ./... && go build -o bin/server
+        ./cmd/server
+      description: Verified Go test and build command.
+    - name: skip-push
+      type: string
+      default: "false"
+      description: Set true only for local validation that must not publish an image.
+  workspaces:
+    - name: source
+    - name: git-auth
+    - name: go-cache
+      optional: true
+    - name: ca-bundle
+      optional: true
+    - name: registry-config
+  results:
+    - name: source-commit
+      value: $(tasks.clone.results.commit)
+    - name: image-url
+      value: $(tasks.build-image.results.IMAGE_URL)
+    - name: image-digest
+      value: $(tasks.build-image.results.IMAGE_DIGEST)
+  tasks:
+    - name: clone
+      taskRef:
+        resolver: hub
+        params:
+          - name: catalog
+            value: catalog
+          - name: type
+            value: artifact
+          - name: kind
+            value: task
+          - name: name
+            value: git-clone
+          - name: version
+            value: "0.9"
+      params:
+        - name: url
+          value: $(params.git-url)
+        - name: revision
+          value: $(params.revision)
+        - name: deleteExisting
+          value: "true"
+        - name: gitInitImage
+          value: <internal-git-image>
+      workspaces:
+        - name: output
+          workspace: source
+        - name: basic-auth
+          workspace: git-auth
+    - name: test
+      runAfter:
+        - clone
+      taskRef:
+        resolver: hub
+        params:
+          - name: catalog
+            value: catalog
+          - name: type
+            value: artifact
+          - name: kind
+            value: task
+          - name: name
+            value: golang
+          - name: version
+            value: "0.1"
+      params:
+        - name: command
+          value: $(params.go-command)
+        - name: goImage
+          value: <internal-go-image>
+        - name: environments
+          value:
+            - CGO_ENABLED=0
+            - GOPROXY=off
+            - GOTOOLCHAIN=local
+      workspaces:
+        - name: source
+          workspace: source
+        - name: cache
+          workspace: go-cache
+        - name: ca-bundle
+          workspace: ca-bundle
+    - name: build-image
+      runAfter:
+        - test
+      taskRef:
+        resolver: hub
+        params:
+          - name: catalog
+            value: catalog
+          - name: type
+            value: artifact
+          - name: kind
+            value: task
+          - name: name
+            value: buildah
+          - name: version
+            value: "0.10"
+      params:
+        - name: images
+          value:
+            - $(params.image)
+        - name: containerfile
+          value: ./Containerfile
+        - name: context
+          value: .
+        - name: storageDriver
+          value: vfs
+        - name: skipPush
+          value: $(params.skip-push)
+        - name: builderImage
+          value: <internal-buildah-image>
+      workspaces:
+        - name: source
+          workspace: source
+        - name: registry-config
+          workspace: registry-config
+```
+
+:::
+</Tab>
+</Tabs>
+
+The `test` Task combines the checks for a short first Pipeline. They are joined
+with `&&`, so a failed test prevents the build and image push. Split them into
+separate Tasks later when separate retries or reports are useful.
+
+To practice the graphical editor, create the same graph by adding the three
+catalog Tasks, connecting their Workspaces, and setting `runAfter` in the order
+shown above. Use the complete YAML as the reference for parameters, images,
+Integrations, and results, not as three unrelated Task definitions.
+
+If you use the CLI, save the selected block as `ci-node.yaml` or `ci-go.yaml`
+after replacing its placeholders, then run:
+
+```bash
+kubectl apply -f ci-node.yaml
+```
+
+**Verify:** the saved Pipeline has three ordered Tasks, not three parallel
+Tasks. No PipelineRun is created merely by saving a Pipeline.
+
+## 2. Bind the First Run's Inputs
+
+Open the Pipeline and choose **Execute**. The Run Template below stores the
+fixed repository, Connector, identity, and Workspace configuration. It exposes
+only the revision and image tag for a manual run.
+
+<Tabs>
+<Tab label="Frontend Run Template">
+
+:::details{title="Complete frontend Run Template YAML"}
+
+```yaml
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: application-cicd-frontend-run
+  namespace: <pipeline-namespace>
+  labels:
+    triggertemplate.triggers.tekton.dev/usage: runtime-config
+    tekton.dev/pipeline: application-cicd-node
+    app.kubernetes.io/part-of: application-cicd-demo
+  annotations:
+    tekton.dev/displayName: Frontend component run template
+    integrations.tekton.dev/disabled: "false"
+spec:
+  params:
+    - name: revision
+      description: Runtime Git revision from a manual run or event.
+      default: refs/heads/main
+    - name: image-tag
+      description: Runtime image tag or release label.
+      default: manual-001
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        generateName: application-cicd-frontend-
+        namespace: <pipeline-namespace>
+        labels:
+          app.kubernetes.io/part-of: application-cicd-demo
+          app.kubernetes.io/component: frontend
+        annotations:
+          integrations.tekton.dev/integrations: |
+            - name: code
+              interface:
+                apiVersion: connectors.alauda.io/v1alpha1
+                category: GitCodeRepository
+              connectorRef:
+                setAtRuntime: false
+                name: <git-connector>
+                namespace: <connector-namespace>
+                apiVersion: connectors.alauda.io/v1alpha1
+              attributes:
+                - name: url
+                  value: <fixed-frontend-repository-url>
+                  param: git-url
+                  bindings:
+                    - path: tasks.clone.params.url
+                    - path: pipelineRuns.0.params.git-url
+                - name: revision
+                  value: $(tt.params.revision)
+                  param: revision
+                  bindings:
+                    - path: tasks.clone.params.revision
+                    - path: pipelineRuns.0.params.revision
+              configuration:
+                connectors: []
+              params:
+                - name: repository
+                  setAtRuntime: false
+                  value: <fixed-frontend-repository-url>
+                - name: revision
+                  setAtRuntime: true
+                  value: $(tt.params.revision)
+              workspaces:
+                - name: git-basic-auth
+                  workspace: git-auth
+                  refPath:
+                    - tasks.clone.workspaces.basic-auth
+                    - pipelineRuns.0.workspaces.git-auth
+            - name: image
+              interface:
+                apiVersion: connectors.alauda.io/v1alpha1
+                category: OCIArtifact
+              connectorRef:
+                setAtRuntime: false
+                name: <staging-oci-connector>
+                namespace: <connector-namespace>
+                apiVersion: connectors.alauda.io/v1alpha1
+              configuration:
+                connectors: []
+              workspaces:
+                - name: registry-config
+                  workspace: registry-config
+                  refPath:
+                    - tasks.build-image.workspaces.registry-config
+                    - pipelineRuns.0.workspaces.registry-config
+          integrations.tekton.dev/set-at-runtime: "true"
+          style.tekton.dev/descriptors: |
+            - path: params.git-url
+              x-descriptors:
+                - urn:alm:descriptor:com.tectonic.ui:hidden
+            - path: params.revision
+              x-descriptors: []
+            - path: params.image
+              x-descriptors: []
+            - path: params.node-command
+              x-descriptors:
+                - urn:alm:descriptor:com.tectonic.ui:hidden
+            - path: params.skip-push
+              x-descriptors:
+                - urn:alm:descriptor:com.tectonic.ui:hidden
+            - path: workspaces.source
+              x-descriptors:
+                - urn:alm:descriptor:com.tectonic.ui:hidden
+            - path: workspaces.git-auth
+              x-descriptors:
+                - urn:alm:descriptor:com.tectonic.ui:hidden
+            - path: workspaces.npm-config
+              x-descriptors:
+                - urn:alm:descriptor:com.tectonic.ui:hidden
+            - path: workspaces.ca-bundle
+              x-descriptors:
+                - urn:alm:descriptor:com.tectonic.ui:hidden
+            - path: workspaces.npm-cache
+              x-descriptors:
+                - urn:alm:descriptor:com.tectonic.ui:hidden
+            - path: workspaces.registry-config
+              x-descriptors:
+                - urn:alm:descriptor:com.tectonic.ui:hidden
+      spec:
+        pipelineRef:
+          name: application-cicd-node
+        params:
+          - name: git-url
+            value: <fixed-frontend-repository-url>
+          - name: revision
+            value: $(tt.params.revision)
+          - name: image
+            value: <staging-registry>/<team>/frontend:$(tt.params.image-tag)
+          - name: node-command
+            value: npm test && npm run lint
+              && npm run build
+        workspaces:
+          - name: source
+            volumeClaimTemplate:
+              spec:
+                accessModes:
+                  - ReadWriteOnce
+                storageClassName: <workspace-storage-class>
+                resources:
+                  requests:
+                    storage: 1Gi
+          - name: git-auth
+            csi:
+              driver: connectors-csi
+              readOnly: true
+              volumeAttributes:
+                connector.name: <git-connector>
+                connector.namespace: <connector-namespace>
+                configuration.names: gitconfig
+          - name: npm-cache
+            emptyDir: {}
+          - name: registry-config
+            csi:
+              driver: connectors-csi
+              readOnly: true
+              volumeAttributes:
+                connector.name: <staging-oci-connector>
+                connector.namespace: <connector-namespace>
+                configuration.names: registry-config
+        taskRunTemplate:
+          serviceAccountName: <pipeline-service-account>
+          podTemplate:
+            securityContext:
+              fsGroup: 65532
+        timeouts:
+          pipeline: 1h
+```
+
+:::
+
+</Tab>
+<Tab label="Backend Run Template">
+
+:::details{title="Complete backend Run Template YAML"}
+
+```yaml
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: application-cicd-backend-run
+  namespace: <pipeline-namespace>
+  labels:
+    triggertemplate.triggers.tekton.dev/usage: runtime-config
+    tekton.dev/pipeline: application-cicd-go
+    app.kubernetes.io/part-of: application-cicd-demo
+spec:
+  params:
+    - name: revision
+      default: refs/heads/main
+    - name: image-tag
+      default: manual-001
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        generateName: application-cicd-backend-
+        namespace: <pipeline-namespace>
+        annotations:
+          integrations.tekton.dev/integrations: |
+            - name: code
+              interface:
+                apiVersion: connectors.alauda.io/v1alpha1
+                category: GitCodeRepository
+              connectorRef:
+                setAtRuntime: false
+                name: <git-connector>
+                namespace: <connector-namespace>
+                apiVersion: connectors.alauda.io/v1alpha1
+              attributes:
+                - name: url
+                  value: <fixed-backend-repository-url>
+                  param: git-url
+                  bindings:
+                    - path: tasks.clone.params.url
+                    - path: pipelineRuns.0.params.git-url
+                - name: revision
+                  value: $(tt.params.revision)
+                  param: revision
+                  bindings:
+                    - path: tasks.clone.params.revision
+                    - path: pipelineRuns.0.params.revision
+              configuration:
+                connectors: []
+              workspaces:
+                - name: git-basic-auth
+                  workspace: git-auth
+                  refPath:
+                    - tasks.clone.workspaces.basic-auth
+                    - pipelineRuns.0.workspaces.git-auth
+              params:
+                - name: repository
+                  setAtRuntime: false
+                  value: <fixed-backend-repository-url>
+                - name: revision
+                  setAtRuntime: true
+                  value: $(tt.params.revision)
+            - name: image
+              interface:
+                apiVersion: connectors.alauda.io/v1alpha1
+                category: OCIArtifact
+              connectorRef:
+                setAtRuntime: false
+                name: <staging-oci-connector>
+                namespace: <connector-namespace>
+                apiVersion: connectors.alauda.io/v1alpha1
+              configuration:
+                connectors: []
+              workspaces:
+                - name: registry-config
+                  workspace: registry-config
+                  refPath:
+                    - tasks.build-image.workspaces.registry-config
+                    - pipelineRuns.0.workspaces.registry-config
+          integrations.tekton.dev/set-at-runtime: "true"
+          style.tekton.dev/descriptors: |
+            - path: params.git-url
+              x-descriptors:
+                - urn:alm:descriptor:com.tectonic.ui:hidden
+            - path: params.revision
+              x-descriptors: []
+            - path: params.image
+              x-descriptors: []
+            - path: params.go-command
+              x-descriptors:
+                - urn:alm:descriptor:com.tectonic.ui:hidden
+            - path: params.skip-push
+              x-descriptors:
+                - urn:alm:descriptor:com.tectonic.ui:hidden
+            - path: workspaces.source
+              x-descriptors:
+                - urn:alm:descriptor:com.tectonic.ui:hidden
+            - path: workspaces.git-auth
+              x-descriptors:
+                - urn:alm:descriptor:com.tectonic.ui:hidden
+            - path: workspaces.go-cache
+              x-descriptors:
+                - urn:alm:descriptor:com.tectonic.ui:hidden
+            - path: workspaces.ca-bundle
+              x-descriptors:
+                - urn:alm:descriptor:com.tectonic.ui:hidden
+            - path: workspaces.registry-config
+              x-descriptors:
+                - urn:alm:descriptor:com.tectonic.ui:hidden
+        labels:
+          app.kubernetes.io/part-of: application-cicd-demo
+          app.kubernetes.io/component: backend
+      spec:
+        pipelineRef:
+          name: application-cicd-go
+        params:
+          - name: git-url
+            value: <fixed-backend-repository-url>
+          - name: revision
+            value: $(tt.params.revision)
+          - name: image
+            value: <staging-registry>/<team>/backend:$(tt.params.image-tag)
+          - name: go-command
+            value: go test -mod=readonly ./... && go vet ./... && go build -o bin/server
+              ./cmd/server
+        workspaces:
+          - name: source
+            volumeClaimTemplate:
+              spec:
+                accessModes:
+                  - ReadWriteOnce
+                storageClassName: <workspace-storage-class>
+                resources:
+                  requests:
+                    storage: 1Gi
+          - name: git-auth
+            csi:
+              driver: connectors-csi
+              readOnly: true
+              volumeAttributes:
+                connector.name: <git-connector>
+                connector.namespace: <connector-namespace>
+                configuration.names: gitconfig
+          - name: go-cache
+            emptyDir: {}
+          - name: registry-config
+            csi:
+              driver: connectors-csi
+              readOnly: true
+              volumeAttributes:
+                connector.name: <staging-oci-connector>
+                connector.namespace: <connector-namespace>
+                configuration.names: registry-config
+        taskRunTemplate:
+          serviceAccountName: <pipeline-service-account>
+          podTemplate:
+            securityContext:
+              fsGroup: 65532
+        timeouts:
+          pipeline: 1h
+```
+
+:::
+</Tab>
+</Tabs>
+
+For the first run, configure these values in the Execute form:
+
+| Run field | Value for the first run |
+| --- | --- |
+| `git-url` | The component repository's fixed clone URL |
+| `revision` | The full commit SHA recorded in tutorial 1 |
+| `image` | The staging component repository with a new tag, for example `manual-001` |
+| `node-command` | `npm test && npm run lint && npm run build` |
+| `go-command` | `go test -mod=readonly ./... && go vet ./... && go build -o bin/server ./cmd/server` |
+| `source` Workspace | A new volume claim from the selected storage class, not a shared existing PVC |
+| `git-auth` Workspace | The Git Connector's `gitconfig` CSI configuration |
+| `registry-config` Workspace | The staging OCI Connector's `registry-config` CSI configuration |
+| language cache Workspace | `emptyDir`; only the matching language Task uses it |
+| Execution identity and timeout | Approved CI service account; a one-hour Pipeline timeout |
+| Run label | `app.kubernetes.io/part-of: application-cicd-demo`, including on this first manual run |
+
+Enable **Integrations** and select the matching Git and OCI Connectors. Review
+the YAML to check that Connector names, namespace, and Integration mappings are
+preserved. The examples also set the Pod's `fsGroup` to `65532` so the shared
+source volume is writable by the catalog Tasks' non-root users.
+
+The optional package-config and CA Workspaces are not bound in this
+dependency-free example. If your endpoints need a custom CA, bind the correct
+ConfigMap and configure Git and registry trust as well; an empty `emptyDir` is
+not a CA bundle. For real NPM dependencies, use the
+<ExternalSiteLink name="connectors" href="/connectors-npm/quick_start.html" children="NPM Connector guide" />.
+
+Submit the run. If the form cannot express a binding, use its YAML view; the
+Run Template block records the exact CSI and volume claim fields.
+
+## 3. Inspect Tasks, Logs, and Results
+
+Open the new **PipelineRun**. Select `clone`, then `test`, then `build-image`
+to inspect each Task's steps and logs. Check the first failed step when a run
+fails; retrying without inspecting that step can hide a configuration problem.
+
+The Pipeline exposes three results:
+
+```yaml
+results:
+  - name: source-commit
+    value: $(tasks.clone.results.commit)
+  - name: image-url
+    value: $(tasks.build-image.results.IMAGE_URL)
+  - name: image-digest
+    value: $(tasks.build-image.results.IMAGE_DIGEST)
+```
+
+`$(params.revision)` is input to a run; `source-commit` records what was
+actually checked out. Workspaces carry files between Tasks; results carry
+small values such as a commit or digest. `image-digest` identifies the built
+image even if someone later moves its tag.
+
+You can inspect the same evidence from the CLI:
+
+```bash
+tkn pipelinerun describe <run-name> -n <pipeline-namespace>
+tkn pipelinerun logs <run-name> -n <pipeline-namespace>
+kubectl get pipelinerun <run-name> -n <pipeline-namespace> -o jsonpath='{.status.results}'
+```
+
+**Verify:** the PipelineRun is successful, `source-commit` matches your commit,
+and `image-digest` contains a `sha256:` digest. Confirm the tag and digest in
+the staging registry. Record the run name, commit, repository, and digest for
+tutorial 4.
+
+## 4. Save and Reuse a Run Template
+
+From the successful PipelineRun execution entry, select **Save Run Template**
+and create the component Run Template. Alternatively, open **Run Template** and
+create it for the corresponding Pipeline.
+
+Keep the Git repository, Connector choices, command, Workspaces, identity, and
+timeout fixed. Mark only `revision` and `image` as **Set at Runtime**. For a
+manual run, `image` is a complete reference in the staging repository,
+including its new tag. An event later supplies the commit SHA as both the
+revision and image tag.
+
+Compare the saved resource with the tab above. The product stores a Run
+Template as a `TriggerTemplate` labelled
+`triggertemplate.triggers.tekton.dev/usage: runtime-config`. Do not lose the
+Integration annotation or change the source Workspace to the PVC name from the
+completed run. Keep `volumeClaimTemplate` so future runs get fresh storage.
+
+You can also save the selected block as a local YAML file and apply it:
+
+```bash
+kubectl apply -f ci-frontend-run-template.yaml
+```
+
+Start another run **from Run Template**, supplying a commit and a new image
+tag, such as `manual-002`. Keep the repository unchanged. That run should ask
+only for runtime values and use a different source PVC.
+
+## 5. Repeat for the Backend
+
+Create the Go Pipeline and backend Run Template from their tabs. The graph and
+Workspace pattern stay the same. The language Task changes to `golang:0.1`, the
+command runs `go test`, `go vet`, and `go build`, and the Containerfile
+packages `bin/server`.
+
+The example sets `CGO_ENABLED=0`, `GOPROXY=off`, and `GOTOOLCHAIN=local`. Use a
+Go tool image matching the application's required version and the runtime
+cluster's CPU architecture. No package proxy or automatic toolchain download
+is needed for this standard-library-only application.
+
+Run the backend template with the backend commit and a fresh tag. Confirm it
+publishes only the backend image. Keep the two source repositories, image
+repositories, and Run Templates independent.
+
+## Checkpoint and Troubleshooting
+
+You now have two successful manual builds and reusable Run Templates. To
+practice the failure path, introduce a failing test in a practice branch and
+run that commit. `test` must fail, `build-image` must not run, and no new image
+should be published. Revert the test change before continuing.
+
+| Symptom | First check |
+| --- | --- |
+| Catalog resolution fails | Catalog snapshot, resolver parameters, Task name, and version. |
+| Source PVC stays Pending | Storage class, quota, and provisioning events. A class using `kubernetes.io/no-provisioner` does not dynamically create storage. |
+| Clone fails | Repository URL, Connector readiness, Git CA trust, and CSI configuration. |
+| Source disappears between Tasks | `source` must use one per-run PVC, not `emptyDir`. |
+| Node.js or Go checks fail | Repository root, Task logs, runtime version, and build command. |
+| Buildah fails at `unshare(CLONE_NEWUSER)` | The node cannot provide the builder's user namespace. Ask the administrator to resolve the [builder prerequisite](./application-cicd-setup.mdx); do not disable namespace security controls. |
+| Buildah or image push fails | Approved builder security, base-image access, registry Connector, CA, and quota. |
+
+You can stop here to practice creating, executing, and inspecting Pipelines.
+Next: [Automate CI with events](./application-cicd-triggers.mdx).
+
+Previous: [Prepare the application and environment](./application-cicd-setup.mdx).

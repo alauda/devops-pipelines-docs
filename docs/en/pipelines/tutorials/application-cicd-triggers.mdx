@@ -1,0 +1,396 @@
+---
+weight: 30
+---
+
+# 3. Automate CI with Events
+
+Connect GitLab push events to the two Run Templates you already tested. At the
+end of this tutorial, a push to a component's `main` branch starts only that
+component's CI Pipeline.
+
+Prerequisite: both manual runs and Run Templates from
+[Build and run component CI](./application-cicd-ci.mdx) work. An administrator
+must also prepare Tekton Triggers, a listener identity, and an internal TLS
+webhook endpoint reachable from GitLab.
+
+## 1. Understand the Event-to-Run Path
+
+```text
+GitLab webhook -> EventListener -> authentication -> repository/branch filter
+                                                        |
+                                                  TriggerBinding
+                                                revision + image-tag
+                                                        |
+                                                   Run Template
+                                                        |
+                                                   PipelineRun
+```
+
+| Resource | Responsibility in this tutorial |
+| --- | --- |
+| `EventListener` | Receive webhook requests and dispatch them to the component Triggers. |
+| `Trigger` | Select authentication, filters, parameter bindings, and the Run Template. |
+| `TriggerBinding` | Map GitLab's `checkout_sha` to `revision` and `image-tag`. |
+| `TriggerTemplate` | Store the Run Template's fixed configuration and create a PipelineRun using event values. |
+
+The incoming event supplies a commit SHA, not a clone URL, Connector, or
+service account. Those remain fixed in the Run Template. Authentication and
+filtering solve different problems: a matching repository name is not proof
+that GitLab sent the request.
+
+## 2. Administrator: Configure Webhook Authentication
+
+Create a Secret named `application-cicd-gitlab-webhook` in the Pipeline
+namespace, with key `secretToken`, using the platform's secret-management
+workflow. Use a strong generated value. Configure GitLab to send that value as
+its webhook **Secret token**; do not put it in the URL or example YAML.
+
+Provide `<code-events-service-account>` with the namespace-scoped permissions
+required to read the Trigger resources and create PipelineRuns. Configure
+Secret access for the installed interceptor service according to the
+[EventListener authentication guide](../../triggers/concepts/eventlistener_concept.mdx).
+Do not grant deployment permissions to the webhook sender.
+
+Expose the listener only through an approved internal TLS endpoint. Restrict
+network access to the intended webhook senders. Keep certificate verification
+enabled in GitLab.
+
+## 3. Create the GitLab Triggers
+
+Paste the following resource into the YAML editor, or save it locally as
+`code-triggers.yaml` after replacing the placeholders:
+
+:::details{title="Complete GitLab Trigger and EventListener YAML"}
+
+```yaml
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerBinding
+metadata:
+  name: application-cicd-git-push
+  namespace: <pipeline-namespace>
+  labels:
+    app.kubernetes.io/part-of: application-cicd-demo
+spec:
+  params:
+    - name: revision
+      value: $(body.checkout_sha)
+    - name: image-tag
+      value: $(body.checkout_sha)
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: Trigger
+metadata:
+  name: application-cicd-frontend-git
+  namespace: <pipeline-namespace>
+  labels:
+    app.kubernetes.io/part-of: application-cicd-demo
+spec:
+  bindings:
+    - ref: application-cicd-git-push
+  interceptors:
+    - ref:
+        name: gitlab
+        kind: ClusterInterceptor
+      params:
+        - name: secretRef
+          value:
+            secretName: application-cicd-gitlab-webhook
+            secretKey: secretToken
+        - name: eventTypes
+          value: [Push Hook]
+    - ref:
+        name: cel
+        kind: ClusterInterceptor
+      params:
+        - name: filter
+          value: >-
+            body.project.path_with_namespace == '<frontend-project-path>' &&
+            body.ref == 'refs/heads/main' &&
+            body.checkout_sha != null &&
+            body.checkout_sha.matches('^[0-9a-f]{40}$') &&
+            body.checkout_sha != '0000000000000000000000000000000000000000'
+  template:
+    ref: application-cicd-frontend-run
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: Trigger
+metadata:
+  name: application-cicd-backend-git
+  namespace: <pipeline-namespace>
+  labels:
+    app.kubernetes.io/part-of: application-cicd-demo
+spec:
+  bindings:
+    - ref: application-cicd-git-push
+  interceptors:
+    - ref:
+        name: gitlab
+        kind: ClusterInterceptor
+      params:
+        - name: secretRef
+          value:
+            secretName: application-cicd-gitlab-webhook
+            secretKey: secretToken
+        - name: eventTypes
+          value: [Push Hook]
+    - ref:
+        name: cel
+        kind: ClusterInterceptor
+      params:
+        - name: filter
+          value: >-
+            body.project.path_with_namespace == '<backend-project-path>' &&
+            body.ref == 'refs/heads/main' &&
+            body.checkout_sha != null &&
+            body.checkout_sha.matches('^[0-9a-f]{40}$') &&
+            body.checkout_sha != '0000000000000000000000000000000000000000'
+  template:
+    ref: application-cicd-backend-run
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: EventListener
+metadata:
+  name: application-cicd-code-events
+  namespace: <pipeline-namespace>
+  labels:
+    app.kubernetes.io/part-of: application-cicd-demo
+spec:
+  serviceAccountName: <code-events-service-account>
+  triggers:
+    - name: frontend-code
+      triggerRef: application-cicd-frontend-git
+    - name: backend-code
+      triggerRef: application-cicd-backend-git
+```
+
+:::
+
+The frontend Trigger first validates the GitLab token and event type:
+
+```yaml
+interceptors:
+  - ref:
+      name: gitlab
+      kind: ClusterInterceptor
+    params:
+      - name: secretRef
+        value:
+          secretName: application-cicd-gitlab-webhook
+          secretKey: secretToken
+      - name: eventTypes
+        value: [Push Hook]
+```
+
+It then uses a CEL filter to allow only the intended repository and branch:
+
+```text
+body.project.path_with_namespace == '<frontend-project-path>' &&
+body.ref == 'refs/heads/main' &&
+body.checkout_sha != null &&
+body.checkout_sha.matches('^[0-9a-f]{40}$') &&
+body.checkout_sha != '0000000000000000000000000000000000000000'
+```
+
+The non-null, non-zero SHA check rejects branch deletion events. These are
+**independent repositories** with source files at their roots, so the filters
+do not look for paths beginning with `frontend/` or `backend/`. A monorepo would
+need a different path-filtering policy.
+
+Open **Triggers** and create the component Triggers referencing
+`application-cicd-frontend-run` and `application-cicd-backend-run`. Map
+`revision` and `image-tag` to `checkout_sha` through the TriggerBinding. In
+**EventListeners**, create `application-cicd-code-events` and add both code
+Triggers. Use YAML view to check the interceptors and fixed template references.
+
+Alternatively, apply the local file:
+
+```bash
+kubectl apply -f code-triggers.yaml
+kubectl get eventlistener application-cicd-code-events -n <pipeline-namespace>
+```
+
+**Verify:** the listener is Ready and the two template references exist.
+Creating a Trigger or EventListener must not start a build by itself.
+
+## 4. Configure GitLab and Send a Real Event
+
+In each GitLab project, open **Settings > Webhooks**. Use the approved code
+listener endpoint, configure the Secret token, and enable **Push events**. The
+endpoint must be reachable from GitLab; a cluster-only Service address is not
+sufficient for a GitLab server outside the cluster.
+
+Push a small change to the frontend repository's `main` branch. Open
+**PipelineRuns** and inspect the resulting run:
+
+- It references `application-cicd-node`, not the Go Pipeline.
+- Its `revision` and image tag equal the event's full commit SHA.
+- The clone URL, staging registry, identity, and Connectors still match the
+  frontend Run Template.
+- Its successful results include that commit and the published image digest.
+
+Repeat with the backend. Test a real commit even if GitLab's webhook test
+reports delivery success; an HTTP response alone does not prove a PipelineRun
+was created with the correct parameters.
+
+## 5. Verify Rejected Events
+
+Use a temporary practice webhook or an approved test sender. Do not replace the
+working webhook's credential just to run a negative test.
+
+| Event | Expected new runs |
+| --- | --- |
+| Authenticated frontend `main` push | One frontend CI run, no backend CI run |
+| Authenticated backend `main` push | One backend CI run, no frontend CI run |
+| Push to another branch or project | None |
+| Branch deletion with no valid checkout SHA | None |
+| Missing or incorrect webhook token | None |
+
+Inspect PipelineRuns as well as webhook delivery and EventListener logs. A
+filtered event might be acknowledged by the listener without creating a run.
+Webhook retries can produce duplicate deliveries; these examples do not
+provide deduplication. Use the commit and run identity to identify retries, and
+apply a release queue or deduplication policy before production use.
+
+## Artifact Events: Prepare the Handoff
+
+An image event can supply `artifact-digest` and `release-label` to a component's
+CD Run Template. Unlike code CI, CD promotes an existing digest and never
+rebuilds the source.
+
+The following resource uses a separate listener and identity. It authenticates
+Harbor's `Authorization` header against a Secret, then filters the exact
+staging repository, `PUSH_ARTIFACT` type, a single image resource, a valid
+digest, and a 40-character commit tag produced by automatic CI:
+
+:::details{title="Complete Harbor artifact Trigger YAML"}
+
+```yaml
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerBinding
+metadata:
+  name: application-cicd-artifact-push
+  namespace: <pipeline-namespace>
+  labels:
+    app.kubernetes.io/part-of: application-cicd-demo
+spec:
+  params:
+    - name: artifact-digest
+      value: $(body.event_data.resources[0].digest)
+    - name: release-label
+      value: $(body.event_data.resources[0].tag)
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: Trigger
+metadata:
+  name: application-cicd-backend-artifact
+  namespace: <pipeline-namespace>
+  labels:
+    app.kubernetes.io/part-of: application-cicd-demo
+spec:
+  bindings:
+    - ref: application-cicd-artifact-push
+  interceptors:
+    - ref:
+        name: cel
+        kind: ClusterInterceptor
+      params:
+        - name: filter
+          value: >-
+            header.canonical('Authorization').compareSecret('authorization', 'application-cicd-harbor-webhook')
+    - ref:
+        name: cel
+        kind: ClusterInterceptor
+      params:
+        - name: filter
+          value: >-
+            body.type == 'PUSH_ARTIFACT' &&
+            body.event_data.repository.repo_full_name == '<team>/backend' &&
+            size(body.event_data.resources) == 1 &&
+            body.event_data.resources[0].digest.matches('^sha256:[0-9a-f]{64}$') &&
+            body.event_data.resources[0].tag.matches('^[0-9a-f]{40}$')
+  template:
+    ref: application-cicd-backend-promotion
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: Trigger
+metadata:
+  name: application-cicd-frontend-artifact
+  namespace: <pipeline-namespace>
+  labels:
+    app.kubernetes.io/part-of: application-cicd-demo
+spec:
+  bindings:
+    - ref: application-cicd-artifact-push
+  interceptors:
+    - ref:
+        name: cel
+        kind: ClusterInterceptor
+      params:
+        - name: filter
+          value: >-
+            header.canonical('Authorization').compareSecret('authorization', 'application-cicd-harbor-webhook')
+    - ref:
+        name: cel
+        kind: ClusterInterceptor
+      params:
+        - name: filter
+          value: >-
+            body.type == 'PUSH_ARTIFACT' &&
+            body.event_data.repository.repo_full_name == '<team>/frontend' &&
+            size(body.event_data.resources) == 1 &&
+            body.event_data.resources[0].digest.matches('^sha256:[0-9a-f]{64}$') &&
+            body.event_data.resources[0].tag.matches('^[0-9a-f]{40}$')
+  template:
+    ref: application-cicd-frontend-promotion
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: EventListener
+metadata:
+  name: application-cicd-artifact-events
+  namespace: <pipeline-namespace>
+  labels:
+    app.kubernetes.io/part-of: application-cicd-demo
+spec:
+  serviceAccountName: <artifact-events-service-account>
+  triggers:
+    - name: backend-artifact
+      triggerRef: application-cicd-backend-artifact
+    - name: frontend-artifact
+      triggerRef: application-cicd-frontend-artifact
+```
+
+:::
+
+**Do not apply or enable the artifact webhook yet.** Its CD Pipelines, Run
+Templates, approval policy, and application must be ready first. Activate it
+after a successful manual delivery in
+[tutorial 4](./application-cicd-delivery.mdx#artifact-delivery).
+
+A push event does not prove an image passed vulnerability scanning or signature
+verification. Where those checks are required, use the appropriate verified
+event or policy gate before approval. See
+[Harbor events](../../triggers/how_to/harbor_events.mdx) for other event types.
+
+## Checkpoint and Troubleshooting
+
+Both components now build automatically from authenticated `main` pushes, and
+the negative cases create no runs.
+
+| Symptom | First check |
+| --- | --- |
+| GitLab cannot deliver | Listener readiness, TLS certificate, endpoint routing, and network policy. |
+| Authentication fails | Secret namespace and key, token equality, and interceptor Secret access. |
+| Delivered event creates no run | Repository path, branch, event type, SHA, and listener logs. |
+| Run starts with incorrect values | TriggerBinding mapping and the referenced Run Template. |
+| More runs than expected | Duplicate webhook registrations, retries, or both PAC and Triggers handling the event. |
+
+For repository-owned automation, [Pipelines as Code](../../pac/index.mdx) is an
+alternative: it runs definitions stored under `.tekton/`. Choose PAC when the
+application team should version the execution definition with the source;
+choose this Trigger workflow when the platform team centrally manages the
+event endpoint and templates. Do not enable both for the same event unless you
+intentionally want two runs.
+
+Next: [Approve and deliver a release](./application-cicd-delivery.mdx).
+
+Previous: [Build and run component CI](./application-cicd-ci.mdx).

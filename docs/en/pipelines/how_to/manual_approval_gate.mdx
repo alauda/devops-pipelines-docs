@@ -59,6 +59,23 @@ spec:
 
 When the pipeline reaches `wait-for-approval`, `Tekton` emits a `CustomRun`. The approval controller creates an `ApprovalTask` with your parameters and keeps the `PipelineRun` pending until quorum is met or a rejection occurs.
 
+#### `numberOfApprovalsRequired` parameter \{#numberofapprovalsrequired-parameter}
+
+| Property | Value |
+|----------|-------|
+| Type | String containing an integer, for example `"2"` |
+| Default | `"1"` when the parameter is omitted |
+| Validation | Must be an integer greater than `0`. Otherwise the `CustomRun` fails with a validation error. |
+| Upper bound | None. The value is not compared with the number of entries in `approvers`. |
+
+Approvals are counted per distinct user name. For a `group:` approver, each group member who approves counts separately, so the value can be larger than the number of entries in `approvers`.
+
+:::warning
+
+If `numberOfApprovalsRequired` is larger than the number of users who can actually approve, no error is reported. The `ApprovalTask` stays pending until an approver rejects it or the approval times out; on timeout, the controller marks the `ApprovalTask` as `rejected` and fails the `CustomRun`.
+
+:::
+
 ### 2. Monitor approval status
 
 ```bash
@@ -299,7 +316,16 @@ Ensure the approval task's `timeout` parameter is shorter than the pipeline time
 
 - `kubectl get approvaltasks -o yaml` shows each approval gate with `state` and quorum-related fields (the `approvalsReceived` column appears after someone responds).
 - `PipelineRun` status reflects the approval outcome: when approved, downstream tasks resume; when rejected, the run fails with the reason propagated from the `ApprovalTask`.
-- Dispatch logs or `kubectl get approvaltask -o yaml` output provide the approval history for auditing.
+- Dispatch logs or `kubectl get approvaltask -o yaml` output provide the approval history for auditing. The `ApprovalTask` is deleted together with its `PipelineRun`; see [ApprovalTask Lifecycle](#approvaltask-lifecycle).
+
+## ApprovalTask Lifecycle \{#approvaltask-lifecycle}
+
+The controller creates each `ApprovalTask` with the same name and namespace as its `CustomRun`, and sets that `CustomRun` as its controller owner. The `CustomRun` is in turn owned by the `PipelineRun`. Because of this ownership chain (`PipelineRun` → `CustomRun` → `ApprovalTask`), Kubernetes garbage collection deletes the `ApprovalTask` when the `PipelineRun` is deleted. The approval controller has no separate retention or cleanup for `ApprovalTask` objects.
+
+The approval record kept on the `ApprovalTask`, such as `status.approversResponse`, therefore exists only as long as the `PipelineRun`. When the `PipelineRun` is deleted, manually or by [Tekton Pruner](../../pruner/how_to/namespace_configuration.mdx) through `ttlSecondsAfterFinished` or history limits, the `ApprovalTask` is deleted with it. To keep approval records for auditing:
+
+- Export the `ApprovalTask` objects, for example with `kubectl get approvaltask <name> -n <namespace> -o yaml`, before the `PipelineRun` is pruned, or
+- Lengthen the pruning retention for the namespaces that run approval pipelines.
 
 ## Troubleshooting
 

@@ -194,6 +194,50 @@ The HTTP Resolver:
 - Fetches the specified resource from the remote server
 - Provides access to custom or private resources
 
+## View the Source of a Resolved Definition \{#view-the-source-of-a-resolved-definition}
+
+When a PipelineRun or TaskRun gets its Pipeline or Task through a resolver, Tekton records where that definition came from in `status.provenance.refSource`. Use it to answer "which commit or which digest did this run use". Tekton Chains can also capture this information in the provenance it generates.
+
+- The `enable-provenance-in-status` feature flag, which is `true` by default, controls the run-level `status.provenance.refSource`. When it is `false`, the run's `status.provenance` is not written. The per-step `status.steps[].provenance` described below is recorded regardless of this flag.
+- The field is written once, when the reference is first resolved, and is not updated afterwards.
+- Runs that use an inline `pipelineSpec` / `taskSpec`, or a `pipelineRef` / `taskRef` that does not go through a resolver, have no `refSource`.
+- For a StepAction referenced through a resolver, the source is recorded per step in the TaskRun, under `status.steps[].provenance.refSource`.
+
+| Field | Description |
+|-------|-------------|
+| `uri` | Identity of the source the definition was fetched from |
+| `digest` | Map of digest algorithm to the digest of the resolved source |
+| `entryPoint` | Location of the definition inside the source, when the resolver provides one |
+
+What each built-in resolver records:
+
+| Resolver | `uri` | `digest` | `entryPoint` |
+|----------|-------|----------|--------------|
+| Git | `git+<repository URL>` | `sha1`: the resolved commit SHA | Path of the file in the repository |
+| Bundles | Image repository of the bundle (without tag or digest) | Image digest, keyed by its algorithm | Name of the resource in the bundle |
+| Cluster | `/apis/<group>/<version>/namespaces/<namespace>/<kind>/<name>@<uid>` | `sha256`: checksum of the resource content | Not set |
+| HTTP | The requested URL | `sha256`: hash of the downloaded content | Not set |
+| Hub | The URL used to fetch the resource from Hub | `sha256`: hash of the downloaded content | Not set |
+
+Read the field with `kubectl`:
+
+```bash
+kubectl get pipelinerun <pipelinerun-name> -n <namespace> -o jsonpath='{.status.provenance.refSource}'
+kubectl get taskrun <taskrun-name> -n <namespace> -o jsonpath='{.status.provenance.refSource}'
+```
+
+For a Git-resolved definition, the field has this shape:
+
+```yaml
+status:
+  provenance:
+    refSource:
+      uri: git+<repository URL>
+      digest:
+        sha1: <commit SHA>
+      entryPoint: <path of the file in the repository>
+```
+
 ## References
 
 - [Tekton Remote Resolution Documentation](https://tekton.dev/docs/pipelines/resolution/)

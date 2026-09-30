@@ -19,11 +19,23 @@ Access credentials (kubeconfig for the build cluster, platform accounts) are not
 design: ask the DevOps team for them. Every command below assumes you have already selected the
 build cluster context.
 
+**Start here.** This page is the entry point for a release: it carries the whole chain, what
+triggers each step and what proves it worked. Three companion guides hold the long procedures, and
+each is linked from the stage that needs it — you should not have to go looking for them:
+
+| Guide | When you open it |
+| :--- | :--- |
+| [Build a Release-Test Environment by Hand](./release-test-environment.md) | Stage G, when the tier you need is env5 or a shape the built-in templates do not give you |
+| [Running the env5 Regression by Hand](./env5-manual-regression.md) | Stage G, once that environment exists — env5 is never covered by the automated batch |
+| [Running the Release Security Scans](./security-scanning.md) | Stage H, for the static and dynamic scan procedures |
+| [Release Review and Closeout](./release-review-and-closeout.md) | The non-functional gate, release review evidence and post-publication closeout |
+
 ## 1. The whole chain on one page
 
-A release spans **two repositories and nine stages**. The first five turn code into an installable
-package, the next three prove the package is good, and the last one turns it into the official
-deliverable.
+A release spans **twelve publication stages plus one cross-cutting gate**. The first five turn code
+into an installable package, the next three prove the package is good, stage I turns it into the
+official deliverable, and the last three publish it. The N gate runs between H and I — the release
+is not over when the package exists.
 
 | Stage | What it does | Repository | How to trigger | What proves it worked |
 | :--- | :--- | :--- | :--- | :--- |
@@ -35,10 +47,17 @@ deliverable.
 | **F** | Write the release notes | operator | Edit four documentation files, open an MR | `doc-build` is green and the site publishes |
 | **G** | Release testing | operator | `/test to-release-test branch:<branch> …` | An Allure report per tier **and** per supported ACP minor, archived in the release-test repository |
 | **H** | Security scanning (static + dynamic) | QA security tooling | See [Security scanning](#8-security-scanning-static-and-dynamic) | Static xlsx + dynamic Ares results + the evidence checklist, archived in the release-test repository |
+| **N** | Non-functional gate | release-test | See [Release Review and Closeout](./release-review-and-closeout.md) | High Availability, Performance and Stability each have a new report, approved reuse decision or owner-confirmed not-applicable outcome |
 | **I** | Repackage under the final version number | operator + artifacts | Tag → build → update the ledger → `/package` | `…v4.15.0.tgz` with no `rc` suffix |
+| **J** | Sync the packages to the mirrors | mirrors | The sync API — see [10.1](#101-stage-j-sync-the-packages-to-the-mirrors) | The new version is visible in the package mirror |
+| **K** | Register the version for Alauda Cloud | devops-artifact | Open a PR under `released-artifacts/tektoncd-operator/<minor>/` | The PR — **keep its number**, stage L needs it |
+| **L** | Publish to Alauda Cloud | devops-artifact + Alauda Cloud | Run the `upload-ac` pipeline with `revision: pull/<K's PR>/head` | The version is **reviewed and listed** on Alauda Cloud |
 
 **F and G do not depend on each other** and can run in parallel. **G depends on E** (a package must
-exist) and **E depends on D** (the version must be recorded in the ledger).
+exist) and **E depends on D** (the version must be recorded in the ledger). **N is a cross-cutting
+gate between H and I**; it may run in parallel with G and H, but it must be closed before I.
+**I, J, K and L are strictly sequential**, and the chain only ends at a human approval: stage L's
+pipeline going green means the artifact was uploaded, not that the release is published.
 
 ## 2. Things to know before you start
 
@@ -49,10 +68,13 @@ exist) and **E depends on D** (the version must be recorded in the ledger).
 | operator | `https://code.alauda.io/alauda-pipelines/tektoncd-operator` | Source code, every pipeline under `.tekton/`, the release notes |
 | artifacts | `https://code.alauda.io/alauda-pipelines/engineering/artifacts` | The artifact ledger (which version is which digest) and the packaging entry point |
 | catalog | `https://code.alauda.io/platform-edge/pipelines/catalog-incubator` | The shared pipelines themselves (release testing and packaging are implemented here) |
+| devops-artifact | `https://github.com/AlaudaDevops/devops-artifact` | What Alauda Cloud is fed from. Used only at the end, in [stage K](#102-stage-k-register-the-version-in-devops-artifact) |
 
-> There are **two artifact repositories, old and new — do not mix them up**. The GitLab repository
-> above is the current one. The old platform used GitHub's `AlaudaDevops/devops-artifact`. Tell them
-> apart by where the MR is opened; commands and semantics from the old platform do not carry over.
+> **Two artifact repositories, and they are not the same thing — do not mix them up.** The GitLab
+> `artifacts` repository is where a release is built and packaged from: stages C, D, E and I. The
+> GitHub `devops-artifact` repository is where a finished release is registered so that Alauda Cloud
+> can publish it: stage K only. Commands and semantics do not carry over between them — tell them
+> apart by where you are opening the change.
 
 ### 2.2 Where the pipelines run
 
@@ -222,6 +244,9 @@ https://zos-view-cd.alaudatech.net:9002/platform-edge-alauda-pipelines-packages/
 The `rc` path segment follows the version phase: `rc` to `/rc/`, beta to `/beta/`, hotfix to
 `/hotfix/`, PR builds to `/pr/`.
 
+Release testing needs a **second** package out of the same repository — the e2e image set — and this
+pipeline does not build it. See [6.3](#63-the-second-package-tektoncd-operator-e2e).
+
 ### 6.1 Every package built and uploaded, pipeline still red {#61-every-package-built-and-uploaded-pipeline-still-red}
 
 The `package-artifacts` step fails **after every package has been built and uploaded**, with:
@@ -251,6 +276,65 @@ from the rule above.
 
 packtool also builds any other version under that plugin directory that has been bumped but never
 packaged. Note those as incidental in your report so nobody thinks you shipped something extra.
+
+### 6.3 The second package: `tektoncd-operator-e2e` {#63-the-second-package-tektoncd-operator-e2e}
+
+Stage E builds the package a customer installs. Release testing needs a **second** package out of
+the same artifacts repository: `tektoncd-operator-e2e`, the offline delivery unit for the e2e test
+image plus the supporting images the suite deploys (busybox, postgres, gitlab-ce). An air-gapped
+environment cannot pull those from `registry-dev.alauda.io`, so they have to arrive as a `.tgz` and
+be pushed into the platform registry.
+
+**`/package plugins=tektoncd-operator-e2e` does not build it.** That directory carries no
+`metadata.yaml` / `versions.yaml`, only a hand-written Violet `PackageManifest` and a digest lock,
+and packtool regenerates its own manifest from the bundle declared in those two files — it would
+ignore the hand-written one. A dedicated pipeline calls `violet package <version-dir>` directly
+instead: `.tekton/pipelines/package-e2e-artifact.yaml` in the artifacts repository.
+
+**Step 1 — record the image set.** Under `released-artifacts/tektoncd-operator-e2e/vX.Y/`, update
+two files together and open an MR:
+
+| File | What it holds |
+| :--- | :--- |
+| `manifest.yaml` | `spec.artifact` = the commit-specific test image from [7.3](#73-step-1--build-the-e2e-test-image); `spec.relatedImages` = the supporting images; `spec.version` = what names the package |
+| `images.lock.yaml` | The expected source manifest digest of every image above, in the same order (`crane digest <reference>`) |
+
+**Step 2 — build it.** Comment on that MR, or on a commit:
+
+```text
+/test artifacts-package-e2e branch:<branch>
+```
+
+The run probes S3 first and builds only the versions whose `.tgz` is not there yet, so re-running is
+cheap and a run normally packages just the version your MR touched. To rebuild a version that was
+already published, bump `spec.version` — the object key contains it, so an unchanged version is
+always treated as "already uploaded".
+
+One multi-arch package per version directory (amd64 and arm64 in one file; measured 6,362,975,018 B
+for `v4.10.2` and 6,583,164,697 B for `v4.13.0-alpha.6`):
+
+```text
+https://zos-view-cd.alaudatech.net:9002/platform-edge-alauda-pipelines-packages/tektoncd-operator-e2e/<vX.Y>/tektoncd-operator-e2e.ALL.<spec.version>.tgz
+```
+
+Mind the key: this package is filed under its **minor directory**, not under a release phase — there
+is no `/rc/` segment like the plugin packages in [6](#6-stage-e-build-the-offline-packages). A
+manual or air-gapped run fetches it from a package mirror rather than from S3
+(`http://package-minio.alauda.cn:9199/packages/tektoncd-operator-e2e/<vX.Y>/<file>`), so it has to be
+synced there like any other package — [stage J](#101-stage-j-sync-the-packages-to-the-mirrors).
+
+**Trap: `Digest drift`.** Every image is digest-verified against `images.lock.yaml` both before and
+after packaging, and the packaged closure is read back out of the `.tgz` and compared with the
+manifest. Because the manifests pin mutable tags (`:latest`, `:16`), a rebuilt upstream image makes
+the run fail with `Digest drift`. Refresh the lock with `crane digest <reference>`; do not weaken
+the check.
+
+**Pushing it is not like pushing the plugin.** It is an image-only unit, so it goes up with
+`violet push --skip-crs` and must not create `ModulePlugin` / `ModuleConfig` resources. The push and
+its verification are written out in
+[Running the env5 regression by hand](./env5-manual-regression.md#5-get-the-e2e-package-into-the-environment);
+the directory layout and the rules for adding a version line live in that artifact's own
+`released-artifacts/tektoncd-operator-e2e/README.md`.
 
 ## 7. Stage F and G: prove the package is good
 
@@ -293,7 +377,7 @@ real ACP environment.** It is a different thing from the vcluster lane:
 | `to-e2e-vcluster` | the **code** (`release.yaml`) | a vcluster it creates | `kubectl apply` |
 | `to-release-test` | the **deliverable** (offline package) | a real ACP | violet package to regional S3, then an **OLM Subscription** |
 
-### 7.3 Step 1 — build the e2e test image
+### 7.3 Step 1 — build the e2e test image {#73-step-1--build-the-e2e-test-image}
 
 ```text
 /test to-e2e-vcluster branch:release-4.15
@@ -316,6 +400,10 @@ kubectl -n $NS get taskrun \
 The test-image package is cached on the sha256 of its manifest file, and the manifest records the
 **tag string, not the digest** — so rebuilding the same floating tag leaves the manifest byte for byte
 identical, the package is reused, and **the environment keeps running the old image**.
+
+An air-gapped environment cannot pull this image at all — it has to reach the platform registry
+inside the `tektoncd-operator-e2e` package, which is built separately:
+[6.3](#63-the-second-package-tektoncd-operator-e2e).
 
 ### 7.4 Step 2 — where the two mandatory parameter values come from
 
@@ -391,11 +479,14 @@ This is scope, not an option. Two dimensions have to be covered.
 | env2 | CTYun | x86 | no | |
 | env3 | IDC | hybrid | **yes** | |
 | env4 | CTYun | x86 | no | |
-| env5 | IDC | x86 (intl installer) | **yes** | **Not part of the automated batch — someone has to trigger it by hand** |
+| env5 | IDC | x86 (intl installer) | **yes** | **Not part of the automated batch — someone has to trigger it by hand**; the procedure is [Running the env5 regression by hand](./env5-manual-regression.md) |
 | env6 | CTYun | x86 on MicroOS | no | **Also mandatory** |
 
 Finishing env1 to env4 is not the end of it. Either all six have reports, or you state explicitly
 which tier was skipped and why.
+
+env5 having to be triggered by hand usually also means standing the environment up by hand — see
+[Build a Release-Test Environment by Hand](./release-test-environment.md).
 
 **Dimension two — the ACP platform version.**
 
@@ -482,6 +573,9 @@ the frontend rounds are part of this release's schedule.
 
 **Both the static and the dynamic scans that a release ships go through the QA security tooling.**
 
+This section defines what counts as evidence; the step-by-step procedure is
+[Running the release security scans](./security-scanning.md).
+
 - The artifacts repository's `scan-vuln` pipeline ([5.3](#53-stage-d--scan-vuln-you-must-trigger-it))
   stays useful as **our own early-warning check**, but it is not release evidence.
 - The security lanes on the Thanos platform are **obsolete and no longer count**. Do not run them and
@@ -510,7 +604,8 @@ spec:
           versions:
             - v4.15                           # the version directory name, NOT a bundle version
   dbStrategy:
-    mode: Latest                              # do not copy blindly, agree on the CVE database date
+    mode: Frozen                              # a release scan pins the date, it does not take Latest
+    frozenDbTag: <YYYY-MM-DD>                 # with dashes; a real Trivy DB image tag
   context:
     productVersion: v4.15.0                   # must be non-empty or sync-result fails
   report:
@@ -697,11 +792,127 @@ Following what was actually done for v4.14.0:
 5. **Check the final packages too**: the file name, version and digest must line up with the tag.
    Never ship a release candidate as the final deliverable.
 
-## 10. Release-test environments: where the time goes
+## 10. Stages J, K and L: publish the release {#10-stages-j-k-and-l-publish-the-release}
+
+Stage I ends with the final `.tgz` files in S3. A package sitting in S3 is not yet something an IDP
+environment or a customer can install — three more stages put it where it can be consumed. They are
+strictly ordered, and the link between the last two is concrete: **stage L needs the pull request
+number that stage K produces.**
+
+### 10.1 Stage J — sync the packages to the mirrors {#101-stage-j-sync-the-packages-to-the-mirrors}
+
+Packages are distributed through mirrors, and a sync service copies a package into them. It is an
+HTTP API with a submit-and-poll shape. The contract below is the one the catalog's
+`images/acp-release-tools/scripts/sync-package.sh` speaks, in the
+[catalog repository](https://code.alauda.io/platform-edge/pipelines/catalog-incubator); the base
+URL for a release is `https://package-minio-ctyun.alauda.cn:9002`.
+
+1. **Submit one package URL.**
+
+   ```bash
+   curl --fail-with-body --silent --show-error --get "$SYNC_API_URL/sync" \
+     --data-urlencode "url=<package URL>"
+   ```
+
+   The response carries a `task_id`. One call takes one URL, so a three-architecture release is
+   three submissions.
+
+2. **Poll until the task finishes.**
+
+   ```bash
+   curl --fail-with-body --silent --show-error --get "$SYNC_API_URL/status" \
+     --data-urlencode "task_id=<task_id>"
+   ```
+
+   `status` ends at `done` or `error`; an error carries a message. A finished task also reports the
+   object `key` it wrote, the `action` it took and the size. The script polls every 30 seconds
+   against a ten-hour ceiling — treat this as a long operation, not a ten-second one.
+
+3. **Check the key, not just the status.** The script fails the run when a finished task's key is
+   not in the bucket it expected. `done` into the wrong bucket is not a successful sync.
+
+**Then confirm by looking.** Browse `http://package-minio.alauda.cn:9002/?prefix=tektoncd-operator`
+and find the new version. Until the object is visible there, stage K has nothing to point at.
+
+> **Not verified: who runs this for a GA release.** The contract above is read from the catalog
+> script, which calls it as part of the release-test flow. Whether the GA sync is driven by hand
+> with these two calls or by a pipeline that wraps them is not written down anywhere this guide can
+> cite. Ask the DevOps team, and record the answer here.
+
+### 10.2 Stage K — register the version in `devops-artifact` {#102-stage-k-register-the-version-in-devops-artifact}
+
+Alauda Cloud is fed from a **separate, GitHub-hosted artifact repository**:
+`https://github.com/AlaudaDevops/devops-artifact`. Open a pull request there adding this release
+under `released-artifacts/tektoncd-operator/<minor>/`.
+
+Two shapes, both real:
+
+| | New minor line | New patch on an existing line |
+| :--- | :--- | :--- |
+| Example | [PR 560](https://github.com/AlaudaDevops/devops-artifact/pull/560), `add tektoncd-operator v4.14` | [PR 564](https://github.com/AlaudaDevops/devops-artifact/pull/564), `upgrade v4.10 to v4.10.2` |
+| Change | the whole directory is **added**: `acp.yaml`, `artifacts.yaml`, `extra_settings.yaml`, `metadata.yaml`, `test.yaml`, `versions.yaml`, `vuln_reviewed.yaml` | four files are **modified**: `artifacts.yaml`, `extra_settings.yaml`, `metadata.yaml`, `versions.yaml` |
+
+What the small files hold, so you can tell whether yours are right:
+
+- **`versions.yaml`** — the same channel-to-version mapping as the GitLab ledger; for v4.14 it is
+  `latest`, `stable` and `pipelines-4.14`, all at `v4.14.0`.
+- **`acp.yaml`** — `supportPlatform`, the list of ACP minors this release may be installed on. This
+  is the set stage L uploads against, so it has to agree with what release testing actually covered.
+- **`extra_settings.yaml`** — `release_date`, which the vulnerability tooling counts back from.
+- **`test.yaml`** — the test artifacts (the operator e2e image and the frontend test image) with
+  their versions and source branches.
+- **`vuln_reviewed.yaml`** — registered vulnerability exemptions; empty when there are none.
+
+**Keep the PR number.** Stage L takes it as `pull/<number>/head`, which is how the upload runs
+against this change — and why stage L can start before the PR is merged.
+
+### 10.3 Stage L — publish to Alauda Cloud with `upload-ac` {#103-stage-l-publish-to-alauda-cloud-with-upload-ac}
+
+The last stage runs the `upload-ac` pipeline, in project `devops`, namespace `devops` on the
+`integration-test` cluster:
+`https://edge.alauda.cn/console-pipeline-v2/workspace/devops~integration-test~devops/pipeline/pipelines/detail/ns/upload-ac`.
+Start a run from the console form and fill in:
+
+| Parameter | Value | What it means |
+| :--- | :--- | :--- |
+| `revision` | `pull/<stage K PR number>/head` | the `devops-artifact` ref to upload from — this is where the PR number is used |
+| `acp-version` | e.g. `v4.3`, comma-separated for several | the ACP versions to publish against |
+| `upload-artifacts` | `tektoncd-operator` | which component to upload; empty means all, and the default `none` uploads nothing |
+| `artifact-folder` | `released-artifacts` | the directory the plugin is looked up in |
+| `ac-env` | `cn`, `io`, or `all` | domestic Alauda Cloud, overseas, or both |
+| `reuse-version-meta` | `false` | reuse the metadata of the most recent application |
+| `upload_versions` | e.g. `v4.10.0` | the component version to upload; empty uploads every version |
+
+`upload-artifacts` and `upload_versions` are the two that silently do nothing when wrong:
+`upload-artifacts` defaults to `none`, and an empty `upload_versions` means *every* version rather
+than the one you have in mind.
+
+**A green pipeline is not a published release.** The run uploads the artifact; the version then has
+to be **reviewed and listed on Alauda Cloud itself**, by a person. Until that review passes and the
+version is listed, nothing has been published — so a release is not finished when stage L goes
+green, it is finished when the listing is live.
+
+> **Not verified: the review and listing procedure itself** — who reviews, where in the Alauda Cloud
+> console it is done, and what it looks like when it is approved. Ask whoever owns the listing, and
+> write it in here.
+
+### 10.4 Review and closeout
+
+Stages J-L publish the artifact, but they do not replace the release review or post-publication
+closeout. Use [Release Review and Closeout](./release-review-and-closeout.md) to:
+
+- close the non-functional gate before Stage I;
+- collect the release review evidence;
+- release the Jira version and update the download template;
+- complete the operator release record and Bugfix/Security Errata;
+- verify domestic and overseas Cloud listings;
+- generate, approve and archive the release email.
+
+## 11. Release-test environments: where the time goes
 
 This is the part of the chain that most easily burns a night.
 
-### 10.1 Three ways to get an environment, 45x apart in cost
+### 11.1 Three ways to get an environment, 45x apart in cost
 
 | How | When it happens | Cost |
 | :--- | :--- | :--- |
@@ -709,7 +920,13 @@ This is the part of the chain that most easily burns a night.
 | **Adopt a Ready environment** | No handle, but the platform has a Ready environment for that tier that is **less than 8 hours old** | seconds to a minute |
 | **Rebuild** | Neither of the above | **about 1.5 hours**, and it has to queue for quota |
 
-### 10.2 Check two numbers before you trigger
+There is a fourth way, outside this lane: **build the environment yourself on IDP first**. That is how
+the manual env5 tier gets an environment at all, and it is also the way to separate "the environment
+cannot be built" from "the test cannot run". How to create it, how to watch it come up, and how to
+hand it to this lane are in
+[Build a Release-Test Environment by Hand](./release-test-environment.md).
+
+### 11.2 Check two numbers before you trigger
 
 **Is the reuse handle still there?** One secret per tier:
 
@@ -737,7 +954,7 @@ environment preparation completed: mode=adopted environment=… probes=1
 > queueing. **So the first thing to do on this lane is to check these two numbers, not to post the
 > comment.**
 
-### 10.3 Two more clocks
+### 11.3 Two more clocks
 
 - **Reclamation.** After a test finishes, the environment starts a countdown
   (`recycle.when=Completed` with `delay_seconds=28800`) and is then destroyed. A suite takes one to
@@ -748,7 +965,7 @@ environment preparation completed: mode=adopted environment=… probes=1
   infrastructure timeout whose real cause is `Relay.Quota.Exceeded`. Adopting an existing environment
   creates no machines and does not count against this.
 
-## 11. Acceptance criteria at a glance
+## 12. Acceptance criteria at a glance
 
 | Stage | The only evidence that counts | What is not evidence |
 | :--- | :--- | :--- |
@@ -760,9 +977,13 @@ environment preparation completed: mode=adopted environment=… probes=1
 | F | `lint-docs` and `check-translations` both green | `auto-translate-*`, which is allowed to fail |
 | G | `Succeeded=True` plus an Allure report plus scenario counts, **and the coverage is complete** (six tiers, every supported ACP minor), archived per [8.5](#85-where-the-reports-are-archived) | a green pipeline with no report; or declaring victory after the four automated tiers |
 | H | Static (platform-exported xlsx with a complete image inventory) and dynamic (Ares first-run summary) results, with the evidence checklist filled in and both archived per [8.5](#85-where-the-reports-are-archived) | `scan-vuln` MR comments; obsolete Thanos reports; a hand-assembled xlsx; an Ares exit code |
+| N | High Availability, Performance and Stability are each newly archived, explicitly reused with owner approval, or confirmed not applicable | "Reference the previous release" without an owner decision |
 | I | Every channel in the ledger points at `vX.Y.Z` and `…vX.Y.Z.tgz` exists | shipping a release candidate |
+| J | Every GA architecture has a completed sync task and the expected mirror object is visible | A `done` task with the wrong key, bucket or size |
+| K | The Cloud registration PR contains the correct version directory and its number is retained for L | Treating the GitLab artifacts MR as the Cloud registration PR |
+| L | `upload-ac` succeeds, both environments are manually approved, and both listings are visible | The `upload-ac` PipelineRun alone |
 
-## 12. The traps, roughly in order of how often people hit them
+## 13. The traps, roughly in order of how often people hit them
 
 1. **Forgetting the SOCKS proxy on env1/env3/env5** — every package is re-uploaded, costing tens of
    minutes.
@@ -790,8 +1011,14 @@ environment preparation completed: mode=adopted environment=… probes=1
 16. **Scanning only the operator image for an OLM component** — the bundle image and every
     `relatedImages` entry belong to the inventory.
 17. **Trusting the Ares exit code** — read the first run's summary.
+18. **Starting Stage I with an unresolved non-functional gate** — N is an engineering gate, not a
+    review-page decoration.
+19. **Calling a release complete when `upload-ac` is green** — domestic and overseas review and
+    listing confirmation are still required.
+20. **Treating a vulnerability registration as risk acceptance** — an owner or security approver
+    must explicitly accept residual risk before the security gate can close.
 
-## 13. Appendix A: one real end-to-end round (v4.15.0, September 2026)
+## 14. Appendix A: one real end-to-end round (v4.15.0, September 2026)
 
 | Item | Value |
 | :--- | :--- |
@@ -814,11 +1041,12 @@ The three skipped tasks (`sync-test-dependency`, `deploy-test-dependency`,
 tektoncd-operator, and here the operator is the subject itself.
 
 > This round covered **the newest ACP only, on the four automated tiers**. It did not run env5 or
-> env6, did not cover ACP 4.0 to 4.3, did not include the security scans, and did not repackage under
-> the final version number. By the standards in sections 7.6, 8 and 9 it is **not a complete
-> release** — it is here as an example of what one healthy round looks like.
+> env6, did not cover ACP 4.0 to 4.3, did not include the security scans, did not repackage under
+> the final version number, and stopped well before publication. By the standards in sections 7.6,
+> 8, 9 and 10 it is **not a complete release** — it is here as an example of what one healthy round
+> looks like.
 
-## 14. Appendix B: command reference
+## 15. Appendix B: command reference
 
 These assume you have already selected the build cluster context.
 
@@ -849,9 +1077,19 @@ kubectl -n $NS patch pipelinerun <run> \
   --type=merge -p '{"spec":{"status":"CancelledRunFinally"}}'
 ```
 
-## 15. Keeping this guide honest
+## 16. Keeping this guide honest
 
 This guide describes pipelines that live in this repository. **When you change a lane under
 `.tekton/` or the parameters it accepts, update this page in the same merge request.** A process
 document in a different repository — or in a wiki — drifts out of date within a release or two, and
 the next person pays for it.
+
+Three things it describes are **not** in this repository and will drift silently: the shared catalog
+pipelines, the sync API contract in [10.1](#101-stage-j-sync-the-packages-to-the-mirrors), and the
+`upload-ac` parameters in [10.3](#103-stage-l-publish-to-alauda-cloud-with-upload-ac). When you run a
+release and any of them has moved, correct it here in the same week — and fill in the two items
+marked "not verified" in section 10 as soon as someone can tell you the answer.
+
+The release review and closeout page also depends on external Jira, Cloud, Errata and mail systems.
+Keep those actions as evidence-backed post-publication steps; do not replace them with a statement
+that the final package was uploaded.

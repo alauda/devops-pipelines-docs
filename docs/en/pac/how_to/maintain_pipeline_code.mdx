@@ -59,7 +59,7 @@ spec:
 
 Use `pipelineRef` when the `PipelineRun` should reuse a Pipeline definition.
 
-#### Pipeline Defined in Git
+#### Pipeline Defined in Git \{#pipeline-defined-in-git}
 
 With the default `remote-tasks: "true"`, a plain `pipelineRef.name` should reference a Pipeline that PAC can resolve from Git.
 PAC checks the `pipelinesascode.tekton.dev/pipeline` annotation first, then Pipeline files under `.tekton/` and its subdirectories.

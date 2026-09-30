@@ -94,7 +94,7 @@ spec:
     disabled: false  # Enable event-based pruner
     global-config:
       enforcedConfigLevel: global  # Options: global, namespace
-      ttlSecondsAfterFinished: 3600  # Delete runs older than 1 hour (optional)
+      ttlSecondsAfterFinished: 86400  # Delete runs older than 24 hours (optional)
       historyLimit: 100              # Keep only 100 runs total (optional)
       successfulHistoryLimit: 50     # Keep only 50 successful runs (optional)
       failedHistoryLimit: 20         # Keep only 20 failed runs (optional)
@@ -103,10 +103,12 @@ spec:
           historyLimit: 50
           ttlSecondsAfterFinished: 1800  # 30 minutes for dev
         prod-namespace:
-          successfulHistoryLimit: 200
-          failedHistoryLimit: 50
-          ttlSecondsAfterFinished: 86400  # 24 hours for prod
+          successfulHistoryLimit: 50      # Cannot exceed the global successfulHistoryLimit
+          failedHistoryLimit: 20          # Cannot exceed the global failedHistoryLimit
+          ttlSecondsAfterFinished: 86400  # 24 hours for prod, equal to the global limit
 ```
+
+Values under `namespaces` cannot exceed the corresponding root-level values (`ttlSecondsAfterFinished`, `historyLimit`, `successfulHistoryLimit`, `failedHistoryLimit`); a configuration that exceeds them is rejected. See [Validation Rules](../how_to/namespace_configuration.mdx#validation-rules).
 
 :::warning
 
