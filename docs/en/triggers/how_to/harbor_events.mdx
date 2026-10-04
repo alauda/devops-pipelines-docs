@@ -209,9 +209,8 @@ Next, we only need to configure the two triggers below:
       namespace: my-namespace  # Change to actual namespace
   spec:
       bindings:
-      - ref:
-          kind: ClusterTriggerBinding
-          name: harbor-push-artifact
+      - kind: ClusterTriggerBinding
+        ref: harbor-push-artifact
       interceptors: # Filter to only process PUSH_ARTIFACT events
       - ref:
           kind: ClusterInterceptor
@@ -292,9 +291,8 @@ Next, we only need to configure the two triggers below:
     namespace: my-namespace # Change to actual namespace
   spec:
     bindings:
-      - ref:
-          kind: ClusterTriggerBinding
-          name: harbor-scanning-completed
+      - kind: ClusterTriggerBinding
+        ref: harbor-scanning-completed
     interceptors: # Add Interceptor to filter successful scans only, or filter by vulnerability severity
     - ref:
         kind: ClusterInterceptor
@@ -302,9 +300,10 @@ Next, we only need to configure the two triggers below:
       params:
       - name: filter
         value: |
-          # Filter for successful scans only
-          # Note: scan_overview structure varies by scan type, adjust the path accordingly
-          # For vulnerability scans, the structure is: body.event_data.resources[0].scan_overview["application/vnd.security.vulnerability.report; version=1.1"].scan_status == "Success"
+          // Only handle SCANNING_COMPLETED events whose vulnerability scan succeeded
+          // Note: scan_overview structure varies by scan type, adjust the path accordingly
+          body.type == "SCANNING_COMPLETED" &&
+            body.event_data.resources[0].scan_overview["application/vnd.security.vulnerability.report; version=1.1"].scan_status == "Success"
     template:
       spec:
         params:

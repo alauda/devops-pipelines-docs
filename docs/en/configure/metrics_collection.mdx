@@ -118,22 +118,23 @@ spec:
 
             # PipelineRun metrics aggregation level.
             # Values: "pipelinerun" | "pipeline" (default) | "namespace"
-            #   - "pipelinerun": includes pipeline + pipelinerun labels; duration uses LastValue
+            #   - "pipelinerun": includes pipeline + pipelinerun labels (new series for every run; with histogram, one per bucket)
             #   - "pipeline": includes pipeline label only
             #   - "namespace": no pipeline/pipelinerun labels
             metrics.pipelinerun.level: "pipeline"
 
             # TaskRun metrics aggregation level.
             # Values: "taskrun" | "task" (default) | "namespace"
-            #   - "taskrun": includes task + taskrun labels; duration uses LastValue
+            #   - "taskrun": includes task + taskrun labels (new series for every run; with histogram, one per bucket)
             #   - "task": includes task label only
             #   - "namespace": no task/taskrun labels
             metrics.taskrun.level: "task"
 
             # Duration metric type for PipelineRun / TaskRun.
             # Values: "histogram" (default) | "lastvalue"
-            # Note: When pipelinerun.level is "pipelinerun" or taskrun.level is "taskrun",
-            #       duration type is forced to "lastvalue" regardless of this setting.
+            # Note: The level settings do not change the duration type; it always follows
+            #       metrics.*.duration-type. The "pipelinerun" and "taskrun" levels add per-run
+            #       labels and significantly increase the number of time series.
             metrics.pipelinerun.duration-type: "histogram"
             metrics.taskrun.duration-type: "histogram"
 
