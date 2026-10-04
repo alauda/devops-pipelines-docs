@@ -51,7 +51,7 @@ spec:
     disabled: false  # Enable event-based pruner
     global-config:
       enforcedConfigLevel: namespace
-      ttlSecondsAfterFinished: 3600  # Global fallback
+      ttlSecondsAfterFinished: 604800  # Global default and upper bound for the namespaces below
       namespaces:
         dev:
           ttlSecondsAfterFinished: 300
@@ -63,6 +63,8 @@ spec:
           ttlSecondsAfterFinished: 604800
           successfulHistoryLimit: 10
 ```
+
+Inline `namespaces` entries are validated against the root-level `global-config` values in the same way as per-namespace ConfigMaps: a namespace value cannot exceed the corresponding global value, regardless of `enforcedConfigLevel`. See [Validation Rules](#validation-rules).
 
 ## Method 2: Per-Namespace ConfigMaps (Self-Service)
 **Recommended** for namespace isolation and team autonomy.
@@ -107,7 +109,7 @@ data:
 - Independent lifecycle management
 - Takes priority over global config
 
-## Validation Rules
+## Validation Rules \{#validation-rules}
 
 Namespace configurations are validated against limits to prevent resource exhaustion.
 
@@ -167,7 +169,7 @@ data:
 
 ### 3. Override Defaults
 
-Cluster admins can set stricter limits via global config. Global limits override system defaults but cannot exceed system maximums.
+Cluster admins can set stricter limits via global config. When a global value is set, it replaces the system maximum as the upper bound for namespace configs. The global values themselves are not checked against the system maximums.
 
 ```yaml
 apiVersion: operator.tekton.dev/v1alpha1

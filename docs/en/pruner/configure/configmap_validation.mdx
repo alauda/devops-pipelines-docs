@@ -150,7 +150,7 @@ The webhook prevents deletion of the global config if namespace-level configs st
 
 ### 6. Global Config Enforcement
 
-When creating or updating namespace-level configs, the webhook fetches the global config and validates that namespace values do not exceed global maximums if defined (e.g., maxTTLSecondsAfterFinished, maxHistoryLimit).
+When creating or updating namespace-level configs, the webhook fetches the global config and validates that namespace values do not exceed the corresponding global values if defined (`ttlSecondsAfterFinished`, `historyLimit`, `successfulHistoryLimit`, `failedHistoryLimit`). If the global config does not set a value, `successfulHistoryLimit` and `failedHistoryLimit` fall back to the global `historyLimit`, and then to the system maximum (30 days for `ttlSecondsAfterFinished`, 100 for the history limits). These maximums are built-in constants, not configurable keys.
 
 ## Common Validation Errors
 
@@ -181,7 +181,7 @@ Global config must be named 'tekton-pruner-default-spec', got: tekton-pruner-con
 
 ### Exceeds Global Limit Error
 ```
-Invalid pruner configuration: namespace config ttlSecondsAfterFinished (172800) exceeds global maximum (86400)
+Invalid pruner configuration: ns-config: ttlSecondsAfterFinished (172800) cannot exceed global limit (86400)
 ```
 **Solution:** Reduce the namespace value to be within global limits, or request admin to increase global maximum.
 

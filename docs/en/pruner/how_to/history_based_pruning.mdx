@@ -84,7 +84,8 @@ metadata:
     pruner.tekton.dev/config-type: namespace
 data:
   ns-config: |
-    successfulHistoryLimit: 3
+    successfulHistoryLimit: 25  # Upper bound for the sum of selector successfulHistoryLimit values
+    failedHistoryLimit: 35      # Upper bound for the sum of selector failedHistoryLimit values
     pipelineRuns:
       - selector:
           matchLabels:
@@ -97,6 +98,8 @@ data:
         successfulHistoryLimit: 3
         failedHistoryLimit: 5
 ```
+
+For each field, the sum of the selector limits cannot exceed the namespace-level value of the same field in this ConfigMap. If that field is not set, the bound falls back to the namespace-level `historyLimit`, then to the global configuration, then to the system maximum of 100. The namespace-level values themselves cannot exceed the global limits.
 
 ## Interaction with TTL
 

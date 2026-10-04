@@ -47,7 +47,6 @@ spec:
   resources:
     kubernetesResource:
       serviceType: NodePort  # Service type
-      servicePort: 80       # Service port
       spec:
         template:
           spec:
@@ -80,7 +79,7 @@ spec:
 Used to configure the Kubernetes resources for the EventListener:
 
 - `serviceType`: Service type (NodePort/ClusterIP/LoadBalancer)
-- `servicePort`: Service port
+- `servicePort`: Service port (with `serviceType: NodePort`, it is also used as the node port, so it must be in the 30000-32767 range)
 - `spec`: Pod template configuration
 
 #### spec.triggers
@@ -97,7 +96,7 @@ Defines a set of trigger configurations:
 EventListener supports multiple security configurations:
 
 1. **ServiceAccount**: 
-   - **Default ServiceAccount (`triggers-default-sa`)**: If `spec.serviceAccountName` is not specified, EventListener will automatically use the `triggers-default-sa` ServiceAccount in the namespace. This ServiceAccount is automatically granted the necessary namespace-scoped permissions required for EventListeners to handle triggers within the same namespace. The permissions are automatically bound to the namespace where the ServiceAccount exists.
+   - **Default ServiceAccount (`triggers-default-sa`)**: Set `spec.serviceAccountName: triggers-default-sa` explicitly. If you omit it, the EventListener uses the `default-service-account` value of the `config-defaults-triggers` ConfigMap, which is `default` unless configured. The `default` ServiceAccount has no Triggers permissions. The console's create dialog fills in the namespace's default Triggers ServiceAccount, the one labelled `triggers.tekton.dev/default-service-account` (`triggers-default-sa` unless configured). `triggers-default-sa` is automatically granted the necessary namespace-scoped permissions required for EventListeners to handle triggers within the same namespace. The permissions are automatically bound to the namespace where the ServiceAccount exists.
    - **Custom ServiceAccount**: When you need to handle triggers across multiple namespaces (e.g., when `namespaceSelector` is configured), you must specify a custom ServiceAccount with cluster-scoped permissions. Ensure that the specified ServiceAccount is configured with the corresponding permissions (see [Permission Guidelines](#permission-guidelines) below).
 2. **Interceptor Validation**: Use CEL interceptors for event validation.
 3. **TLS**: Supports configuring HTTPS certificates.
@@ -106,7 +105,7 @@ EventListener supports multiple security configurations:
 
 #### Default ServiceAccount vs Custom ServiceAccount
 
-- **Default ServiceAccount (`triggers-default-sa`)**: When `spec.serviceAccountName` is not specified, EventListener automatically uses the `triggers-default-sa` ServiceAccount in the namespace. This ServiceAccount is automatically granted the necessary namespace-scoped permissions required for EventListeners to handle triggers within the same namespace. The permissions are automatically bound to the namespace where the ServiceAccount exists, so you don't need to manually configure Role or RoleBinding.
+- **Default ServiceAccount (`triggers-default-sa`)**: Set `spec.serviceAccountName: triggers-default-sa` explicitly. If you omit it, the EventListener uses the `default-service-account` value of the `config-defaults-triggers` ConfigMap, which is `default` unless configured. The `default` ServiceAccount has no Triggers permissions. The console's create dialog fills in the namespace's default Triggers ServiceAccount, the one labelled `triggers.tekton.dev/default-service-account` (`triggers-default-sa` unless configured). `triggers-default-sa` is automatically granted the necessary namespace-scoped permissions required for EventListeners to handle triggers within the same namespace. The permissions are automatically bound to the namespace where the ServiceAccount exists, so you don't need to manually configure Role or RoleBinding.
 
 - **Custom ServiceAccount with Cluster Permissions**: When you configure `namespaceSelector` to listen to triggers from multiple namespaces (including `'*'` for all namespaces), you must specify a custom ServiceAccount with cluster-scoped permissions. The `triggers-default-sa` ServiceAccount only has namespace-scoped permissions and does not have the necessary cluster-scoped permissions to access resources across namespaces.
 
@@ -196,7 +195,10 @@ A namespace-level EventListener binds to specific triggers within the same names
 
 ```yaml
 spec:
-  # serviceAccountName is optional, defaults to triggers-default-sa
+  # serviceAccountName defaults to "default-service-account" in config-defaults-triggers ("default" unless configured),
+  # which has no Triggers permissions; set it to triggers-default-sa explicitly. The console create dialog fills in
+  # the namespace's default Triggers ServiceAccount (labelled triggers.tekton.dev/default-service-account).
+  serviceAccountName: triggers-default-sa
   triggers:
     - name: trigger-1
       bindings:
@@ -206,7 +208,7 @@ spec:
         ref: pipeline-template
     - name: trigger-2
       bindings:
-        - ref: github-pullrequest
+        - ref: gitlab-mergerequest
           kind: ClusterTriggerBinding
       template:
         ref: pipeline-template
@@ -276,7 +278,7 @@ spec:
 
 | Scenario | Namespace Scope | ServiceAccount | Configuration Complexity | Use Case |
 | -------- | --------------- | -------------- | ----------------------- | -------- |
-| Namespace-Level | Single namespace | `triggers-default-sa` (auto) | Simple | Single project/team |
+| Namespace-Level | Single namespace | `triggers-default-sa` (set explicitly) | Simple | Single project/team |
 | Project-Level | Multiple specified namespaces | Custom SA (cluster permissions) | Moderate | Multiple related projects |
 | Global-Level | All namespaces (`*`) | Custom SA (cluster permissions) | Complex | Cluster-wide management |
 
@@ -314,6 +316,7 @@ NodePort is suitable for development, testing, or environments where you don't h
 
 #### Prerequisites
 
+- Complete Step 2 and Step 3 of the [Quick Start](../quick_start.mdx) and keep the resources (skip its "Clean Up Resources" step): this example uses the `tekton-triggers-demo` namespace, the `hello-binding` TriggerBinding, and the `hello-template` TriggerTemplate that they create
 - Kubernetes cluster with nodes accessible from external systems
 - You should know at least one node's external IP address
 - Firewall rules should allow traffic to the NodePort range (30000-32767)
@@ -332,12 +335,13 @@ NodePort is suitable for development, testing, or environments where you don't h
     name: el-demo
     namespace: tekton-triggers-demo
   spec:
-    # serviceAccountName is optional, defaults to triggers-default-sa
+    # serviceAccountName defaults to "default-service-account" in config-defaults-triggers ("default" unless configured),
+    # which has no Triggers permissions; set it to triggers-default-sa explicitly. The console create dialog fills in
+    # the namespace's default Triggers ServiceAccount (labelled triggers.tekton.dev/default-service-account).
     serviceAccountName: triggers-default-sa
     resources:
       kubernetesResource:
         serviceType: NodePort  # Use NodePort service type
-        servicePort: 80        # Container port
     triggers:
       - name: hello-trigger
         bindings:
@@ -410,7 +414,7 @@ NodePort is suitable for development, testing, or environments where you don't h
   kubectl get svc el-el-demo -n tekton-triggers-demo
 
   # View EventListener Pod logs
-  kubectl logs -n tekton-triggers-demo -l app=el-el-demo
+  kubectl logs -n tekton-triggers-demo -l eventlistener=el-demo
   ```
 </Steps>
 
@@ -481,12 +485,12 @@ Before configuring the EventListener with Ingress, ensure the following prerequi
 
   ### Create ClusterRole and ServiceAccount and Set Permissions
 
-    - **Default ServiceAccount (`triggers-default-sa`)**: When `spec.serviceAccountName` is not specified, EventListener automatically uses the `triggers-default-sa` ServiceAccount in the namespace. This ServiceAccount is automatically granted the necessary namespace-scoped permissions required for EventListeners to handle triggers within the same namespace. The permissions are automatically bound to the namespace where the ServiceAccount exists, so you don't need to manually configure Role or RoleBinding.
+    - **Default ServiceAccount (`triggers-default-sa`)**: Set `spec.serviceAccountName: triggers-default-sa` explicitly. If you omit it, the EventListener uses the `default-service-account` value of the `config-defaults-triggers` ConfigMap, which is `default` unless configured. The `default` ServiceAccount has no Triggers permissions. The console's create dialog fills in the namespace's default Triggers ServiceAccount, the one labelled `triggers.tekton.dev/default-service-account` (`triggers-default-sa` unless configured). `triggers-default-sa` is automatically granted the necessary namespace-scoped permissions required for EventListeners to handle triggers within the same namespace. The permissions are automatically bound to the namespace where the ServiceAccount exists, so you don't need to manually configure Role or RoleBinding.
 
     - **Custom ServiceAccount with Cluster Permissions**: When you configure `namespaceSelector` to listen to triggers from multiple namespaces (including `'*'` for all namespaces), you must specify a custom ServiceAccount with cluster-scoped permissions. The `triggers-default-sa` ServiceAccount only has namespace-scoped permissions and does not have the necessary cluster-scoped permissions to access resources across namespaces.
 
   :::warning
-  **Required for namespaceSelector**: The following steps are only required when using `namespaceSelector` to listen to triggers across multiple namespaces. If your EventListener only handles triggers within the same namespace, you can skip these steps and use the default `triggers-default-sa` ServiceAccount, which will automatically have the required permissions.
+  **Required for namespaceSelector**: The following steps are only required when using `namespaceSelector` to listen to triggers across multiple namespaces. If your EventListener only handles triggers within the same namespace, you can skip these steps and set `serviceAccountName: triggers-default-sa`, which automatically has the required permissions.
   :::
 
   The following YAML is for `eventlistener-role.yaml`.
@@ -538,7 +542,7 @@ Before configuring the EventListener with Ingress, ensure the following prerequi
 
   :::info
   **ServiceAccount Selection**:
-  - If you only need to handle triggers within the same namespace, you can omit `spec.serviceAccountName` to use the default `triggers-default-sa` ServiceAccount, which will automatically have the required namespace-scoped permissions.
+  - If you only need to handle triggers within the same namespace, set `serviceAccountName: triggers-default-sa`, which automatically has the required namespace-scoped permissions. If you omit it, the EventListener uses the `default-service-account` value of the `config-defaults-triggers` ConfigMap, which is `default` unless configured. The `default` ServiceAccount has no Triggers permissions.
   - Since this example uses `namespaceSelector` with `'*'` to listen to triggers from all namespaces, a custom ServiceAccount with cluster-scoped permissions is required. Therefore, `serviceAccountName: "eventlistener"` is specified here.
   :::
 

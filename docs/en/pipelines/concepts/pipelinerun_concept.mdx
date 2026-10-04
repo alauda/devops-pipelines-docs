@@ -154,7 +154,7 @@ Timeout allows setting a maximum duration for PipelineRun execution.
 Timeouts are:
 - Specified in the PipelineRun specification using the `timeouts` field (the legacy `timeout` field is deprecated)
 - Applied to the entire PipelineRun execution or specific sections (tasks, finally)
-- Measured from the start of the first Task to the completion of the last Task
+- Measured from the start of the PipelineRun (`status.startTime`) for `timeouts.pipeline` and `timeouts.tasks`, and from the start of the finally tasks (`status.finallyStartTime`) for `timeouts.finally`
 - Result in PipelineRun failure if exceeded
 - Must follow the constraint: `timeouts.pipeline >= timeouts.tasks + timeouts.finally`
 - **Important**: If any sub-field is set to "0", there is no timeout for that section. To set `timeouts.tasks` or `timeouts.finally` to "0", you must also set `timeouts.pipeline` to "0"

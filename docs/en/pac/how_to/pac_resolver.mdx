@@ -144,9 +144,9 @@ When a push event occurs, PAC controller:
     ```
 
 **Version Selection Best Practices**:
-- **Production environments**: Specify exact versions (e.g., `"git-clone:0.1"`) for reproducibility and stability
+- **Production environments**: Specify exact versions (e.g., `"git-clone:0.1"`) so that every run resolves the same published version
 - **Development/testing**: Use latest version (no version suffix) to get new features and bug fixes automatically
-- **Version pinning**: Always pin to specific versions in production to avoid breaking changes from Hub updates
+- **Version pinning**: A version selects a published version of a Task; it does not by itself freeze that version's content. Whether a published version can change depends on how the catalog administrator maintains the catalog, so agree with them that published versions are not changed in place (see <ExternalSiteLink name="artifacthub-shim" href="/catalog/index.html" children="ArtifactHub Shim Catalog" />)
 - **Version updates**: Periodically review and update pinned versions in a controlled manner
 
 #### Step 3: PAC Embeds Task into PipelineRun \{#step-3-pac-embeds-task-into-pipelinerun}
@@ -603,11 +603,11 @@ The default `hub-url` points to the cluster-internal `artifacthub-shim` Service 
 
 :::warning Limited Use Case
 
-Remote pipeline annotations are rarely used in practice. Most users define pipelines inline using `pipelineSpec` rather than referencing remote pipelines. This section is included for completeness.
+The `pipelinesascode.tekton.dev/pipeline` annotation is supported, but it is used in fewer scenarios than the other ways of providing a Pipeline. To reuse a Pipeline that is maintained outside the repository, we recommend referencing it with `pipelineRef` and a Tekton resolver, as described in [Reference a Pipeline with `pipelineRef`](./maintain_pipeline_code.mdx#using-existing-pipeline). This section is included for completeness.
 
 :::
 
-You can reference remote pipelines from DevOps Hub, though this is less common than using inline pipeline definitions:
+The annotation form fetches a Pipeline from DevOps Hub and embeds it into the `PipelineRun`:
 
     ```yaml
     apiVersion: tekton.dev/v1
@@ -634,7 +634,7 @@ You can reference remote pipelines from DevOps Hub, though this is less common t
 
 For catalog source configuration and resource authoring, see <ExternalSiteLink name="artifacthub-shim" href="/catalog/index.html" children="ArtifactHub Shim Catalog" />.
 
-**Note**: In most cases, you should define your pipeline inline using `pipelineSpec` in your repository, rather than using remote pipelines. This gives you better version control and visibility of your pipeline definitions.
+**Note**: We generally recommend referencing a Pipeline with `pipelineRef` rather than writing the full definition inline with `pipelineSpec`: for a Pipeline that belongs to one repository, keep it in a Pipeline file under `.tekton/` and reference it by name, as described in [Pipeline Defined in Git](./maintain_pipeline_code.mdx#pipeline-defined-in-git); for a Pipeline shared by several repositories, reference it with a Tekton resolver. Inline `pipelineSpec` and this annotation remain supported. Between a resolver and this annotation, PAC keeps a resolver-form `pipelineRef` as is, so the run records where the definition came from, whereas the annotation embeds a copy of the Pipeline into each run.
 
 ## Combining Remote Tasks and Pipelines \{#combining-remote-tasks-and-pipelines}
 

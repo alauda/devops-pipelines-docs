@@ -287,7 +287,7 @@ Before configuring the export rules, ensure you have the following prerequisites
         default: "Hello World!"
     steps:
       - name: echo
-        image: alpine
+        image: alpine  # In air-gapped environments, replace with an image from your internal registry
         script: |
           echo "$(params.message)"
   ```
@@ -416,7 +416,7 @@ If you skipped Step 1 (Automatic Exposure configuration) and want to test quickl
   > POST / HTTP/1.1
   > Host: localhost:8080
   ...
-  < HTTP/1.1 201 Created
+  < HTTP/1.1 202 Accepted
   {"eventListener":"hello-listener","namespace":"tekton-triggers-demo","eventID":"..."}
   ```
 
@@ -441,9 +441,11 @@ For accessing `EventListener` from outside your local machine without `Ingress`:
 <Steps>
   ### **Patch EventListener Service to NodePort**
 
+  The Triggers controller manages the `el-hello-listener` Service and reverts direct edits to it, so set the Service type on the `EventListener` instead:
+
   ```bash
-  $ kubectl patch svc el-hello-listener -n tekton-triggers-demo -p '{"spec":{"type":"NodePort"}}'
-  service/el-hello-listener patched
+  $ kubectl patch eventlistener hello-listener -n tekton-triggers-demo --type merge -p '{"spec":{"resources":{"kubernetesResource":{"serviceType":"NodePort"}}}}'
+  eventlistener.triggers.tekton.dev/hello-listener patched
   ```
 
   ### **Get NodePort**
@@ -468,7 +470,7 @@ For accessing `EventListener` from outside your local machine without `Ingress`:
   * Connected to 192.168.1.100 (192.168.1.100) port 32567
   > POST / HTTP/1.1
   ...
-  < HTTP/1.1 201 Created
+  < HTTP/1.1 202 Accepted
   {"eventListener":"hello-listener","namespace":"tekton-triggers-demo","eventID":"..."}
   ```
 </Steps>
@@ -556,7 +558,7 @@ For accessing `EventListener` from outside your local machine without `Ingress`:
   > POST /triggers/tekton-triggers-demo/hello-listener HTTP/1.1
   > Host: webhooks.example.com
   ...
-  < HTTP/1.1 201 Created
+  < HTTP/1.1 202 Accepted
   {"eventListener":"hello-listener","namespace":"tekton-triggers-demo","eventID":"..."}
   ```
 
@@ -568,8 +570,8 @@ For accessing `EventListener` from outside your local machine without `Ingress`:
   NAME              SUCCEEDED   REASON      STARTTIME   COMPLETIONTIME
   hello-run-xxxxx   True        Succeeded   1m          50s
 
-  # View logs of the specific TaskRun
-  $ kubectl logs -l eventlistener=hello-listener -n tekton-triggers-demo
+  # View logs of the specific TaskRun (replace hello-run-xxxxx with the name shown above)
+  $ kubectl logs -l tekton.dev/taskRun=hello-run-xxxxx -n tekton-triggers-demo
   Hello, Tekton!
   ```
 
@@ -597,7 +599,7 @@ Now that you have successfully created and tested a basic Tekton Triggers exampl
 1. **EventListener Pod fails to start**
    - Check if the default `ServiceAccount` has sufficient namespace-scoped permissions
    - Verify the `EventListener` resource is correctly configured
-   - View `EventListener` Pod logs: `kubectl logs -n tekton-triggers-demo -l app=el-hello-listener`
+   - View `EventListener` Pod logs: `kubectl logs -n tekton-triggers-demo -l eventlistener=hello-listener`
 
 2. **Webhook address (status.addresses) is empty**
    - Verify that the export rules you configured match your `EventListener`'s namespace
@@ -608,7 +610,7 @@ Now that you have successfully created and tested a basic Tekton Triggers exampl
 3. **Trigger does not respond**
    - Verify the webhook URL is accessible (check `status.addresses`)
    - Check if the request format is correct
-   - View the `EventListener` Pod logs: `kubectl logs -n tekton-triggers-demo -l app=el-hello-listener`
+   - View the `EventListener` Pod logs: `kubectl logs -n tekton-triggers-demo -l eventlistener=hello-listener`
    - Verify the shared `Ingress` is correctly configured (it is created in the Tekton system namespace and named after the export rule, not per EventListener): `kubectl get ingress -n tekton-pipelines`
 
 4. **TaskRun is not created**

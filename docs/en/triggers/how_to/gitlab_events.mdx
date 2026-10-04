@@ -189,9 +189,8 @@ Next, we only need to configure the two triggers below:
       namespace: my-namespace  # Change to actual namespace
   spec:
       bindings:
-      - ref:
-          kind: ClusterTriggerBinding
-          name: gitlab-push
+      - kind: ClusterTriggerBinding
+        ref: gitlab-push
       template:
         spec:
           params:
@@ -239,9 +238,8 @@ Next, we only need to configure the two triggers below:
     namespace: my-namespace # Change to actual namespace
   spec:
     bindings:
-      - ref:
-          kind: ClusterTriggerBinding
-          name: gitlab-merge-request
+      - kind: ClusterTriggerBinding
+        ref: gitlab-mergerequest
     interceptors: # Add Interceptor to filter opened MR events, ignore others for now
     - ref:
         kind: ClusterInterceptor
