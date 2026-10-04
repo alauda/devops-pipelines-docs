@@ -9,4 +9,4 @@
   version: "1.10"
 - name: artifacthub-shim
   base: /alauda-devops-artifacthub-shim
-  version: "main"
+  version: "1.0"
