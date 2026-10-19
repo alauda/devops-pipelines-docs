@@ -170,9 +170,11 @@ The ServiceAccount parameter is crucial for EventListener as it determines what 
 
 #### Principles
 The ServiceAccount needs permissions to:
-- Read ConfigMaps, Secrets, and ServiceAccounts
+- Read ConfigMaps and the required namespaced Trigger resources
 - Create and manage PipelineRuns and TaskRuns
 - Access TriggerBindings and TriggerTemplates
+
+The default EventListener cluster role grants read access to ClusterTriggerBindings and ClusterInterceptors. Built-in webhook Secret validation uses the separate core-interceptors ServiceAccount, so the EventListener ServiceAccount does not need cluster-wide Secret read permissions. Custom workloads that read Secrets through the Kubernetes API must use a dedicated ServiceAccount with explicit namespace-scoped access.
 
 ### Resources Configuration
 

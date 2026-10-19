@@ -83,6 +83,12 @@ Defines a set of trigger configurations:
 
 ### Security Configurations
 
+On the 4.0 Kubernetes line, the unconfigured Triggers fallback remains `default`;
+this release does not automatically provision `triggers-default-sa`. Create and
+authorize the intended account before selecting it. See
+[Triggers Default ServiceAccount](../../configure/trigger_default_service_account.mdx)
+for global overrides, configuration withdrawal and upgrade compatibility.
+
 EventListener supports multiple security configurations:
 
 1. **ServiceAccount**: Specify running permissions through `spec.serviceAccountName`. Ensure that the specified ServiceAccount is configured with the corresponding permissions.
@@ -96,7 +102,6 @@ To trigger pipeline and tasks properly, the ServiceAccount used by EventListener
 | Permission                              | Resource                   | Description          |
 | --------------------------------------- | ------------------------- | ------------------- |
 | get, list, watch                        | configmaps                | Read ConfigMaps     |
-| get, list, watch                        | secrets                   | Read Secrets        |
 | get, list, watch                        | serviceaccounts           | Read ServiceAccounts |
 | create, get, list, watch, patch, update | deployments               | Manage Deployments   |
 | create, get, list, watch, patch, update | services                  | Manage Services      |
@@ -112,6 +117,10 @@ To trigger pipeline and tasks properly, the ServiceAccount used by EventListener
 | get, list, watch                        | triggertemplates          | Read TriggerTemplates |
 | get, list, watch                        | eventlisteners            | Read EventListeners  |
 
+The EventListener ServiceAccount does not need Secret API read permissions for built-in webhook authentication. Secret validation for GitHub, GitLab, Bitbucket, and CEL `compareSecret` runs in core-interceptors, using the separate `tekton-triggers-core-interceptors` ServiceAccount. The Slack interceptor only checks request headers and extracts configured fields; it does not read a Secret. The default EventListener cluster role grants only `get`, `list` and `watch` on ClusterTriggerBindings and ClusterInterceptors. HTTPS certificates mounted through Secret volumes do not require the EventListener ServiceAccount to read the Secret API.
+
+If a custom sidecar, custom interceptor or TaskRun needs to read a Secret through the Kubernetes API, use a dedicated ServiceAccount with a Role and RoleBinding in the required namespace. Grant only the necessary verbs and Secret names; do not use `triggers-default-sa` as a general-purpose Secret reader.
+
 Referable ClusterRole:
 
 ```yaml
@@ -121,7 +130,7 @@ metadata:
   name: eventlistener-role
 rules:
 - apiGroups: [""]
-  resources: ["configmaps", "secrets", "serviceaccounts"]
+  resources: ["configmaps", "serviceaccounts"]
   verbs: ["get", "list", "watch"]
 - apiGroups: ["apps"]
   resources: ["deployments"]
@@ -234,7 +243,7 @@ Depending on the priority of the environment and the available network resources
     name: eventlistener-role
   rules:
   - apiGroups: [""]
-    resources: ["configmaps", "secrets", "serviceaccounts"]
+    resources: ["configmaps", "serviceaccounts"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["apps"]
     resources: ["deployments"]
