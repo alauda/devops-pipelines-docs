@@ -77380,6 +77380,16 @@ spec:
                     type: boolean
                   set-security-context:
                     type: boolean
+                  traces.credentialsSecret:
+                    description: CredentialsSecret is the name of the secret containing
+                      credentials for the tracing endpoint
+                    type: string
+                  traces.enabled:
+                    description: Enabled controls whether tracing is enabled or not
+                    type: boolean
+                  traces.endpoint:
+                    description: Endpoint is the URL for the OpenTelemetry trace collector
+                    type: string
                   trusted-resources-verification-no-match-policy:
                     type: string
                   verification-mode:
@@ -117038,6 +117048,15 @@ spec:
                   prometheus_port:
                     format: int64
                     type: integer
+                  route_enabled:
+                    description: Route configuration for Results API service exposure
+                    type: boolean
+                  route_host:
+                    type: string
+                  route_path:
+                    type: string
+                  route_tls_termination:
+                    type: string
                   secret_name:
                     description: |-
                       name of the secret used to get S3 credentials and
@@ -117077,6 +117096,144 @@ spec:
                   disabled:
                     description: enable or disable TektonPruner Component
                     type: boolean
+                  global-config:
+                    description: |-
+                      GlobalConfig represents the global ConfigMap (tekton-pruner-default-spec)
+                      Root-level fields are defaults; Namespaces map is for per-namespace defaults
+                      NOTE: Selector support (PipelineRuns/TaskRuns arrays) is IGNORED in global ConfigMap
+                    properties:
+                      enforcedConfigLevel:
+                        description: 'EnforcedConfigLevel allowed values: global,
+                          namespace (default: namespace)'
+                        type: string
+                      failedHistoryLimit:
+                        format: int32
+                        type: integer
+                      historyLimit:
+                        format: int32
+                        type: integer
+                      namespaces:
+                        additionalProperties:
+                          description: |-
+                            NamespaceSpec is used to hold the pruning config of a specific namespace and its resources
+                            Used in both global ConfigMap (tekton-pruner-default-spec) and namespace ConfigMap (tekton-pruner-namespace-spec)
+                            Selector support (PipelineRuns/TaskRuns arrays) ONLY works in namespace ConfigMaps
+                          properties:
+                            enforcedConfigLevel:
+                              description: 'EnforcedConfigLevel allowed values: global,
+                                namespace (default: namespace)'
+                              type: string
+                            failedHistoryLimit:
+                              format: int32
+                              type: integer
+                            historyLimit:
+                              format: int32
+                              type: integer
+                            pipelineRuns:
+                              items:
+                                description: |-
+                                  ResourceSpec is used to hold the config of a specific resource
+                                  Only used in namespace-level ConfigMaps (tekton-pruner-namespace-spec), NOT in global ConfigMaps
+                                properties:
+                                  enforcedConfigLevel:
+                                    description: 'EnforcedConfigLevel allowed values:
+                                      global, namespace (default: namespace)'
+                                    type: string
+                                  failedHistoryLimit:
+                                    format: int32
+                                    type: integer
+                                  historyLimit:
+                                    format: int32
+                                    type: integer
+                                  name:
+                                    type: string
+                                  selector:
+                                    items:
+                                      description: |-
+                                        SelectorSpec allows specifying selectors for matching resources like PipelineRun or TaskRun
+                                        Only applicable in namespace-level ConfigMaps, NOT in global ConfigMaps
+                                      properties:
+                                        matchAnnotations:
+                                          additionalProperties:
+                                            type: string
+                                          type: object
+                                        matchLabels:
+                                          additionalProperties:
+                                            type: string
+                                          description: Match by labels AND annotations.
+                                            If both are specified, BOTH must match
+                                            (AND logic)
+                                          type: object
+                                      type: object
+                                    type: array
+                                  successfulHistoryLimit:
+                                    format: int32
+                                    type: integer
+                                  ttlSecondsAfterFinished:
+                                    format: int32
+                                    type: integer
+                                type: object
+                              type: array
+                            successfulHistoryLimit:
+                              format: int32
+                              type: integer
+                            taskRuns:
+                              items:
+                                description: |-
+                                  ResourceSpec is used to hold the config of a specific resource
+                                  Only used in namespace-level ConfigMaps (tekton-pruner-namespace-spec), NOT in global ConfigMaps
+                                properties:
+                                  enforcedConfigLevel:
+                                    description: 'EnforcedConfigLevel allowed values:
+                                      global, namespace (default: namespace)'
+                                    type: string
+                                  failedHistoryLimit:
+                                    format: int32
+                                    type: integer
+                                  historyLimit:
+                                    format: int32
+                                    type: integer
+                                  name:
+                                    type: string
+                                  selector:
+                                    items:
+                                      description: |-
+                                        SelectorSpec allows specifying selectors for matching resources like PipelineRun or TaskRun
+                                        Only applicable in namespace-level ConfigMaps, NOT in global ConfigMaps
+                                      properties:
+                                        matchAnnotations:
+                                          additionalProperties:
+                                            type: string
+                                          type: object
+                                        matchLabels:
+                                          additionalProperties:
+                                            type: string
+                                          description: Match by labels AND annotations.
+                                            If both are specified, BOTH must match
+                                            (AND logic)
+                                          type: object
+                                      type: object
+                                    type: array
+                                  successfulHistoryLimit:
+                                    format: int32
+                                    type: integer
+                                  ttlSecondsAfterFinished:
+                                    format: int32
+                                    type: integer
+                                type: object
+                              type: array
+                            ttlSecondsAfterFinished:
+                              format: int32
+                              type: integer
+                          type: object
+                        type: object
+                      successfulHistoryLimit:
+                        format: int32
+                        type: integer
+                      ttlSecondsAfterFinished:
+                        format: int32
+                        type: integer
+                    type: object
                   options:
                     description: options holds additions fields and these fields will
                       be updated on the manifests
@@ -136286,6 +136443,7 @@ spec:
                     type: object
                 required:
                 - disabled
+                - global-config
                 - options
                 type: object
               trigger:
@@ -136293,6 +136451,9 @@ spec:
                 properties:
                   default-service-account:
                     type: string
+                  disabled:
+                    description: enable or disable Trigger Component
+                    type: boolean
                   enable-api-fields:
                     type: string
                   options:
@@ -155503,6 +155664,7 @@ spec:
                         type: object
                     type: object
                 required:
+                - disabled
                 - options
                 type: object
             type: object

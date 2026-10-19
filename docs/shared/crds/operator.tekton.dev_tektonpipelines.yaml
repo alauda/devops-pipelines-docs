@@ -19145,6 +19145,16 @@ spec:
               targetNamespace:
                 description: TargetNamespace is where resources will be installed
                 type: string
+              traces.credentialsSecret:
+                description: CredentialsSecret is the name of the secret containing
+                  credentials for the tracing endpoint
+                type: string
+              traces.enabled:
+                description: Enabled controls whether tracing is enabled or not
+                type: boolean
+              traces.endpoint:
+                description: Endpoint is the URL for the OpenTelemetry trace collector
+                type: string
               trusted-resources-verification-no-match-policy:
                 type: string
               verification-mode:

@@ -92,6 +92,9 @@ spec:
                 type: object
               default-service-account:
                 type: string
+              disabled:
+                description: enable or disable Trigger Component
+                type: boolean
               enable-api-fields:
                 type: string
               options:
@@ -19002,6 +19005,7 @@ spec:
                 description: TargetNamespace is where resources will be installed
                 type: string
             required:
+            - disabled
             - options
             type: object
           status:

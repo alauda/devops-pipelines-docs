@@ -44,6 +44,13 @@ spec:
           spec:
             description: PipelineRunSpec defines the desired state of PipelineRun
             properties:
+              managedBy:
+                description: |-
+                  ManagedBy indicates which controller is responsible for reconciling
+                  this resource. If unset or set to "tekton.dev/pipeline", the default
+                  Tekton controller will manage this resource.
+                  This field is immutable.
+                type: string
               params:
                 description: Params is a list of parameter names and values.
                 items:
@@ -407,6 +414,18 @@ spec:
                         hostNetwork:
                           description: HostNetwork specifies whether the pod may use
                             the node network namespace
+                          type: boolean
+                        hostUsers:
+                          description: |-
+                            HostUsers indicates whether the pod will use the host's user namespace.
+                            Optional: Default to true.
+                            If set to true or not present, the pod will be run in the host user namespace, useful
+                            for when the pod needs a feature only available to the host user namespace, such as
+                            loading a kernel module with CAP_SYS_MODULE.
+                            When set to false, a new user namespace is created for the pod. Setting false
+                            is useful to mitigating container breakout vulnerabilities such as allowing
+                            containers to run as root without their user having root privileges on the host.
+                            This field depends on the kubernetes feature gate UserNamespacesSupport being enabled.
                           type: boolean
                         imagePullSecrets:
                           description: ImagePullSecrets gives the name of the secret
@@ -845,6 +864,13 @@ spec:
                         type: object
                       type: array
                       x-kubernetes-list-type: atomic
+                    timeout:
+                      description: |-
+                        Duration after which the TaskRun times out. Overrides the timeout specified
+                        on the Task's spec if specified. Takes lower precedence to PipelineRun's
+                        `spec.timeouts.tasks`
+                        Refer Go's ParseDuration documentation for expected format: https://golang.org/pkg/time/#ParseDuration
+                      type: string
                   type: object
                 type: array
                 x-kubernetes-list-type: atomic
@@ -1071,6 +1097,18 @@ spec:
                       hostNetwork:
                         description: HostNetwork specifies whether the pod may use
                           the node network namespace
+                        type: boolean
+                      hostUsers:
+                        description: |-
+                          HostUsers indicates whether the pod will use the host's user namespace.
+                          Optional: Default to true.
+                          If set to true or not present, the pod will be run in the host user namespace, useful
+                          for when the pod needs a feature only available to the host user namespace, such as
+                          loading a kernel module with CAP_SYS_MODULE.
+                          When set to false, a new user namespace is created for the pod. Setting false
+                          is useful to mitigating container breakout vulnerabilities such as allowing
+                          containers to run as root without their user having root privileges on the host.
+                          This field depends on the kubernetes feature gate UserNamespacesSupport being enabled.
                         type: boolean
                       imagePullSecrets:
                         description: ImagePullSecrets gives the name of the secret
@@ -2145,6 +2183,8 @@ spec:
                         description: EnableStepActions is a no-op flag since StepActions
                           are stable
                         type: boolean
+                      enableWaitExponentialBackoff:
+                        type: boolean
                       enforceNonfalsifiability:
                         type: string
                       maxResultSize:
@@ -2313,6 +2353,13 @@ spec:
           spec:
             description: PipelineRunSpec defines the desired state of PipelineRun
             properties:
+              managedBy:
+                description: |-
+                  ManagedBy indicates which controller is responsible for reconciling
+                  this resource. If unset or set to "tekton.dev/pipeline", the default
+                  Tekton controller will manage this resource.
+                  This field is immutable.
+                type: string
               params:
                 description: Params is a list of parameter names and values.
                 items:
@@ -2597,6 +2644,18 @@ spec:
                   hostNetwork:
                     description: HostNetwork specifies whether the pod may use the
                       node network namespace
+                    type: boolean
+                  hostUsers:
+                    description: |-
+                      HostUsers indicates whether the pod will use the host's user namespace.
+                      Optional: Default to true.
+                      If set to true or not present, the pod will be run in the host user namespace, useful
+                      for when the pod needs a feature only available to the host user namespace, such as
+                      loading a kernel module with CAP_SYS_MODULE.
+                      When set to false, a new user namespace is created for the pod. Setting false
+                      is useful to mitigating container breakout vulnerabilities such as allowing
+                      containers to run as root without their user having root privileges on the host.
+                      This field depends on the kubernetes feature gate UserNamespacesSupport being enabled.
                     type: boolean
                   imagePullSecrets:
                     description: ImagePullSecrets gives the name of the secret used
@@ -3435,6 +3494,18 @@ spec:
                           description: HostNetwork specifies whether the pod may use
                             the node network namespace
                           type: boolean
+                        hostUsers:
+                          description: |-
+                            HostUsers indicates whether the pod will use the host's user namespace.
+                            Optional: Default to true.
+                            If set to true or not present, the pod will be run in the host user namespace, useful
+                            for when the pod needs a feature only available to the host user namespace, such as
+                            loading a kernel module with CAP_SYS_MODULE.
+                            When set to false, a new user namespace is created for the pod. Setting false
+                            is useful to mitigating container breakout vulnerabilities such as allowing
+                            containers to run as root without their user having root privileges on the host.
+                            This field depends on the kubernetes feature gate UserNamespacesSupport being enabled.
+                          type: boolean
                         imagePullSecrets:
                           description: ImagePullSecrets gives the name of the secret
                             used by the pod to pull the image if specified
@@ -3721,6 +3792,11 @@ spec:
                           x-kubernetes-preserve-unknown-fields: true
                       type: object
                     taskServiceAccountName:
+                      type: string
+                    timeout:
+                      description: |-
+                        Duration after which the TaskRun times out.
+                        Refer Go's ParseDuration documentation for expected format: https://golang.org/pkg/time/#ParseDuration
                       type: string
                   type: object
                 type: array
@@ -4561,6 +4637,8 @@ spec:
                         description: EnableStepActions is a no-op flag since StepActions
                           are stable
                         type: boolean
+                      enableWaitExponentialBackoff:
+                        type: boolean
                       enforceNonfalsifiability:
                         type: string
                       maxResultSize:
@@ -4991,6 +5069,8 @@ spec:
                                   description: EnableStepActions is a no-op flag since
                                     StepActions are stable
                                   type: boolean
+                                enableWaitExponentialBackoff:
+                                  type: boolean
                                 enforceNonfalsifiability:
                                   type: string
                                 maxResultSize:
@@ -5300,6 +5380,8 @@ spec:
                                       enableStepActions:
                                         description: EnableStepActions is a no-op
                                           flag since StepActions are stable
+                                        type: boolean
+                                      enableWaitExponentialBackoff:
                                         type: boolean
                                       enforceNonfalsifiability:
                                         type: string

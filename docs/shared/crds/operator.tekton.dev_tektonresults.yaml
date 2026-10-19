@@ -19104,6 +19104,15 @@ spec:
               prometheus_port:
                 format: int64
                 type: integer
+              route_enabled:
+                description: Route configuration for Results API service exposure
+                type: boolean
+              route_host:
+                type: string
+              route_path:
+                type: string
+              route_tls_termination:
+                type: string
               secret_name:
                 description: |-
                   name of the secret used to get S3 credentials and
