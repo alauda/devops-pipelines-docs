@@ -1,0 +1,58 @@
+---
+weight: 10
+queries:
+  - Why does Scheduler fail to become ready?
+  - Why is my PipelineRun stuck in PipelineRunPending?
+  - How do I troubleshoot a Scheduler webhook failure?
+---
+
+# Troubleshoot Scheduler
+
+Start with the Scheduler and TektonConfig conditions, then inspect the affected PipelineRun and its Kueue Workload. The commands below require permission to read resources in the relevant namespaces.
+
+## Component is not ready \{#component_not_ready}
+
+```bash
+kubectl get tektonconfig config -o yaml
+kubectl get tektonscheduler scheduler -o yaml
+kubectl api-resources --api-group=kueue.x-k8s.io
+kubectl api-resources --api-group=cert-manager.io
+```
+
+A missing dependency message means the operator cannot discover a required API. Install the Alauda Kueue plugin and cert-manager, verify that Kueue serves `v1beta2`, and wait for their controllers to be ready. Do not install a second Kueue controller over an existing installation.
+
+## Run remains pending \{#run_remains_pending}
+
+```bash
+kubectl get pipelinerun <run> -n <namespace> -o yaml
+kubectl get workloads -n <namespace> -o yaml
+kubectl get localqueues -n <namespace> -o yaml
+kubectl get clusterqueue <queue> -o yaml
+```
+
+Check the following in order:
+
+1. The PipelineRun's queue label names a LocalQueue in the same namespace.
+2. The LocalQueue refers to an active ClusterQueue whose namespace selector permits the namespace.
+3. The ClusterQueue contains the `tekton.dev/pipelineruns` resource and enough available quota.
+4. The Kueue controller configuration includes `PipelineRun.v1.tekton.dev` in `externalFrameworks`.
+5. Scheduler is still enabled. Removing the component does not release already-pending PipelineRuns.
+
+If quota is exhausted, allow active runs to complete or adjust the administrator-managed quota. A pending run with no TaskRun or Pod is expected while it waits for quota.
+
+## Submission fails \{#submission_fails}
+
+An unavailable admission webhook can reject PipelineRun creation in enrolled namespaces. Read the target namespace from TektonConfig and inspect the Scheduler deployments and certificates there:
+
+```bash
+kubectl get tektonconfig config -o jsonpath='{.spec.targetNamespace}'
+kubectl get deployments,services,certificates -n <target-namespace>
+kubectl get mutatingwebhookconfiguration tekton-kueue-mutating-webhook-configuration -o yaml
+kubectl logs -n <target-namespace> deployment/tekton-kueue-webhook --tail=100
+```
+
+Check image pull errors, certificate readiness, the webhook CA bundle, and Service endpoints. Restore the failed dependency before retrying the submission. Removing namespace enrollment allows new submissions to bypass scheduling and therefore removes that namespace's concurrency protection.
+
+## Run bypasses scheduling \{#run_bypasses_scheduling}
+
+Confirm that Scheduler is enabled and that the namespace had `tekton.dev/scheduler-enabled: "true"` when the PipelineRun was created. Runs created before enrollment continue using their original execution behavior.

@@ -8,9 +8,15 @@ Delete completed resources after a specified duration using `ttlSecondsAfterFini
 
 ## How It Works
 
-TTL applies to **all completed runs** (successful and failed). The timer starts when the run finishes.
+TTL applies to completed PipelineRuns and standalone TaskRuns, successful and failed. The timer starts when the run finishes. The Pruner gives TaskRuns that a PipelineRun created no TTL of their own, also not from a `taskRuns` entry; Kubernetes deletes them with the PipelineRun that owns them.
 
 ## Basic Configuration
+
+:::warning
+
+The `TektonConfig` samples on this page are cluster-wide. Right after the Pruner starts, and each time the global configuration changes, it applies the history limits and the TTL to the completed runs in every namespace it covers and deletes the runs that exceed them, including the runs of other teams. The history limits apply also when a sample sets none: the Operator default `historyLimit: 100` stays in `TektonConfig` after a merge patch that does not set it, so a namespace that uses the root values of `global-config` keeps at most its newest 100 successful and newest 100 failed runs, also within the TTL. Under `enforcedConfigLevel: namespace`, a namespace with an entry under `namespaces` uses the values of its namespace ConfigMap and of that entry, not the root values: the namespaces `dev`, `staging` and `prod` of [Environment-specific TTLs](#environment-specific-ttls) get no history limit unless their namespace ConfigMap sets one. The deleted runs and their logs cannot be restored. Before you apply a sample, follow the steps in [Namespace Configuration](./namespace_configuration#recommended-settings) (count the runs, agree with the teams, list the existing namespace ConfigMaps, start with permissive values). Merge a sample into the existing `TektonConfig` with `kubectl patch tektonconfig config --type merge --patch-file <file>`, not with `kubectl apply -f`.
+
+:::
 
 ```yaml
 apiVersion: operator.tekton.dev/v1alpha1
@@ -26,6 +32,8 @@ spec:
       ttlSecondsAfterFinished: 3600  # Delete after 1 hour
 ```
 
+To confirm, read the `pruner.tekton.dev/ttlSecondsAfterFinished` annotation of a run that started after the patch and has completed, with the command in [Pipeline-specific TTLs](#pipeline-specific-ttls): in a namespace that uses the root values of `global-config`, it must show `3600`.
+
 ## Common TTL Values
 
 | Duration  | Seconds   | Use Case                    |
@@ -36,26 +44,30 @@ spec:
 | 7 days    | `604800`  | Staging/release             |
 | 30 days   | `2592000` | Production/audit/compliance |
 
-## Environment-specific TTLs
+If Tekton Results stores the runs, keep its retention period longer than the TTL (see [Relationship with In-Cluster Pruning](../../results/configure/retention_policy_configuration.mdx#relationship-with-in-cluster-pruning)).
+
+## Environment-specific TTLs \{#environment-specific-ttls}
 
 ```yaml
 spec:
   tektonpruner:
     global-config:
       enforcedConfigLevel: namespace
-      ttlSecondsAfterFinished: 3600  # Default
+      ttlSecondsAfterFinished: 2592000  # Default and upper limit: 30 days
       namespaces:
         dev:
           ttlSecondsAfterFinished: 300      # 5 min
         staging:
           ttlSecondsAfterFinished: 86400    # 1 day
         prod:
-          ttlSecondsAfterFinished: 2592000
+          ttlSecondsAfterFinished: 2592000  # 30 days
 ```
 
-## Pipeline-specific TTLs
+A value under `namespaces.<namespace>` cannot exceed the root `ttlSecondsAfterFinished`. For example, with a root value of `3600`, the Operator webhook rejects the configuration with a message such as `global-config.namespaces.prod: ttlSecondsAfterFinished (2592000) cannot exceed global limit (3600)`. Set the root value to at least the largest namespace value. Namespaces without an entry under `namespaces` use the root value, unless their namespace ConfigMap sets a TTL. Without a root value, the namespace values are checked against the system maximum of `2592000` seconds (30 days).
 
-Use selectors in namespace ConfigMaps for pipeline-specific TTLs:
+## Pipeline-specific TTLs \{#pipeline-specific-ttls}
+
+Use selectors in namespace ConfigMaps for pipeline-specific TTLs. A namespace ConfigMap takes effect only when the `enforcedConfigLevel` that applies to its namespace is `namespace`: the value in the `namespaces.<namespace>` entry of `global-config` if that entry sets one, else the root value of `global-config` (see [Namespace Configuration](./namespace_configuration#configuration-hierarchy)). The Basic Configuration above does not set the level. Merged into the existing `TektonConfig` as the warning in that section instructs, it leaves the existing `enforcedConfigLevel` in place: `global` if the value is still the one that the Operator wrote. A `global-config` that has no `enforcedConfigLevel` at all falls back to `resource`. At every level other than `namespace`, the Pruner ignores namespace ConfigMaps although the webhook accepts them:
 
 :::warning
 
@@ -77,18 +89,32 @@ data:
     ttlSecondsAfterFinished: 3600
     pipelineRuns:
       - selector:
-          matchLabels:
-            pipeline-type: release
+          - matchLabels:
+              pipeline-type: release
         ttlSecondsAfterFinished: 604800
       - selector:
-          matchLabels:
-            pipeline-type: test
+          - matchLabels:
+              pipeline-type: test
         ttlSecondsAfterFinished: 300
 ```
 
+To confirm that an entry's TTL applies, read the TTL that the Pruner wrote on a completed run that the entry should match and that started after your last change of the Pruner configuration (see the second cause below). This needs only read access to PipelineRuns in the namespace:
+
+```bash
+kubectl get pipelinerun <name> -n <namespace> -o jsonpath='{.metadata.annotations.pruner\.tekton\.dev/ttlSecondsAfterFinished}'
+```
+
+The command prints the TTL in seconds that the Pruner uses for the run; the run is deleted that long after it finished. For a `pipeline-type: release` run of this sample, it must print `604800`. Another value, such as the `3600` from the top of `ns-config`, means that the entry does not apply and the run is deleted at that time instead; no value means that the Pruner set no TTL for the run. Causes that do this without any error include:
+
+- The event-based Pruner is disabled, which is the Operator default: no TTL is written. The `TektonConfig` read under Method 2 of [Namespace Configuration](./namespace_configuration) then prints `true` as its first value.
+- The `enforcedConfigLevel` that applies to the namespace is not `namespace`; the same `TektonConfig` read prints the root level as its second value. `global` is the Operator default; when the second value is empty, `global-config` has no `enforcedConfigLevel` and the Pruner falls back to `resource`. An `enforcedConfigLevel` in the `namespaces.<namespace>` entry of `global-config` replaces the root value for that namespace. Under `global` and under `resource`, the Pruner ignores the namespace ConfigMap: under `global` it gives the run the global TTL; under `resource` it uses the `namespaces.<namespace>` entry, or the global TTL when the namespace has no entry. When that gives no TTL, the Pruner writes none, but it does not remove a value that an earlier configuration wrote: a run that already had a TTL keeps it. The command then prints that old value, for a run that started before the change possibly the `604800` that the entry set, although the entry no longer applies, and the run is still deleted at that time.
+- Another entry decides first. The first entry whose selector matches the run decides its TTL, and a `name` entry for the run's Pipeline is checked before the selector entries. When that entry sets no `ttlSecondsAfterFinished`, the run gets the TTL of the whole namespace, here `3600`, not the TTL of a later matching entry. The sample has no `name` entry and no entry before the `pipeline-type: release` entry; this cause applies when you add one.
+- The labels of the run do not match the entry's selector: the run gets the TTL of another entry that matches it, for example the `300` of the `pipeline-type: test` entry, or else the TTL of the whole namespace, here the `3600` at the top of `ns-config`.
+- The `ttlSecondsAfterFinished` key of the entry is misspelled, for example `ttlSecondAfterFinished`: neither the webhook nor the Pruner reports unknown keys, so the entry sets no TTL and the run gets the TTL of the whole namespace.
+
 ## Combining TTL with History Limits
 
-History limits override TTL to guarantee minimum retention:
+History limits do not protect runs from TTL. The pruner applies both settings independently. The example is the `ns-config` of a namespace ConfigMap, so it also needs `enforcedConfigLevel: namespace`:
 
 ```yaml
 data:
@@ -98,14 +124,13 @@ data:
     failedHistoryLimit: 10
 ```
 
-**Result**: Runs are deleted after 5 minutes UNLESS they're in the last 5 successful or last 10 failed.
+**Result**: Each run is deleted 5 minutes after it finishes, even if it is one of the last 5 successful or last 10 failed runs of the namespace.
 
 ## Best Practices
 
-1. **Development**: Short TTLs (5-60 min) for rapid iteration
-2. **Production**: Long TTLs (7-30 days) for audit/compliance
-3. **Critical Pipelines**: Use selectors for extended retention
-4. **Balance**: Consider storage costs vs. retention needs
+1. **Development and production**: use shorter TTLs in development namespaces than in production namespaces, as in [Environment-specific TTLs](#environment-specific-ttls) (`dev` 300 seconds, `prod` 2592000 seconds).
+2. **Critical Pipelines**: an entry with a longer `ttlSecondsAfterFinished` keeps its runs longer than the TTL of other runs, but only when the entry applies (check the annotation of a completed run as in [Pipeline-specific TTLs](#pipeline-specific-ttls)), and not past the history limits. A namespace-wide history limit, for example the Operator default `historyLimit: 100`, still counts these runs and deletes the older ones when a run completes that no entry matches or whose entry does not set that history limit; in the Pipeline-specific TTLs sample, whose entries set only a TTL, that is every run (see [Pipeline-specific Limits](./history_based_pruning#pipeline-specific-limits)).
+3. **TTL inside history limits**: a run is deleted when its TTL expires, even if it is within a history limit (see Combining TTL with History Limits), so do not set a TTL shorter than the time a run must be kept.
 
 ## Related
 

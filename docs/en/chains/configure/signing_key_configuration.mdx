@@ -8,7 +8,7 @@ weight: 52
 
 To enable artifact signing in Tekton Chains, you need to generate and configure signing keys. This document explains how to generate and configure signing keys for different signing methods.
 
-## Generate Signing Key
+## Generate Signing Key \{#generate-signing-key}
 
 :::warning
 The signing key is used to generate signature information for artifacts. Please keep it secure.
@@ -16,34 +16,45 @@ The signing key is used to generate signature information for artifacts. Please 
 
 ### Using Cosign
 
-You can use the [cosign](https://github.com/sigstore/cosign) tool to generate a signing key pair:
+`cosign generate-key-pair` replaces a key pair that `signing-secrets` already holds, without asking for confirmation, unless the Secret is immutable. Before you run it, read the key names of the Secret with the check command shown after the note below; an error that ends with `null (null) has no keys` means that the Secret holds no data. If the output lists `cosign.key`, the Secret already holds a signing key: export it first as described in [Get the Signing Secret](#get-the-signing-secret), because signatures made with that key verify only with its `cosign.pub`. Do not run the command when `generateSigningSecret` is `true` in `spec.chain` of `TektonConfig`: the Operator then writes a key pair into `signing-secrets` itself.
 
-```shell
-$ COSIGN_PASSWORD={password} cosign generate-key-pair k8s://tekton-pipelines/signing-secrets
+You can use the [cosign](https://github.com/sigstore/cosign) tool to generate a signing key pair. Run the `read -rs` line on its own, type the password and press Enter, then run the other lines. In a shell without bracketed paste, such as bash before 5.1, `read` takes the next line of a pasted block as the password:
+
+```bash
+read -rs COSIGN_PASSWORD
+```
+
+Then run:
+
+```bash
+export COSIGN_PASSWORD
+cosign generate-key-pair k8s://tekton-pipelines/signing-secrets
+unset COSIGN_PASSWORD
 ```
 
 **Note:**
-- You need to have the cosign CLI installed and access to the Kubernetes cluster
-- `COSIGN_PASSWORD` is the password for encrypting the signing key
+- You need to have the cosign CLI installed and access to the Kubernetes cluster. Generating the key writes the Secret `signing-secrets` in `tekton-pipelines`, the check below and the export in [Get the Signing Secret](#get-the-signing-secret) read that Secret, and the restart in [Restart Tekton Chains](#restart-tekton-chains) deletes Pods there. These steps need the matching rights on Secrets and Pods in `tekton-pipelines`, usually a cluster administrator
+- `COSIGN_PASSWORD` is the password for encrypting the signing key. After `read -rs COSIGN_PASSWORD`, type the password and press Enter: `read -rs` does not show it, so it does not appear on the screen or in the shell history. `unset` removes it from the shell after the key pair is created. Run the commands in bash or zsh: in a POSIX `sh` such as `dash`, `read -rs` fails and leaves the variable empty
 - `tekton-pipelines` is the namespace where the Chains component is deployed (default is `tekton-pipelines`)
 - `signing-secrets` is the name of the Secret for storing the signing key
+- The check below and the restore and copy commands in [Get the Signing Secret](#get-the-signing-secret) use the `jq` CLI
 
-After execution, you can view the corresponding Secret resource:
+After execution, check that the Secret holds the three keys. The command prints only the key names, not the private key or the password:
 
 ```shell
-$ kubectl get secret signing-secrets -n tekton-pipelines -o yaml
+$ kubectl get secret signing-secrets -n tekton-pipelines -o json | jq '.data | keys'
 
-apiVersion: v1
-data:
-  cosign.key: <base64-encoded-private-key>
-  cosign.password: <base64-encoded-password>
-  cosign.pub: <base64-encoded-public-key>
-immutable: true
-kind: Secret
-metadata:
-  name: signing-secrets
-  namespace: tekton-pipelines
-type: Opaque
+[
+  "cosign.key",
+  "cosign.password",
+  "cosign.pub"
+]
+```
+
+cosign writes the key pair into `signing-secrets` and makes the Secret immutable (`immutable: true`), also when the Secret already existed, so its data cannot be changed afterwards. Running the command again against this immutable Secret fails with the following error; against a Secret that is not immutable, such as one that the Operator created again, the command replaces the key instead:
+
+```text
+Error: updating secret signing-secrets in ns <namespace>: Secret "signing-secrets" is invalid: data: Forbidden: field is immutable when `immutable` is set
 ```
 
 ### Get the Signing Public Key \{#get-the-signing-public-key}
@@ -53,23 +64,44 @@ If you don't have permission, you can ask the administrator to get the public ke
 :::
 
 ```shell
-$ export NAMESPACE=<tekton-pipelines>
-$ kubectl get secret -n $NAMESPACE signing-secrets -o jsonpath='{.data.cosign\.pub}' | base64 -d > cosign.pub
+export NAMESPACE=<tekton-pipelines>
+kubectl get secret -n $NAMESPACE signing-secrets -o jsonpath='{.data.cosign\.pub}' | base64 -d > cosign.pub
 ```
 
 ### Get the Signing Secret \{#get-the-signing-secret}
 
+The exported file contains the private key and its password. The `umask 077` in the subshell creates the file readable only by you. `rm -f` removes an older copy first, because `>` keeps the permissions of an existing file:
+
 ```shell
-$ export NAMESPACE=<tekton-pipelines>
-$ kubectl get secret -n $NAMESPACE signing-secrets -o yaml > signing-secrets.yaml
+export NAMESPACE=<tekton-pipelines>
+(umask 077 && rm -f signing-secrets.json && kubectl get secret -n $NAMESPACE signing-secrets -o json > signing-secrets.json)
 ```
 
-## Restart Tekton Chains
+The file is a copy of the whole Secret. Its `metadata`, such as `uid` and `resourceVersion`, belongs to the exported Secret, so do not create the Secret again from the file as it is. To restore the key, for example after Chains was disabled and enabled again and `signing-secrets` came back without data, merge only the `data` of the file into the Secret; the Operator creates `signing-secrets` without `immutable`, so its data can still be set. The `data` keeps the key names: Chains reads the private key from `cosign.key` and its password from `cosign.password` in the Secret `signing-secrets`:
+
+```shell
+export NAMESPACE=<tekton-pipelines>
+jq '{data: .data}' signing-secrets.json | kubectl patch secret signing-secrets -n $NAMESPACE --type merge --patch-file /dev/stdin
+```
+
+Then restart Chains as described in [Restart Tekton Chains](#restart-tekton-chains).
+
+To use the key in another namespace, for example the namespace where a pipeline signs with it, create a copy of the Secret there from the file. The `jq` filter keeps only the name, the type and the `data` of the Secret, without the other `metadata` of the exported Secret, and the key does not appear on the command line:
+
+```shell
+jq '{apiVersion, kind, type, metadata: {name: .metadata.name}, data}' signing-secrets.json | kubectl create -n <namespace> -f -
+```
+
+Anyone who can read Secrets in that namespace, or run a Pod there that mounts the copy, can sign with the same key as Chains. Restrict Secret access in that namespace, and delete the copy when it is no longer needed.
+
+Delete the file (`rm -f signing-secrets.json`) when you no longer need it.
+
+## Restart Tekton Chains \{#restart-tekton-chains}
 
 After configuring the signing key, restart the Tekton Chains component to make it take effect:
 
 ```shell
-$ kubectl delete pods -n tekton-pipelines -l app=tekton-chains-controller
+kubectl delete pods -n tekton-pipelines -l app=tekton-chains-controller
 ```
 
 Wait for the component to start:
@@ -80,6 +112,43 @@ $ kubectl get pods -n tekton-pipelines -l app=tekton-chains-controller -w
 NAME                                        READY   STATUS    RESTARTS   AGE
 tekton-chains-controller-55876dfbbd-5wv5z   1/1     Running   0          1m30s
 ```
+
+## Recommended Settings
+
+**When to enable.** Enable signing when compliance requires every image and attestation built on the platform to carry a verifiable signature. Configure the key pair once for the cluster in the `signing-secrets` Secret in the Chains namespace; one public key then verifies everything Chains signs on that cluster.
+
+**Recommended values.** Keep the cosign key pair in the `signing-secrets` Secret in the Chains namespace (`tekton-pipelines` by default), created as described in [Generate Signing Key](#generate-signing-key). Store image signatures, and the attestations of TaskRuns and PipelineRuns whose results report an image, in the OCI registry next to that image (a run whose results report no image has no image to store them next to), and configure them through `TektonConfig` (see [Chains Configuration](./chains_configuration.mdx)):
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  chain:
+    disabled: false
+    artifacts.oci.format: simplesigning
+    artifacts.oci.storage: oci
+    artifacts.pipelinerun.format: in-toto
+    artifacts.pipelinerun.storage: oci
+    artifacts.taskrun.format: in-toto
+    artifacts.taskrun.storage: oci
+    transparency.enabled: false
+```
+
+Save the sample as `tektonconfig-chains.yaml` and merge it into the existing `TektonConfig`. A merge patch changes only the keys in the file and keeps the other fields of `TektonConfig`. It needs permission to patch `TektonConfig`, which is cluster-scoped, usually a cluster administrator:
+
+```bash
+kubectl patch tektonconfig config --type merge --patch-file tektonconfig-chains.yaml
+```
+
+Do not use `kubectl apply -f` for a file that holds only part of `TektonConfig`: a later `kubectl apply -f` of another partial file deletes the fields that this file set and the later file leaves out. Then check that the change reached `chains-config`, as described in [Check That a Change Reached Chains](./chains_configuration.mdx#check-that-a-change-reached-chains). A direct edit of the `chains-config` ConfigMap takes effect at once, but the operator discards it the next time it regenerates the ConfigMap, for example after any change to `spec.chain` in `TektonConfig`.
+
+Chains does not create PipelineRun-level signatures or provenance for a PipelineRun that contains a `CustomRun`, such as the `ApprovalTask` of a manual approval step (see [tektoncd/chains#1210](https://github.com/tektoncd/chains/issues/1210)). The image signatures and attestations that Chains creates from the TaskRuns of that PipelineRun are not affected.
+
+Keep `transparency.enabled` at its default `false` unless a Rekor instance you control is configured. If you enable it without `transparency.url`, Chains uploads to the public Rekor at `https://rekor.sigstore.dev` and, if the cluster can reach it, publishes the signature and provenance of every signed run, including registry hostnames, image references and Task details, to that public, append-only log, so this build information becomes public. To use your own Rekor instance, also set `transparency.url` to its address in `spec.chain`. Signing does not enforce anything by itself: verify signatures and attestations as a separate step at deployment time, as described in [Image Signature Verification](../how_to/image_signature_verification.mdx) and [Build System Provenance Verification](../how_to/build_system_verification.mdx).
+
+**Prerequisites.** Tekton Chains is deployed (by default through `TektonConfig`), the cosign CLI has access to the cluster to generate the key pair, and the Tekton Chains controller is restarted after the key is created (see [Restart Tekton Chains](#restart-tekton-chains)). The build Tasks must report the image URL and digest as type-hinted results (see [Type Hinting](../concepts/understanding_tekton_chains.mdx#type-hinting)). For the PipelineRun attestation, the Pipeline must also pass the image URL and digest up as type-hinted Pipeline results, for example `IMAGE_URL` and `IMAGE_DIGEST` taken from the build Task's results: with the default `artifacts.pipelinerun.enable-deep-inspection: "false"`, Chains reads only the Pipeline results. When they are missing, Chains stores no PipelineRun attestation, logs `No image subject to attest for tekton.dev/v1/PipelineRun/<namespace>/<name>. Skipping upload to registry`, and still marks the run as signed. Setting `enable-deep-inspection` to `"true"` makes Chains also read the results of the run's TaskRuns (see [PipelineRun Configuration](./chains_configuration.mdx#pipelinerun-configuration)); this guide does not use that option. Chains also needs push credentials for the target registry (see [OCI Registry Authentication](./authentication_for_chains.mdx#oci-registry-authentication)).
 
 ## References
 

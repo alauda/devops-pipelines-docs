@@ -1,0 +1,158 @@
+---
+weight: 55
+---
+
+# Configure Matrix Parameters
+
+Matrix runs the same Task with multiple sets of parameters. Each matrix
+combination creates one Task execution when the Pipeline runs.
+
+## When to Use Matrix
+
+Use Matrix when one Task must run with several string values, such as:
+
+- Building several image tags.
+- Testing multiple runtime versions.
+- Running the same validation against multiple environments.
+
+For example, a Task can run once with `nodejs=18` and once with `nodejs=20`.
+
+## Configure Matrix in the Web Console \{#configure-matrix}
+
+1. Open a Pipeline and select **Edit**.
+2. Open **Pipeline** and select the Task to configure.
+3. Turn on **Matrix** in the Task parameters section.
+4. Configure the first parameter group.
+5. Select **Add parameter group** to add more groups.
+6. Enter the string parameter values for each group.
+7. Save the Task.
+8. Save the Pipeline.
+
+The groups are shown as `matrix#1`, `matrix#2`, and so on. These labels identify
+the groups in the form; they are not parameter names.
+
+Each group uses the same Task definition. The values in a group apply only to
+the Task execution created from that group.
+
+## Fields Supported by the UI
+
+The basic Matrix form edits the explicit combination fields below:
+
+```yaml
+spec:
+  tasks:
+    - name: build
+      matrix:
+        include:
+          - params:
+              - name: nodejs
+                value: "18"
+          - params:
+              - name: nodejs
+                value: "20"
+```
+
+The UI supports:
+
+- `spec.tasks[].matrix.include[]` as one or more explicit parameter groups.
+- `spec.tasks[].matrix.include[].params[]` for parameters in each group.
+- String parameter values in each group.
+- Parameters declared as `string` by the underlying Task. A parameter without
+  an explicit type is treated as `string`.
+- Non-string Task parameters kept in `spec.tasks[].params[]` as ordinary,
+  shared Task parameters. These parameters are not used to create matrix
+  combinations.
+- Integration bindings configured separately for each matrix group.
+
+The UI does not provide an editor for the matrix group's optional `name`
+field. Existing names are preserved, while new groups use the `matrix#N`
+display label.
+
+The following validation also applies:
+
+- The underlying Task must declare at least one string parameter before Matrix
+  can be enabled.
+- Required string parameters must have valid values in every group unless they
+  are supplied through a valid integration binding.
+- A matrix group cannot be empty.
+
+## Configure Advanced Matrix with YAML
+
+Use YAML when the Pipeline needs Matrix fields that the basic form does not
+edit. The most common case is `spec.tasks[].matrix.params[]`, which creates
+combinations from array values:
+
+```yaml
+spec:
+  tasks:
+    - name: test
+      taskRef:
+        name: run-tests
+      matrix:
+        params:
+          - name: os
+            value: ["linux", "windows"]
+          - name: nodejs
+            value: ["18", "20"]
+        include:
+          - name: windows-lts
+            params:
+              - name: os
+                value: "windows"
+              - name: nodejs
+                value: "18"
+```
+
+This configuration creates four combinations from `matrix.params`. The
+`windows-lts` Include matches the existing `os=windows` and `nodejs=18`
+combination, so it modifies that combination instead of creating a fifth
+execution.
+
+An Include that does not match an existing combination adds a new combination.
+For example, an Include with `os=windows` and `nodejs=22` creates one
+additional execution. When an Include matches an existing combination, its
+values override the matching values for that combination.
+
+Use YAML for these cases:
+
+- `spec.tasks[].matrix.params[]` and array values that create a Cartesian
+  product.
+- Matrix parameter substitutions and explicit Include combinations that are not
+  available in the basic form.
+- Matrix fields or extensions that are not shown in the basic form.
+
+To configure these fields, switch the Pipeline editor to **YAML**, edit the
+`matrix` section under the required task, and validate the YAML before saving.
+If the task contains an advanced Matrix definition, the UI preserves it and
+shows a notice. Do not switch that task back to the basic Matrix form unless
+the YAML uses only the fields supported by the UI.
+
+## Disable Matrix
+
+When Matrix is disabled, the first parameter group becomes the ordinary Task
+parameters. If more than one group exists, the console asks for confirmation
+before removing the additional groups.
+
+Cancel the confirmation to keep Matrix enabled.
+
+## View Matrix Executions
+
+After the Pipeline runs, the Task overview groups the executions created from
+the Matrix Task. Select a Matrix instance to inspect its status, duration,
+parameters, and logs.
+
+When a downstream Task references a result from a Matrix Task, use the
+aggregated result form with `[*]`, for example:
+
+```text
+$(tasks.test.results.image[*])
+```
+
+A normal single-value reference such as `$(tasks.test.results.image)` is not
+valid for a Matrix Task result. Matrix changes the number of Task executions;
+it does not create a separate Pipeline.
+
+## Related Topics
+
+- [Run Template](run_template.mdx)
+- [Pipeline concepts](../concepts/pipeline_concept.mdx)

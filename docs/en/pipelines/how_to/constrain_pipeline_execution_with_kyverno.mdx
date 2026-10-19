@@ -42,17 +42,28 @@ can also submit a label that looks like a platform label. Use resolver parameter
 admission decision and labels or results for post-execution audit.
 
 The lifecycle is: run admission, remote resolution, child TaskRun admission, Pod admission,
-then status updates. A remotely fetched Task or Pipeline is not automatically submitted
-as a Kubernetes Task or Pipeline, so policies on those definitions do not validate fetched
-YAML. A child TaskRun's reference is visible at its admission, but a remote Task's body may
+then status updates. A remotely fetched Task or Pipeline is not stored as a Kubernetes
+object, but Tekton validates a fetched Pipeline with a server-side dry-run in the run's
+namespace, so `Pipeline` policies there also see the fetched YAML, and a denial fails the
+run. A child TaskRun's reference is visible at its admission, but a remote Task's body may
 still be unresolved. Pod admission sees the resolved container configuration.
 
-Kyverno is one layer in the control. Use RBAC to decide who may create or update Tekton
-objects, use the operator's inline-spec feature flag for a cluster-wide baseline, keep
-catalog and Pipeline sources under review, and keep image registries available in an
-air-gapped cluster. No single policy provides template integrity by itself.
+Kyverno is one layer in the control; combine it with these steps:
 
-## Prerequisites
+- Use RBAC to decide who may create or update Tekton objects.
+- Use the operator's inline-spec feature flag for a cluster-wide baseline only when every
+  namespace follows the same rule. The flag rejects inline specs in every namespace,
+  including the runs that PAC creates from a `.tekton/` file with an inline
+  `pipelineSpec` and, with the default PAC setting `remote-tasks: "true"`, the runs into
+  which PAC embeds a resolved Pipeline or Task. With that default, only PAC runs that
+  reference their Pipeline through `pipelineRef.resolver` are not rejected for an embedded
+  `pipelineSpec`; see the warning in section 1.
+- Keep catalog and Pipeline sources under review.
+- Keep image registries available in an air-gapped cluster.
+
+No single policy provides template integrity by itself.
+
+## Prerequisites \{#prerequisites}
 
 - Tekton Pipelines and its validating webhook are installed and configured to fail closed
   for invalid Tekton resources.
@@ -65,7 +76,13 @@ air-gapped cluster. No single policy provides template integrity by itself.
 - In an air-gapped cluster, install Kyverno, resolver configuration, policy YAML, and all
   referenced images from an approved offline repository.
 
-Start with `Audit` in one disposable namespace. Move a policy to `Enforce` only after its
+Start with `Audit` and match one disposable namespace. The namespace match limits where the
+policy is evaluated, not where Kyverno's webhook is called: each `ClusterPolicy` registers
+its resource kinds in Kyverno's shared validating webhook (`validate.kyverno.svc-fail`) for
+the whole cluster, also in `Audit` mode. While the Kyverno admission controller is
+unavailable, the API server rejects the requests for those kinds in every namespace that
+Kyverno's global settings do not exclude, including the Pods and Tekton runs of other teams.
+Move a policy to `Enforce` only after its
 match scope and legitimate exceptions are understood. `background: false` is used below
 because these examples are intended to evaluate admission or status updates rather than
 rewrite history. The examples are opt-in policies, not installed product defaults.
@@ -88,8 +105,8 @@ When migrating an older policy, move its action into every validation rule and r
 the policy-level field.
 
 Put each complete policy below in its own YAML file, replace its placeholders, and first
-set `validate.failureAction: Audit` on every rule. For example, after changing all four
-rules in the first policy:
+set `validate.failureAction: Audit` on every rule. For example, save the first policy as
+`tekton-no-inline-execution-specs.yaml` and, after changing all four of its rules, run:
 
 ```bash
 kubectl apply --dry-run=server -f tekton-no-inline-execution-specs.yaml
@@ -108,15 +125,33 @@ embedding a `taskSpec` or `pipelineSpec` in a run or definition.
 **Enforcement point:** admission on `TaskRun` create requests and `PipelineRun` or
 `Pipeline` create/update requests. A denied request never reaches a Tekton controller.
 
-The standalone `TaskRun` rule checks only `CREATE`. The Tekton controller ServiceAccount is
-excluded because it creates child TaskRuns for an accepted PipelineRun. Change the
+The `PipelineRun` and `Pipeline` rules list `CREATE` and `UPDATE` under `operations` in
+`match`. Without this list, Kyverno also evaluates these `deny` rules when an object is
+deleted, against the object that is being deleted. An object that passes the rule can still
+be deleted, but the deletion of an object that violates the rule is denied, for example a
+`PipelineRun` that was admitted while the rule was in `Audit` or before the policy existed.
+The Pruner deletes runs through the same API request, so its deletion of such a run is
+denied in the same way.
+
+The standalone `TaskRun` rule lists only `CREATE` under `operations` in `match` and checks
+only `CREATE`. Without this list, Kyverno registers the `UPDATE` and `DELETE` operations on
+TaskRuns in its shared webhook as well, for the whole cluster. The Tekton controller
+ServiceAccount is excluded because it creates child TaskRuns for an accepted PipelineRun. Change the
 ServiceAccount and namespace when the cluster uses a customized Tekton installation. This
 is an authenticated request identity, not `spec.serviceAccountName` or an owner label that
 a user can supply. RBAC must prevent users from impersonating this identity or running
 their own Pods under it. Do not extend this rule to `UPDATE`: the `tekton-results-watcher`
 and `tekton-chains-controller` components update TaskRun metadata and finalizers on the
 main resource, so denying those updates can stop result storage, signing, and finalizer
-removal. If another trusted component creates TaskRuns, add its ServiceAccount to the
+removal.
+
+An EventListener and the ScheduledTrigger controller create the resources of their
+TriggerTemplate, and their requests do not come from the Tekton controller ServiceAccount.
+This rule therefore also rejects a `TaskRun` that such a template holds. A template that
+holds a `PipelineRun` is not affected, because the Tekton controller creates its child
+TaskRuns. The EventListener still answers the event with HTTP `202`, and the denial is in
+the log of the EventListener Pod; a ScheduledTrigger records it in a `FailedCreate` warning
+event. If another trusted component must create TaskRuns, add its ServiceAccount to the
 narrow exclusion as well.
 
 ```yaml
@@ -137,6 +172,8 @@ spec:
                 - tekton.dev/v1/TaskRun
               namespaces:
                 - <governed-namespace>
+              operations:
+                - CREATE
       exclude:
         any:
           - subjects:
@@ -160,6 +197,9 @@ spec:
                 - tekton.dev/v1/PipelineRun
               namespaces:
                 - <governed-namespace>
+              operations:
+                - CREATE
+                - UPDATE
       validate:
         failureAction: Enforce
         message: "Use pipelineRef with the approved resolver; inline pipelineSpec is disabled."
@@ -177,6 +217,9 @@ spec:
                 - tekton.dev/v1/Pipeline
               namespaces:
                 - <governed-namespace>
+              operations:
+                - CREATE
+                - UPDATE
       validate:
         failureAction: Enforce
         message: "Use taskRef entries from an approved source; inline taskSpec entries are disabled."
@@ -194,6 +237,9 @@ spec:
                 - tekton.dev/v1/Pipeline
               namespaces:
                 - <governed-namespace>
+              operations:
+                - CREATE
+                - UPDATE
       validate:
         failureAction: Enforce
         message: "Use taskRef entries from an approved source; inline finally taskSpec entries are disabled."
@@ -205,9 +251,62 @@ spec:
                 value: 0
 ```
 
-Tekton also has an operator-managed baseline. The following is a configuration fragment
-for the existing `TektonPipeline`, not a new installation. If `TektonConfig` owns that
-resource, set the corresponding `spec.pipeline.disable-inline-spec` field there instead:
+Tekton also has an operator-managed baseline, the `disable-inline-spec` setting. On a
+default installation, `TektonConfig` owns the `TektonPipeline` resource named `pipeline` and
+copies its own `spec.pipeline` into it, so set the value in
+`spec.pipeline.disable-inline-spec` of `TektonConfig` with the merge patch below.
+
+:::warning
+
+`disable-inline-spec` is a cluster-wide setting. With the value below, the Tekton webhook
+rejects, in every namespace:
+
+- every `PipelineRun` with an embedded `pipelineSpec`. This includes the runs that PAC
+  creates from a `.tekton/` file with an inline `pipelineSpec` and, with the default PAC
+  setting [`remote-tasks: "true"`](../../pac/install/manage_pac.mdx#disable-remote-tasks),
+  the runs into which PAC embeds a resolved Pipeline or Task (PAC embeds them for a
+  `pipelineRef` or `taskRef` without `resolver`; see
+  [PAC Resolver](../../pac/how_to/pac_resolver.mdx#about-pac-resolver)). With that
+  default, only PAC runs that reference their Pipeline through `pipelineRef.resolver` are
+  not affected by this check;
+- every `TaskRun` with an embedded `taskSpec`, including the TaskRuns that the PipelineRun
+  controller creates for a Pipeline task that defines its Task inline with `taskSpec`;
+- every `Pipeline` whose tasks define `taskSpec` or `pipelineSpec` inline.
+
+A `PipelineRun` that is already running is affected too. With `pipeline` in the value, as
+below, the controller checks the run's Pipeline again at its next reconcile: if a task
+defines `taskSpec` or `pipelineSpec` inline, the run fails with the reason
+`PipelineValidationFailed` and the message
+`[User error] Pipeline <namespace>/<name> can't be Run; it has an invalid spec: ...`. With
+`taskrun` in the value but not `pipeline`, the run fails with the reason `CreateRunFailed` when it
+reaches a task with an inline `taskSpec`, because its TaskRun cannot be created.
+
+Read the current value first
+(`kubectl get tektonconfig config -o jsonpath='{.spec.pipeline.disable-inline-spec}'`).
+To undo the change, remove the field; an empty value allows inline specs again:
+
+```bash
+kubectl patch tektonconfig config --type merge \
+  -p '{"spec":{"pipeline":{"disable-inline-spec":null}}}'
+```
+
+If the field had a value before your change, set that value again instead. For a
+`TektonPipeline` that `TektonConfig` does not own, remove `disable-inline-spec` from its
+`spec` in the same way.
+
+:::
+
+Set the value with a merge patch. It needs permission to patch `TektonConfig`, which is
+cluster-scoped, usually a cluster administrator:
+
+```bash
+kubectl patch tektonconfig config --type merge \
+  -p '{"spec":{"pipeline":{"disable-inline-spec":"taskrun,pipelinerun,pipeline"}}}'
+```
+
+For a `TektonPipeline` that `TektonConfig` does not own, set the field in its `spec`
+instead. The following is a configuration fragment for that existing `TektonPipeline`, not
+a new installation:
 
 ```yaml
 apiVersion: operator.tekton.dev/v1alpha1
@@ -218,6 +317,19 @@ spec:
   disable-inline-spec: "taskrun,pipelinerun,pipeline"
 ```
 
+To confirm that the value is in effect, read it from the `feature-flags` ConfigMap in
+`tekton-pipelines`, which the Operator writes and the Tekton webhook reads.
+`tekton-pipelines` is the default of `TektonConfig` `spec.targetNamespace`; replace it in the
+commands if your installation uses another namespace. Reading the ConfigMap needs
+read access to ConfigMaps in `tekton-pipelines`, usually a cluster administrator:
+
+```bash
+kubectl get configmap feature-flags -n tekton-pipelines -o jsonpath='{.data.disable-inline-spec}'
+```
+
+The output must be the value that you set, such as `taskrun,pipelinerun,pipeline`. An empty
+output means that inline specs are still allowed.
+
 The feature flag is useful when every namespace follows the same rule. Kyverno is useful
 when rollout scope, denial messages, PolicyReports, or exceptions matter. The flag does
 not create a policy report and neither option replaces RBAC.
@@ -227,11 +339,12 @@ The flag prohibits inline specs, but it does **not** prohibit a standalone TaskR
 ## 2. Require a reviewed resolver reference
 
 **Use case:** require every governed `PipelineRun` to identify a remote Pipeline through
-the hub resolver. The generic rule checks only the reference shape. The catalog name and
-version belong in the companion Catalog guide.
+the hub resolver. The first rule checks only the reference shape; a second policy limits
+the reference to reviewed `name@version` pairs.
 
 **Enforcement point:** `PipelineRun` admission. This rule does not inspect the remote
-Pipeline body.
+Pipeline body. Both rules of this section list `CREATE` and `UPDATE` under `operations`,
+for the reason given in section 1.
 
 ```yaml
 apiVersion: kyverno.io/v1
@@ -251,6 +364,9 @@ spec:
                 - tekton.dev/v1/PipelineRun
               namespaces:
                 - <governed-namespace>
+              operations:
+                - CREATE
+                - UPDATE
       validate:
         failureAction: Enforce
         message: "PipelineRuns must use a hub resolver with catalog, pipeline kind, name, and version."
@@ -274,11 +390,45 @@ spec:
                 value: ""
 ```
 
-Add a second policy with an allowlist of `name@version` pairs. Keep that allowlist in the
-Catalog guide when it contains Catalog-specific names; the current Java example is
-in <ExternalSiteLink name="artifacthub-shim"
-href="/catalog/how_to/constrain_catalog_pipeline_usage_with_kyverno.html"
-children="Constrain Catalog Pipeline Usage with Kyverno" />.
+Add a second policy that allows only reviewed `name@version` pairs. Catalog-specific pairs
+can live in the Catalog guide, but that guide does not include such a list today. A minimal
+rule:
+
+```yaml
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: tekton-pipelineruns-approved-versions
+spec:
+  background: false
+  webhookConfiguration:
+    failurePolicy: Fail
+  rules:
+    - name: allow-approved-pipeline-versions
+      match:
+        any:
+          - resources:
+              kinds:
+                - tekton.dev/v1/PipelineRun
+              namespaces:
+                - <governed-namespace>
+              operations:
+                - CREATE
+                - UPDATE
+      validate:
+        failureAction: Enforce
+        message: "PipelineRuns may reference only an approved name@version pair."
+        deny:
+          conditions:
+            all:
+              - key: "{{ request.object.spec.pipelineRef.params[?name=='name'].value | [0] || '' }}@{{ request.object.spec.pipelineRef.params[?name=='version'].value | [0] || '' }}"
+                operator: AnyNotIn
+                value:
+                  - <pipeline-name>@<pipeline-version>
+```
+
+List every reviewed pair under `value`. A reference whose `name@version` is not listed is
+denied with the policy message, while a listed pair is admitted.
 
 ## 3. Limit the images that can execute
 
@@ -348,8 +498,11 @@ spec:
                     value: false
 ```
 
-The selector keeps unrelated application Pods out of this example. A dedicated pipeline
-namespace is often simpler. Inspect a server-side dry run before switching to `Enforce`
+The selector keeps unrelated application Pods out of the policy evaluation, but not out of
+Kyverno's webhook: Kyverno registers `Pod` requests for the whole cluster, so while its
+admission controller is unavailable, the API server rejects Pod creation in every namespace
+that Kyverno's global settings do not exclude (see [Prerequisites](#prerequisites)). A
+dedicated pipeline namespace is often simpler. Inspect a server-side dry run before switching to `Enforce`
 because an admission webhook can inject an internal helper image after the submitted Pod
 template is rendered.
 This policy checks executable images, not build output destinations, images pulled inside
@@ -365,6 +518,11 @@ without treating a user-controlled label as an admission identity.
 **Enforcement point:** `PipelineRun/status` updates. The rule is `Audit`; it never blocks
 the initial `PipelineRun` request. Kyverno cannot use background scans for a status
 subresource, so this records new status changes rather than historical runs.
+Kyverno makes the audited `PipelineRun` the owner of its `PolicyReport`, so the report is
+deleted together with the run, whether `kubectl delete` or the Pruner removes the run. Save
+the reports while the runs exist (for example with
+`kubectl get policyreport -n <governed-namespace> -o yaml`), or keep the runs for as long as
+the audit needs them.
 A passing label check is a consistency signal, not proof of provenance: a manually supplied
 label remains forgeable even after completion. Never use `Enforce` on a result rule to try
 to stop work that has already happened; rejecting controller status writes can leave runs
@@ -455,11 +613,17 @@ spec:
               "<template-label-key>": "<approved-template-label-value>"
 ```
 
+Replace `<template-label-key>` and `<approved-template-label-value>` with a label key and
+value that your approved Pipelines set in `metadata.labels`. When Tekton resolves the Pipeline
+of a run, it copies the Pipeline's labels to the `PipelineRun`; a label key that the
+`PipelineRun` already sets keeps the run's own value, except `tekton.dev/pipeline`, which
+Tekton sets to the name of the resolved Pipeline.
+
 Use a similar `TaskRun/status` policy for task results. Result names and value formats are
 Task-specific; do not invent a common result contract. The Catalog guide demonstrates the
 real `sonarqube-scanner` and `trivy-scanner` contracts for one Pipeline version.
 
-## Roll out and make exceptions safely
+## Roll out and make exceptions safely \{#roll-out-and-make-exceptions-safely}
 
 1. Set every rule's `validate.failureAction` to `Audit`, install the policy in a disposable
    namespace, and inspect `PolicyReport`.
@@ -510,13 +674,13 @@ By default, Kyverno allows updates that preserve a pre-existing violation. Set
 `validate.allowExistingViolations: false` on a rule if those updates must also be denied,
 after assessing the effect on running workloads. Keep status audit policies in `Audit`.
 
-## Self-validation
+## Self-validation \{#self-validation}
 
 Run these checks in a disposable namespace after replacing the placeholders. Set every
-rule's `validate.failureAction` in the first three policies to `Enforce`, leaving the label
-audit rule in `Audit`. Test this generic set
-before installing the Catalog-specific allowlist; otherwise the additional Catalog rules
-must also allow each positive request. Server dry runs exercise admission without starting
+rule's `validate.failureAction` in the policies of sections 1 to 3 to `Enforce`, leaving the
+label audit rule in `Audit`. Test this generic set before installing the `name@version`
+allowlist policy of section 2 or the Catalog-specific policies; otherwise those additional
+rules must also allow each positive request. Server dry runs exercise admission without starting
 builds or pulling images. They do not create persistent PolicyReports.
 
 ```bash
@@ -653,6 +817,10 @@ created. Delete the namespace only if it is disposable. Do not remove shared pol
   ServiceAccount to the rule exclusion; do not exempt the whole namespace. Metadata updates
   from `tekton-results-watcher` or `tekton-chains-controller` are intentionally outside this
   create-only rule.
+- **An EventListener or a ScheduledTrigger does not create its TaskRun.** The standalone
+  `TaskRun` rule rejects a `TaskRun` that a TriggerTemplate holds. The EventListener still
+  answers with HTTP `202` and logs the denial in its Pod; a ScheduledTrigger shows a
+  `FailedCreate` warning event. Change the template so that it creates a `PipelineRun`.
 - **A resolver-shaped run is rejected.** Resolver parameters must be separate entries with
   the exact names `catalog`, `type`, `kind`, `name`, and `version`. Runtime Pipeline
   parameters belong under `spec.params`.
@@ -662,6 +830,66 @@ created. Delete the namespace only if it is disposable. Do not remove shared pol
   precondition, reports-controller permissions, and the resource's namespace.
 - **An existing violation remains.** Admission does not rewrite history. Use reports or
   update the object through the approved path.
+
+## Recommended Settings
+
+**When to enable.** Enable the standalone `TaskRun` rule to reject `TaskRun` create
+requests from any identity other than the Tekton Pipelines controller, so that users cannot
+create a `TaskRun` directly. The rule checks who sends the request, not whether a
+`PipelineRun` owns the `TaskRun`. This rule alone
+does not constrain what a run executes: a user who can create a `PipelineRun` can still
+embed a `pipelineSpec` or reference any Pipeline through a resolver. To restrict which
+Pipelines a run may use, also enable the inline-spec rules in section 1 and the resolver
+rules in section 2 (the reference-shape rule plus the `name@version` allowlist). The
+resolver rules check the reference, not the remote Pipeline body: the steps that run are
+those of the named versions in whichever Hub the reference resolves to. Tekton validates a
+fetched Pipeline with a server-side dry-run in the run's namespace, so the section-1
+`Pipeline` rules also apply to it: a fetched Pipeline with an inline `taskSpec` fails the
+run with `PipelineValidationFailed`. The reference-shape rule
+only requires a non-empty `catalog` and does not reject a request-level `url` parameter,
+which the hub resolver uses in place of its configured Hub. To tie the steps to the
+platform catalog, also pin `catalog` to the platform catalog name and reject a
+request-level `url`, as the policy in the Catalog guide
+<ExternalSiteLink name="artifacthub-shim"
+href="/catalog/how_to/constrain_catalog_pipeline_usage_with_kyverno.html"
+children="Constrain Catalog Pipeline Usage with Kyverno" /> does; then review the
+content of the allowed catalog versions and limit the images that execute (section 3).
+RBAC grants who may create runs;
+Kyverno can still reject a create request that RBAC allows.
+
+**Recommended values.** Deny `TaskRun` create requests that do not come from the Tekton
+controller ServiceAccount (the `deny-standalone-taskrun` rule in section 1). The rule also
+rejects a `TaskRun` that an EventListener or a ScheduledTrigger creates from its
+TriggerTemplate, so let such templates create a `PipelineRun`. If another
+trusted component must create TaskRuns, add its ServiceAccount to the narrow exclusion; the
+`request.userInfo` pattern is shown in
+[Pipeline Policy Constraints with Tekton and Kyverno](https://github.com/alauda/knowledge/blob/main/docs/en/solutions/Pipeline_Policy_Constraints_with_Tekton_and_Kyverno.md).
+Start every rule with `failureAction: Audit`, review the `PolicyReport` results, and
+switch to `Enforce` as described in
+[Roll out and make exceptions safely](#roll-out-and-make-exceptions-safely).
+
+The inline-spec rules in section 1 are optional. The
+`deny-pipelinerun-inline-pipelinespec` rule rejects every `PipelineRun` that carries a
+`pipelineSpec`. This includes the runs that PAC creates from a `.tekton/` file with an
+inline `pipelineSpec` (see
+[Define the Pipeline Inline with `pipelineSpec`](../../pac/how_to/maintain_pipeline_code.mdx#basic-structure))
+and, with the default PAC setting `remote-tasks: "true"`, the runs into which PAC embeds
+a resolved Pipeline or Task (see
+[PAC Resolver](../../pac/how_to/pac_resolver.mdx#about-pac-resolver)). Enable the
+inline-spec rules only in namespaces whose runs reference their Pipeline through
+`pipelineRef.resolver`.
+
+To confirm that the policies work, run the checks in [Self-validation](#self-validation).
+To undo a policy, set every rule's `validate.failureAction` in its file back to `Audit` and
+apply the file again; the rules then allow violations and only record them. A policy in
+`Audit` still registers its resource kinds in Kyverno's webhook (see
+[Prerequisites](#prerequisites)). To remove it completely, delete the `ClusterPolicy`, for
+example `kubectl delete clusterpolicy tekton-no-inline-execution-specs`. Changing or
+deleting a `ClusterPolicy` needs permission on this cluster-scoped object, usually a
+cluster administrator.
+
+**Prerequisites.** The items in [Prerequisites](#prerequisites) are met, and the
+identities that legitimately create runs are known.
 
 ## Related documentation
 

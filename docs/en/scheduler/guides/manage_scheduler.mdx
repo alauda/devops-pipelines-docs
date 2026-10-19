@@ -1,0 +1,98 @@
+---
+weight: 10
+queries:
+  - How do I enable or disable Scheduler through TektonConfig?
+  - Which dependencies does Scheduler require?
+  - How can I safely stop scheduling pipelines?
+---
+
+# Manage Scheduler
+
+Cluster administrators manage Scheduler through the existing `TektonConfig/config` resource. Kueue and cert-manager have independent lifecycles.
+
+## Prepare dependencies \{#prepare_dependencies}
+
+Install Alauda Build of Kueue through your platform's plugin distribution mechanism. For an air-gapped cluster, import the plugin package and its images before installation. Use the platform-supported cert-manager installation as well.
+
+Confirm that both APIs are available:
+
+```bash
+kubectl api-resources --api-group=kueue.x-k8s.io
+kubectl api-resources --api-group=cert-manager.io
+```
+
+Kueue must serve `kueue.x-k8s.io/v1beta2`. Its controller configuration must include the following entry under `integrations`:
+
+```yaml
+integrations:
+  externalFrameworks:
+    - PipelineRun.v1.tekton.dev
+```
+
+Add this entry through the Kueue plugin's controller configuration or values override. Preserve existing `frameworks` and `externalFrameworks` entries used by other workloads. Wait for the updated Kueue controller to become ready before continuing. Direct edits to a plugin-managed ConfigMap can be overwritten by the platform.
+
+## Enable Scheduler \{#enable_scheduler}
+
+Record the existing Scheduler settings before changing them:
+
+```bash
+kubectl get tektonconfig config -o jsonpath='{.spec.scheduler}'
+```
+
+Enable single-cluster scheduling and explicitly set the default LocalQueue name:
+
+```bash
+kubectl patch tektonconfig config --type=merge -p '{
+  "spec": {
+    "scheduler": {
+      "disabled": false,
+      "multi-cluster-disabled": true,
+      "config.yaml": {"queueName": "pipelines-queue"}
+    }
+  }
+}'
+```
+
+Wait for the child resource to appear, then check readiness:
+
+```bash
+kubectl get tektonscheduler scheduler
+kubectl wait tektonscheduler/scheduler --for=condition=Ready --timeout=5m
+kubectl get tektonconfig config
+```
+
+If the first command reports `NotFound`, retry it after the operator reconciles the configuration. If readiness does not converge, see [Troubleshoot Scheduler](../trouble_shooting/scheduler_not_ready.mdx).
+
+Enabling the component does not enroll namespaces. Follow [Configure Queues](./configure_queues.mdx) before accepting scheduled submissions.
+
+## Disable Scheduler \{#disable_scheduler}
+
+Use this procedure when all enrolled namespaces can stop using scheduling. Scheduler is a cluster-level component, so disabling it affects every enrolled namespace.
+
+1. Pause the systems that submit managed PipelineRuns.
+2. Remove the enrollment label from each namespace that will stop using Scheduler:
+
+   ```bash
+   kubectl label namespace <namespace> tekton.dev/scheduler-enabled-
+   ```
+
+3. Inspect managed PipelineRuns and their Workloads:
+
+   ```bash
+   kubectl get pipelineruns -A -l kueue.x-k8s.io/queue-name
+   kubectl get workloads -A
+   ```
+
+   Wait for managed runs to finish while Scheduler is still enabled. Resolve blocked queues or cancel unwanted runs through the normal Tekton cancellation workflow. Workloads from other integrations are managed independently.
+
+4. Disable the component:
+
+   ```bash
+   kubectl patch tektonconfig config --type=merge \
+     -p '{"spec":{"scheduler":{"disabled":true}}}'
+   kubectl wait tektonscheduler/scheduler --for=delete --timeout=5m
+   ```
+
+5. Resume ordinary PipelineRun submissions. They execute without Scheduler admission.
+
+The operator removes the Scheduler component directly. It does not automatically wait for queued or running work. Disabling while runs are pending can leave them suspended. Completed PipelineRuns remain available; their configured retention policy still applies. Kueue, cert-manager, and administrator-created queues are not uninstalled by this operation.

@@ -55,6 +55,10 @@ spec:
             echo "Hello from PAC!"
 ```
 
+**Note**: The samples on this page use the public `alpine:latest` image. Replace it with an image your cluster can pull, for example from an internal registry.
+
+**Note**: The samples with an inline `pipelineSpec` or `taskSpec`, and the Pipelines and Tasks that PAC embeds with the default `remote-tasks: "true"` (see [Pipeline Defined in Git](#pipeline-defined-in-git) and [Task Resolution](#task-resolution)), assume that the cluster setting `disable-inline-spec` is empty. With `pipelinerun` in it, the Tekton webhook rejects a `PipelineRun` that has an inline `pipelineSpec`; see the warning in section 1 of [Constrain Tekton Pipeline Execution with Kyverno](../../pipelines/how_to/constrain_pipeline_execution_with_kyverno.mdx).
+
 ### Reference a Pipeline with `pipelineRef` \{#using-existing-pipeline}
 
 Use `pipelineRef` when the `PipelineRun` should reuse a Pipeline definition.
@@ -145,7 +149,7 @@ spec:
     name: my-pipeline-resource
 ```
 
-PAC does not inline or resolve the Pipeline in this mode. Tekton resolves the reference after PAC creates the `PipelineRun`, so the Pipeline must already exist in the target namespace and the runtime ServiceAccount must have permission to use it.
+PAC does not inline or resolve the Pipeline in this mode. Tekton resolves the reference after PAC creates the `PipelineRun`, so the Pipeline must already exist in the target namespace.
 
 ## Trigger Events \{#event-annotations}
 
@@ -188,6 +192,8 @@ metadata:
     pipelinesascode.tekton.dev/on-event: "[pull_request]"
     pipelinesascode.tekton.dev/on-comment: "^/deploy-preview$"
 ```
+
+Because this example also sets `on-event` and `on-target-branch`, the `PipelineRun` also runs on every pull request or merge request open and update to `main`, not only on the `/deploy-preview` comment.
 
 `on-comment` is Technology Preview. Use built-in GitOps commands such as `/test`, `/retest`, and `/cancel` when you want PAC's native command behavior instead of a repository-specific trigger.
 
@@ -239,6 +245,10 @@ metadata:
     pipelinesascode.tekton.dev/on-path-change-ignore: "[docs/generated/**]"
 ```
 
+A `PipelineRun` with a path filter does not start when the same event also changes a file under the `on-path-change-ignore` paths, even if other changed files match `on-path-change`.
+
+On GitLab, PAC reads the changed files of a merge request through the merge request diffs API (`GET /projects/:id/merge_requests/:iid/diffs`). If the GitLab instance does not provide this API (for example, GitLab 14.0.12 returns `404 Not Found` for it), PAC logs `error getting changed files: 404 Not Found` for every merge request event and merge request comment, and a `PipelineRun` with a path filter never starts for a merge request. Runs without path filters are still created, and path filters on push events are not affected.
+
 ## Advanced Event Matching \{#advanced-event-matching}
 
 Use `pipelinesascode.tekton.dev/on-cel-expression` for complex conditions. When CEL is set, PAC uses the CEL expression and ignores `on-target-branch`, `on-event`, `on-label`, `on-path-change`, and `on-path-change-ignore`.
@@ -256,7 +266,9 @@ Common CEL fields include `event`, `event_title`, `target_branch`, `source_branc
 
 ## Cancellation in Progress \{#cancellation-in-progress}
 
-Use `pipelinesascode.tekton.dev/cancel-in-progress: "true"` to cancel an older matching run when a new one starts:
+Use `pipelinesascode.tekton.dev/cancel-in-progress: "true"` to cancel older runs of the same `PipelineRun` when a new one starts. When a new run starts, PAC cancels only runs that have not finished, in the same namespace, of the same repository and with the same `PipelineRun` name in `.tekton/`: for a pull request event, only the runs of the same pull request; for a push event, only the runs whose source branch is the pushed branch, so a push to another branch leaves them running. This cancellation by a new run works only when the `Repository` has no `concurrency_limit`, set on it or inherited from a [global Repository](./advanced_repository_config.mdx#creating-a-global-repository-cr). With a limit, a new run does not cancel the older runs, and PAC records the event `error cancelling in progress pipelineRuns: cancel in progress is not supported with concurrency limit` on the `Repository` (see it with `kubectl describe repository <name> -n <namespace>`).
+
+Closing a pull request or merge request also cancels its unfinished runs in the `Repository` namespace that have `cancel-in-progress: "true"` and were started by opening, reopening or updating it, by a built-in GitOps command on it or by an `on-comment` comment on it, whatever their `PipelineRun` name and also when the `Repository` has a `concurrency_limit`. On GitLab, merging a merge request does not cancel these runs. Runs started by a label change on the pull request or merge request (their `pipelinesascode.tekton.dev/event-type` label is `pull_request_labeled`) are not cancelled by closing it. `cancel-in-progress` is Technology Preview.
 
 ```yaml
 metadata:
@@ -273,12 +285,12 @@ PAC replaces dynamic variables in the `{{ variable_name }}` format before creati
 | Variable | Description | Availability |
 |----------|-------------|--------------|
 | `{{ body }}` | Webhook payload body | All events |
-| `{{ event_type }}` | PAC event type, such as `push` or `pull_request` | All events |
-| `{{ git_auth_secret }}` | Generated Git authentication Secret name | Private repositories |
-| `{{ git_tag }}` | Git tag name | Tag push events |
+| `{{ event_type }}` | PAC event type: `push` for a push. On GitLab, opening or updating a merge request gives `Merge Request`, except an event that changes the labels of the merge request (its payload has `changes.labels`), which gives `pull_request_labeled` (a PipelineRun without `on-cel-expression` runs on it only if it has an `on-label` annotation), and a `/test` or `/retest` comment gives `pull_request`, also when it is a commit comment | All events |
+| `{{ git_auth_secret }}` | Generated Git authentication Secret name | All events; the Secret exists only while `secret-auto-create` is `"true"` (see below) |
+| `{{ git_tag }}` | Git tag name | Tag push events, and `/test` or `/retest` commit comments with `tag:<tag>` (on GitHub only with a GitHub App; see [Commands on Commit Comments](./trigger_pipeline.mdx#commands-on-commit-comments)) |
 | `{{ headers }}` | Webhook request headers | All events |
 | `{{ pull_request_labels }}` | Pull request or merge request labels separated by newlines | Pull request events |
-| `{{ pull_request_number }}` | Pull or merge request number | Pull request events |
+| `{{ pull_request_number }}` | Pull or merge request number | Pull request events; with a GitHub App (not in GitHub Webhook mode) also push events whose commit is associated with a pull request, for example the push that merging the pull request creates. With the default `skip-push-event-for-pr-commits: "true"`, PAC creates no `PipelineRun` for a branch push whose commit belongs to an open pull request, so on branch pushes the number comes from a closed or merged pull request. Controlled by the Alauda extension setting `enable-pull-request-number-on-push-events` (`"true"` by default) under `options.configMaps`, see [Configure Pull Request Number on Push Events](../install/manage_pac.mdx#configure-pull-request-number-on-push-events) |
 | `{{ repo_owner }}` | Repository owner | All events |
 | `{{ repo_name }}` | Repository name | All events |
 | `{{ repo_url }}` | Repository URL | All events |
@@ -301,7 +313,7 @@ spec:
     value: "{{ revision }}"
 ```
 
-For private repositories, `{{ git_auth_secret }}` is available when the `Repository` references a Git access token.
+PAC fills `{{ git_auth_secret }}` with a generated Secret name for every event. It creates that Secret for the run from the Git provider token that the Repository uses (the GitHub App installation token with a GitHub App), while the PAC setting `secret-auto-create` is `"true"` (the default). With `"false"`, the name is still filled, but no Secret of that name exists.
 
 ## Task Resolution \{#task-resolution}
 
@@ -319,6 +331,8 @@ spec:
         name: git-clone
 ```
 
+PAC embeds the Task named in `pipelinesascode.tekton.dev/task` only with the default `remote-tasks: "true"`. With [`remote-tasks: "false"`](../install/manage_pac.mdx#disable-remote-tasks), PAC ignores the task annotations, and Tekton looks for a Task named `git-clone` in the namespace of the `PipelineRun`.
+
 See [PAC Resolver](./pac_resolver.mdx) for supported task and Pipeline sources.
 
 ## Troubleshooting \{#troubleshooting}
@@ -330,12 +344,124 @@ See [PAC Resolver](./pac_resolver.mdx) for supported task and Pipeline sources.
 | Variables are not replaced | Check `{{ variable_name }}` syntax and event-specific availability |
 | Remote tasks are not found | Check task annotation names, resolver configuration, and PAC controller logs |
 
-Useful checks:
+Useful checks. PAC records some reasons as events on the `Repository`, for example `cannot find the targeted pipelinerun <pipelinerun> in this repository` when `/test` names a `PipelineRun` that is not in `.tekton/`; `kubectl describe repository` shows them in the `Repository` namespace. Events are kept only for a limited time, so check soon after the event. An event that matches no `PipelineRun` is not recorded on the `Repository`; its reason is in the PAC controller log, and reading that log needs read access to Pod logs in the PAC namespace, usually a cluster administrator. With `-l`, `kubectl logs` prints only the last 10 lines unless `--tail` is set, so the last command reads every line of the last 10 minutes; increase `--since` if the event is older:
 
 ```bash
 kubectl get pipelineruns -n <namespace>
-kubectl logs -n <pac-namespace> -l app=pipelines-as-code-controller --tail=100
+kubectl describe repository <repository-name> -n <namespace>
+kubectl logs -n <pac-namespace> -l app=pipelines-as-code-controller --since=10m --tail=-1
 ```
+
+## Conventions for Onboarding a Repository \{#conventions-for-onboarding-a-repository}
+
+The conventions below apply when a platform team onboards many repositories onto shared Pipeline templates. They narrow the options described on this page; repositories that maintain their own pipelines can keep using `pipelineSpec` or a Pipeline defined in Git. For the onboarding steps themselves, follow [Configure GitLab Repository](../guides/configure_gitlab_repo.mdx) or [Configure GitHub Repository](../guides/configure_github_repo.mdx).
+
+### Three trigger patterns \{#three-trigger-patterns}
+
+| Pattern | How it is declared | When it runs | Typical use |
+|---------|--------------------|--------------|-------------|
+| Event-driven, automatic | `on-event: "[pull_request, push]"` with `on-target-branch` | Every matching push and pull request or merge request update | Build and test gate for the main branch |
+| Comment-driven, on demand | A `PipelineRun` in `.tekton/` without event annotations (`on-event`, `on-target-branch`, `on-cel-expression`), started with the built-in `/test <pipelinerun-name> branch:<branch>` comment | Only when an authorized user comments | Reruns and optional or expensive checks |
+| Event with path filter | `on-path-change` and `on-path-change-ignore` together with `on-event` and `on-target-branch` | Only when the event changes matching files and no ignored file | Documentation or sub-project pipelines in a large repository |
+
+Path-change annotations and `on-comment` are Technology Preview. Keep `on-comment` for repository-specific actions such as `/deploy-preview`; for running and rerunning pipelines, use the built-in commands as described in [Trigger PAC Pipelines](./trigger_pipeline.mdx#platform-conventions). If `on-cel-expression` is set, PAC ignores `on-event`, `on-target-branch`, and the path filters. On GitLab, path filters on merge request events need the merge request diffs API; see [Branch and Path Filtering](#branch-and-path-filtering).
+
+### One definition for merge requests and the main branch \{#one-definition-for-merge-requests-and-the-main-branch}
+
+Use one `PipelineRun` definition for both pull requests or merge requests and pushes to the main branch, instead of two copies that drift apart. Set `on-event` to both events and `on-target-branch` to the branch: for `pull_request`, PAC matches the base branch; for `push`, it matches the pushed branch. When the shared Pipeline must run push-only steps, such as publishing, only for the main branch, pass `{{ source_branch }}`, `{{ source_url }}`, and `{{ repo_url }}` as parameters and run those steps only when the source branch is the main branch and the source repository is the repository itself. Do not key them on `{{ event_type }}`: on GitLab a merge request event renders it as `Merge Request`, and `/test` and `/retest` comments render it as `pull_request`, also when a commit comment reruns the main branch.
+
+```yaml
+metadata:
+  name: build
+  annotations:
+    pipelinesascode.tekton.dev/on-event: "[pull_request, push]"
+    pipelinesascode.tekton.dev/on-target-branch: "[main]"
+spec:
+  params:
+  - name: repo-url
+    value: "{{ repo_url }}"
+  - name: source-branch
+    value: "{{ source_branch }}"
+  - name: source-url
+    value: "{{ source_url }}"
+```
+
+In the shared Pipeline, declare the parameters and guard the push-only Task with two `when` expressions; the Task runs only when both are true:
+
+```yaml
+spec:
+  params:
+  - name: repo-url
+    type: string
+  - name: source-branch
+    type: string
+  - name: source-url
+    type: string
+  tasks:
+  - name: publish
+    when:
+    - input: "$(params.source-branch)"
+      operator: in
+      values:
+      - main
+    - input: "$(params.source-url)"
+      operator: in
+      values:
+      - "$(params.repo-url)"
+    # taskRef and the other fields of the Task are omitted
+```
+
+### Reference shared Pipeline templates \{#reference-shared-pipeline-templates}
+
+A `PipelineRun` under `.tekton/` references a shared Pipeline template through `pipelineRef.resolver`: `cluster` for a Pipeline managed in a cluster namespace (see [Reference a Pipeline with `pipelineRef`](#using-existing-pipeline)), `hub` for a versioned catalog Pipeline, or `git` for a Pipeline stored in a template repository (see [Resolvers](../../pipelines/concepts/resolver_concept.mdx)). To select a template version, set the `version` parameter for the `hub` resolver or the `revision` parameter for the `git` resolver. For the `git` resolver, `revision` can be a branch, tag, or commit (see [Resolvers](../../pipelines/concepts/resolver_concept.mdx)); only a commit SHA pins the content, so that moving to a new template version is a change to `.tekton/`. A branch, or a tag that can be moved, resolves to new content without any change to `.tekton/`. For the `hub` resolver, `version` names a published catalog version; whether its content can change after publication depends on how the catalog is maintained, so confirm this with the catalog administrator before you rely on it as a pin. The `cluster` resolver takes `kind`, `name`, and `namespace` (plus an optional `cache` mode) and has no version parameter.
+
+The `hub` example also sets `catalog`, the name of the catalog to read from. Built-in Pipelines are served from `catalog-pipelines` and built-in Tasks from `catalog` (see [Resolvers](../../pipelines/concepts/resolver_concept.mdx)); an older Pipeline reference that uses `catalog: catalog` still resolves through a compatibility alias, but new Pipeline references should use `catalog-pipelines`. Replace it with the catalog name configured in your cluster if it differs. Keep `catalog`, `kind`, `name`, and `version` in every `hub` reference: in a namespace that enforces the `require-hub-reference-shape` rule of [Constrain Tekton Pipeline Execution with Kyverno](../../pipelines/how_to/constrain_pipeline_execution_with_kyverno.mdx), a `PipelineRun` whose `hub` reference leaves any of them empty or sets a `kind` other than `pipeline` is rejected. That rule also rejects a `PipelineRun` whose resolver is not `hub`, so the `cluster` and `git` forms are rejected in such a namespace.
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: build
+  annotations:
+    pipelinesascode.tekton.dev/on-event: "[pull_request, push]"
+    pipelinesascode.tekton.dev/on-target-branch: "[main]"
+spec:
+  pipelineRef:
+    resolver: hub
+    params:
+    - name: catalog
+      value: catalog-pipelines
+    - name: kind
+      value: pipeline
+    - name: name
+      value: my-build-pipeline
+    - name: version
+      value: "0.1"
+  params:
+  - name: repo-url
+    value: "{{ repo_url }}"
+  - name: revision
+    value: "{{ revision }}"
+  - name: source-branch
+    value: "{{ source_branch }}"
+  - name: source-url
+    value: "{{ source_url }}"
+```
+
+Do not use a bare `pipelineRef.name` for platform templates. With the default `remote-tasks: "true"`, PAC resolves such a reference from the `pipelinesascode.tekton.dev/pipeline` annotation or from `.tekton/` and embeds the resolved Pipeline into the generated `PipelineRun` as an inline `pipelineSpec`, and a Pipeline that exists only in the cluster is not found. The `resolver` form is handled by Tekton rather than PAC, so the generated `PipelineRun` keeps its reference to the template. This also keeps runs compatible with an admission policy that rejects inline `pipelineSpec`, such as the `deny-pipelinerun-inline-pipelinespec` rule in [Constrain Tekton Pipeline Execution with Kyverno](../../pipelines/how_to/constrain_pipeline_execution_with_kyverno.mdx); the resolver rules of that guide additionally require the `hub` resolver.
+
+### Onboarding self-check \{#onboarding-self-check}
+
+After onboarding a repository, confirm each item. Items marked **Webhook mode** apply to a repository connected with a token and a webhook (GitLab, or GitHub in Webhook mode); items marked **GitHub App mode** apply to a GitHub repository connected through a GitHub App, which needs no per-repository Secret or webhook (see [Configure GitHub Repository](../guides/configure_github_repo.mdx#choose-an-integration-mode)).
+
+- [ ] A `Repository` CR exists in the project namespace and its `spec.url` matches the repository.
+- [ ] Webhook mode: `spec.git_provider.secret` and `spec.git_provider.webhook_secret` reference a Secret in the same namespace that carries `provider.token` and `webhook.secret`, or the Repository has a `git_provider` block without them and inherits both from the global Repository CR, whose Secret is in the PAC namespace; see [Create a Git Secret for PAC](./create_git_secret.mdx#verification) and [Creating a Global Repository CR](./advanced_repository_config.mdx#creating-a-global-repository-cr).
+- [ ] Webhook mode: the webhook is active: the `pac.tekton.alauda.io/webhook-registration-status` annotation on the `Repository` is `Registered`, or the webhook was added through the manual fallback in the repository guide. If the status is `Failed`, read the `pac.tekton.alauda.io/webhook-registration-reason` annotation: a `Failed` Repository can still have an active webhook from an earlier registration.
+- [ ] GitHub App mode: the repository is included in the GitHub App installation, and the `pipelines-as-code-secret` Secret in the PAC namespace holds the App ID, private key, and webhook secret; see [Integration mode 1: GitHub App](../guides/configure_github_repo.mdx#integration-mode-1-github-app).
+- [ ] Each `PipelineRun` under `.tekton/` has `on-event` and `on-target-branch` values that match the events and branches the repository uses.
+- [ ] Each `spec.pipelineRef` uses the `resolver` form, not a bare `name`, and selects the template version where the resolver supports it: `version` for `hub`, and for `git` a `revision` that is a commit SHA (a branch or a movable tag does not pin the content).
+- [ ] Each `PipelineRun` under `.tekton/` runs on the first event of its trigger pattern (see [Three trigger patterns](#three-trigger-patterns)): an event-driven one on a matching push or pull request or merge request update, a comment-driven one on a `/test <pipelinerun-name> branch:<branch>` comment, and one with a path filter on a matching event that changes a file under the filtered paths and no file under its `on-path-change-ignore` paths (if the same event also changes an ignored file, the run does not start). The run is listed by `kubectl get pipelineruns -n <namespace> -l pipelinesascode.tekton.dev/repository=<repository-name>`, and the Git provider shows its result: a commit status in Webhook mode, or a Check Run on the commit in GitHub App mode.
+- [ ] A `/test <pipelinerun-name> branch:<source-branch>` comment on a merge request starts a new run of the merge request's source branch.
 
 ## Next Steps \{#next-steps}
 

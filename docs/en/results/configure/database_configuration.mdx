@@ -7,11 +7,9 @@ weight: 51
 This document describes how to configure the database required for Tekton Results.
 
 :::note
-Currently, **we only support connecting to external databases**. This is because:
+Currently, the built-in PostgreSQL database is **not supported**. Tekton Results must be configured with an external PostgreSQL database (`is_external_db: true`).
 
-- The built-in database lacks essential production features such as backup, monitoring, high availability, and advanced management capabilities. It only provides basic storage and query functionality, making it unsuitable for production environments.
-- External databases offer comprehensive enterprise-grade features including automated backups, performance monitoring, scaling capabilities, and professional support, which are essential for production deployments.
-- Our Data Services product already provides comprehensive PostgreSQL management capabilities.
+Our Data Services product already provides comprehensive PostgreSQL management capabilities.
 :::
 
 ## Prerequisites
@@ -47,7 +45,7 @@ Tekton Results supports using external PostgreSQL databases. The configuration i
 
 | Field | Description | Default Value | Required |
 |-------|-------------|---------------|----------|
-| `is_external_db` | Whether to use external database | `false` | Yes (set to `true` for external DB) |
+| `is_external_db` | Must be `true`, because the built-in PostgreSQL database is not supported | `false` | Yes (set to `true`) |
 | `db_host` | Database host address | `localhost` | Yes |
 | `db_port` | Database port | `5432` | Yes |
 | `db_name` | Database name | `tekton_results` | Yes |
@@ -314,4 +312,3 @@ If you need to set `sslmode`, please set `db_sslmode` in the `TektonConfig` `spe
 
 For more PostgreSQL deployment parameters and requirements, please refer to <ExternalSiteLink name="postgresql" href="/installation.html" children="PostgreSQL Deployment Documentation" />.
 :::
-

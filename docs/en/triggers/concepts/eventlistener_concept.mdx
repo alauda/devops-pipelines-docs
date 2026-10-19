@@ -101,7 +101,7 @@ kind: EventListener
 metadata:
   name: github-listener
 spec:
-  serviceAccountName: tekton-triggers-sa
+  serviceAccountName: triggers-default-sa
   triggers:
     - name: github-push
       interceptors:
@@ -113,7 +113,8 @@ spec:
                 secretName: github-secret
                 secretKey: secretToken
             - name: "eventTypes"
-              value: ["push"]
+              value:
+                - "push"
       bindings:
         - ref: github-push-binding
       template:
@@ -128,15 +129,20 @@ kind: EventListener
 metadata:
   name: multi-listener
 spec:
-  serviceAccountName: tekton-triggers-sa
+  serviceAccountName: triggers-default-sa
   triggers:
     - name: github-push
       interceptors:
         - ref:
             name: "github"
           params:
+            - name: "secretRef"
+              value:
+                secretName: github-webhook-secret
+                secretKey: secretToken
             - name: "eventTypes"
-              value: ["push"]
+              value:
+                - "push"
       bindings:
         - ref: github-push-binding
       template:
@@ -146,8 +152,13 @@ spec:
         - ref:
             name: "github"
           params:
+            - name: "secretRef"
+              value:
+                secretName: github-webhook-secret
+                secretKey: secretToken
             - name: "eventTypes"
-              value: ["pull_request"]
+              value:
+                - "pull_request"
       bindings:
         - ref: github-pr-binding
       template:
@@ -170,9 +181,11 @@ The ServiceAccount parameter is crucial for EventListener as it determines what 
 
 #### Principles
 The ServiceAccount needs permissions to:
-- Read ConfigMaps, Secrets, and ServiceAccounts
+- Read ConfigMaps and the required namespaced Trigger resources
 - Create and manage PipelineRuns and TaskRuns
 - Access TriggerBindings and TriggerTemplates
+
+The default EventListener cluster role grants read access to ClusterTriggerBindings and ClusterInterceptors. Built-in webhook Secret validation uses the separate core-interceptors ServiceAccount, so the EventListener ServiceAccount does not need cluster-wide Secret read permissions. Custom workloads that read Secrets through the Kubernetes API must use a dedicated ServiceAccount with explicit namespace-scoped access.
 
 ### Resources Configuration
 
@@ -190,25 +203,25 @@ You can configure:
 - Service type (ClusterIP, NodePort, LoadBalancer)
 - Custom Pod template specifications
 
-## Webhook Secret Authentication
+## Webhook Secret Authentication \{#webhook-secret-authentication}
 
-Webhook secret authentication is a critical security mechanism that ensures only legitimate events from trusted sources are processed by your EventListener. Without proper authentication, your webhook endpoints could be exploited by malicious actors to trigger unauthorized pipeline executions.
+Webhook secret authentication is a critical security mechanism: when the interceptor has a `secretRef` param, it lets a request proceed only if it carries a valid signature or token for a secret that you share with the external system. Without proper authentication, your webhook endpoints could be exploited by malicious actors to trigger unauthorized pipeline executions.
 
 ### Why Webhook Secret Authentication is Important
 
-1. **Prevent Unauthorized Access**: Only requests with valid signatures or tokens are processed
-2. **Verify Event Source**: Ensures events actually come from the configured external system (GitHub, GitLab, etc.)
-3. **Protect Against Replay Attacks**: Signature validation includes the payload, preventing tampering
+1. **Prevent Unauthorized Access**: Only requests with valid signatures or tokens are processed, when the interceptor has a `secretRef` param. The GitHub and GitLab interceptors check the signature or token only when `secretRef` is set. Without it, a request passes the GitLab interceptor when `eventTypes` is not set or lists the request's event header, and the GitHub interceptor when, in addition, it passes the other GitHub checks described in [GitHub Interceptor with Secret Authentication](#github-interceptor-with-secret-authentication)
+2. **Verify Event Source**: Accepts only requests signed with, or carrying, the secret that you also set in the external system (GitHub, GitLab, etc.)
+3. **Detect Tampered Payloads**: A signature, such as GitHub's, is computed over the request body, so a request whose body was changed is rejected. A token, such as GitLab's, does not cover the body. Neither stops a captured request from being sent again (replay)
 4. **Compliance**: Many organizations require webhook authentication for security compliance
 
 ### How It Works
 
 Different platforms use different authentication mechanisms:
 
-- **GitHub**: Uses HMAC-SHA256 signature in `X-Hub-Signature-256` or `X-Hub-Signature` header
+- **GitHub**: Uses HMAC-SHA256 signature in `X-Hub-Signature-256` header
 - **GitLab**: Uses a secret token in `X-GitLab-Token` header
 
-The interceptor validates the incoming request against the secret stored in Kubernetes Secret before allowing the event to proceed to TriggerBinding.
+When its `secretRef` param is set, the interceptor validates the incoming request against the secret stored in Kubernetes Secret before allowing the event to proceed to TriggerBinding.
 
 ### Creating Webhook Secrets
 
@@ -226,18 +239,29 @@ The interceptor validates the incoming request against the secret stored in Kube
 
 #### Step 2: Create Kubernetes Secret
 
-Create a Kubernetes Secret containing your webhook secret token:
+Create a Kubernetes Secret containing your webhook secret token. Run the commands in bash or zsh: in a POSIX `sh` such as `dash`, `read -rs` fails and leaves the variable empty. First run the `read -rs` line on its own, then paste the token and press Enter: `read -rs` does not show it, so it does not appear on the screen or in the shell history. If the line is pasted together with the next lines, a shell without bracketed paste reads the next line as the token:
 
 ```bash
-# For GitHub
-kubectl create secret generic github-webhook-secret \
-  --from-literal=secretToken=<your-github-secret-token> \
-  -n <namespace>
+read -rs SECRET_TOKEN
+```
 
-# For GitLab
-kubectl create secret generic gitlab-webhook-secret \
-  --from-literal=secretToken=<your-gitlab-secret-token> \
+Then create the Secret with the command for your platform. `unset` removes the token from the shell after the Secret is created, so to create both Secrets, run the `read -rs` line again before the second command; otherwise the second Secret gets an empty `secretToken`. For GitHub:
+
+```bash
+kubectl create secret generic github-webhook-secret \
+  --from-literal=secretToken="$SECRET_TOKEN" \
   -n <namespace>
+unset SECRET_TOKEN
+```
+
+For GitLab:
+
+```bash
+kubectl create secret generic gitlab-webhook-secret \
+  --from-literal=secretToken="$SECRET_TOKEN" \
+  -n <namespace>
+unset SECRET_TOKEN
+```
 
 Alternatively, you can create the secret using YAML:
 
@@ -258,9 +282,9 @@ stringData:
 
 ### Configuring Interceptor Authentication
 
-#### GitHub Interceptor with Secret Authentication
+#### GitHub Interceptor with Secret Authentication \{#github-interceptor-with-secret-authentication}
 
-The GitHub interceptor validates webhook signatures using HMAC-SHA256. Configure it as follows:
+The GitHub interceptor validates webhook signatures using HMAC-SHA256 only when its `secretRef` param is set. Without `secretRef`, it checks no signature, but it still rejects a request whose `X-GitHub-Event` header is not listed in `eventTypes` (when `eventTypes` is set). Set the content type of the GitHub webhook to `application/json`. With `application/x-www-form-urlencoded`, GitHub sends the event as `payload=<encoded JSON>`: the EventListener checks by default that the body is JSON, so it answers HTTP `400` with `Invalid event body format` (also in the log of the EventListener Pod), and no interceptor runs. The interceptor message `form parameter encoding not supported, please change the hook to send JSON payloads` appears in the core interceptors log when a JSON body arrives with that `Content-Type` header; such a request gets HTTP `202` and creates no resource. When `addChangedFiles` or `githubOwners` is enabled, those steps can reject a request too. Configure it as follows:
 
 ```yaml
 apiVersion: triggers.tekton.dev/v1beta1
@@ -268,7 +292,7 @@ kind: EventListener
 metadata:
   name: github-secure-listener
 spec:
-  serviceAccountName: tekton-triggers-sa
+  serviceAccountName: triggers-default-sa
   triggers:
     - name: github-push-secure
       interceptors:
@@ -280,7 +304,9 @@ spec:
                 secretName: github-webhook-secret  # Name of the Kubernetes Secret
                 secretKey: secretToken             # Key in the Secret
             - name: "eventTypes"
-              value: ["push", "pull_request"]
+              value:
+                - "push"
+                - "pull_request"
       bindings:
         - ref: github-push-binding
       template:
@@ -291,13 +317,13 @@ spec:
 - GitHub sends webhook requests with `X-Hub-Signature-256` header containing HMAC-SHA256 signature
 - The interceptor retrieves the secret from Kubernetes Secret
 - It validates the signature by computing HMAC-SHA256 of the request body using the secret
-- Only requests with valid signatures are allowed to proceed
+- With `secretRef` set, only requests with valid signatures are allowed to proceed. A request with a wrong signature still gets HTTP `202` from the EventListener, but it creates no resource, and the rejection (`payload signature check failed`) appears only in the log of the core interceptors (`tekton-triggers-core-interceptors`)
 
 **Reference**: [GitHub Webhook Security Documentation](https://docs.github.com/en/developers/webhooks-and-events/webhooks/securing-your-webhooks)
 
 #### GitLab Interceptor with Secret Authentication
 
-The GitLab interceptor validates webhook tokens using constant-time comparison:
+The GitLab interceptor validates webhook tokens using constant-time comparison only when its `secretRef` param is set. Without `secretRef`, it checks no token: a request passes when `eventTypes` is not set or lists the request's `X-Gitlab-Event` header. Configure it as follows:
 
 ```yaml
 apiVersion: triggers.tekton.dev/v1beta1
@@ -305,7 +331,7 @@ kind: EventListener
 metadata:
   name: gitlab-secure-listener
 spec:
-  serviceAccountName: tekton-triggers-sa
+  serviceAccountName: triggers-default-sa
   triggers:
     - name: gitlab-push-secure
       interceptors:
@@ -317,7 +343,9 @@ spec:
                 secretName: gitlab-webhook-secret  # Name of the Kubernetes Secret
                 secretKey: secretToken             # Key in the Secret
             - name: "eventTypes"
-              value: ["Push Hook", "Merge Request Hook"]
+              value:
+                - "Push Hook"
+                - "Merge Request Hook"
       bindings:
         - ref: gitlab-push-binding
       template:
@@ -328,7 +356,7 @@ spec:
 - GitLab sends webhook requests with `X-GitLab-Token` header containing the secret token
 - The interceptor retrieves the secret from Kubernetes Secret
 - It compares the header value with the secret using constant-time comparison to prevent timing attacks
-- Only requests with matching tokens are allowed to proceed
+- With `secretRef` set, only requests with matching tokens are allowed to proceed. A request with a wrong token still gets HTTP `202` from the EventListener, but it creates no resource, and the rejection (`Invalid X-GitLab-Token`) appears only in the log of the core interceptors (`tekton-triggers-core-interceptors`)
 
 **Reference**: [GitLab Webhook Security Documentation](https://docs.gitlab.com/ee/user/project/integrations/webhooks.html#secret-token)
 
@@ -336,15 +364,70 @@ spec:
 
 Here's a complete example showing how to set up a secure GitHub webhook:
 
-**Step 1: Create the Secret**
+**Step 1: Create the namespace and the Secret**
+
+Run the commands in bash or zsh: in a POSIX `sh` such as `dash`, `read -rs` fails and leaves the variable empty. Create the namespace; this needs permission to create `Namespace` objects, usually a cluster administrator:
+
+```bash
+kubectl create namespace tekton-triggers-demo
+```
+
+Run the `read -rs` line on its own, then paste the token and press Enter:
+
+```bash
+read -rs SECRET_TOKEN
+```
+
+Then create the Secret and remove the token from the shell:
 
 ```bash
 kubectl create secret generic github-webhook-secret \
-  --from-literal=secretToken=your-secret-token-here \
+  --from-literal=secretToken="$SECRET_TOKEN" \
   -n tekton-triggers-demo
+unset SECRET_TOKEN
 ```
 
-**Step 2: Create EventListener with Authentication**
+**Step 2: Create the TriggerBinding and the TriggerTemplate**
+
+The EventListener in Step 3 references these two objects. The template creates a `TaskRun` that prints the commit of the push event. The `TaskRun` holds its step as an inline `taskSpec`; the Tekton webhook rejects such a `TaskRun` when the cluster setting `disable-inline-spec` contains `taskrun` (see [Constrain Tekton Pipeline Execution with Kyverno](../../pipelines/how_to/constrain_pipeline_execution_with_kyverno.mdx)), so on such a cluster create a `Task` and reference it with `taskRef` instead. Save the YAML to a file and apply it with `kubectl apply -f <file>`:
+
+```yaml
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerBinding
+metadata:
+  name: github-push-binding
+  namespace: tekton-triggers-demo
+spec:
+  params:
+    - name: revision
+      value: $(body.after)
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: build-template
+  namespace: tekton-triggers-demo
+spec:
+  params:
+    - name: revision
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: TaskRun
+      metadata:
+        generateName: build-
+      spec:
+        taskSpec:
+          steps:
+            - name: echo
+              image: alpine  # In air-gapped environments, replace with an image from your internal registry
+              script: |
+                #!/bin/sh
+                echo "triggered for revision $(tt.params.revision)"
+```
+
+**Step 3: Create EventListener with Authentication**
+
+Apply the following YAML in the same way:
 
 ```yaml
 apiVersion: triggers.tekton.dev/v1beta1
@@ -353,7 +436,7 @@ metadata:
   name: secure-github-listener
   namespace: tekton-triggers-demo
 spec:
-  serviceAccountName: tekton-triggers-sa
+  serviceAccountName: triggers-default-sa
   triggers:
     - name: github-push-secure
       interceptors:
@@ -365,46 +448,92 @@ spec:
                 secretName: github-webhook-secret
                 secretKey: secretToken
             - name: "eventTypes"
-              value: ["push"]
+              value:
+                - "push"
       bindings:
         - ref: github-push-binding
       template:
         ref: build-template
 ```
 
-**Step 3: Configure GitHub Webhook**
+**Step 4: Configure GitHub Webhook**
 
 1. Go to your GitHub repository → Settings → Webhooks → Add webhook
-2. Set the Payload URL to your EventListener webhook address
+2. Set the Payload URL to an address of the EventListener that GitHub can reach. The EventListener of Step 3 sets no `serviceType`, so its Service `el-secure-github-listener` is reachable only inside the cluster. Expose it first as described in [Network Configuration](../how_to/eventlistener.mdx#network-configuration), or with [automatic exposure rules](../how_to/trigger-wrapper-config.mdx), which publish the address in the `status.addresses` field of the EventListener when the matching rule sets `externalHosts`, and use that address here
 3. Set Content type to `application/json`
 4. Paste your secret token in the "Secret" field
 5. Select the events you want to trigger (e.g., "Just the push event")
 6. Click "Add webhook"
 
-### Troubleshooting Secret Authentication
+**Step 5: Verify the setup**
+
+Check that the EventListener is ready:
+
+```bash
+kubectl get eventlistener secure-github-listener -n tekton-triggers-demo
+```
+
+The `AVAILABLE` and `READY` columns show `True`. After the next push to the repository, a `TaskRun` named `build-<suffix>` appears, and its log contains `triggered for revision <commit SHA>`:
+
+```bash
+kubectl get taskruns -n tekton-triggers-demo
+```
+
+Read the log from the Pod of the `TaskRun`, which is named `<taskrun-name>-pod`:
+
+```bash
+kubectl logs -n tekton-triggers-demo <taskrun-name>-pod --all-containers
+```
+
+If no `TaskRun` appears after the push, read the core interceptors log and the EventListener log as shown in [Troubleshooting Secret Authentication](#troubleshooting-secret-authentication). If neither log has a line from the time of the push, the request did not reach the EventListener: check the delivery under **Recent Deliveries** of the webhook in GitHub, and the exposure of Step 4. Otherwise follow that section.
+
+To confirm that `secretRef` is enforced, send a push event without a signature to the Payload URL of Step 4, for example with `curl` (add `--cacert <ca-file>` for a certificate from an internal CA). From a Pod inside the cluster, you can use the Service URL `http://el-secure-github-listener.tekton-triggers-demo.svc.cluster.local:8080` as `<payload-url>` instead:
+
+```bash
+curl -sS -X POST -H 'Content-Type: application/json' -H 'X-GitHub-Event: push' \
+  -d '{"ref":"refs/heads/main","after":"0123456789abcdef0123456789abcdef01234567"}' \
+  -w '\nHTTP_STATUS %{http_code}\n' <payload-url>
+```
+
+The body must contain `after`, which the TriggerBinding of Step 2 reads: without it, the `revision` param cannot be resolved and no `TaskRun` is created even when the trigger has no `secretRef`. The EventListener still answers `HTTP_STATUS 202`, but no new `TaskRun` appears in `kubectl get taskruns -n tekton-triggers-demo`, and the core interceptors log (see [Troubleshooting Secret Authentication](#troubleshooting-secret-authentication)) shows `no X-Hub-Signature-256 header set`. The log line has no event ID, so match it by the time of the request: add `--timestamps` to the `kubectl logs` command to print the time of each line. If this request creates a `TaskRun`, the trigger has no `secretRef`.
+
+**Step 6: Clean up**
+
+When you no longer need the example, delete the webhook in the GitHub repository (Settings → Webhooks) and any objects that you created yourself in Step 4 to expose the EventListener, such as an Ingress and its TLS Secret. Then delete the objects of Steps 1-3 and the `TaskRun`s that the example created:
+
+```bash
+kubectl delete eventlistener secure-github-listener -n tekton-triggers-demo
+kubectl delete triggerbinding github-push-binding -n tekton-triggers-demo
+kubectl delete triggertemplate build-template -n tekton-triggers-demo
+kubectl delete secret github-webhook-secret -n tekton-triggers-demo
+kubectl delete taskrun <taskrun-name> -n tekton-triggers-demo
+```
+
+Delete the namespace with `kubectl delete namespace tekton-triggers-demo` only if it holds nothing else that you keep, such as the objects of the Triggers Quick Start that [Setup EventListener](../how_to/eventlistener.mdx#nodeport-configuration-example) uses.
+
+### Troubleshooting Secret Authentication \{#troubleshooting-secret-authentication}
 
 **Common Issues:**
 
 1. **Authentication Fails**
    - Verify the secret token matches exactly between the external system and Kubernetes Secret
    - Check that the secret key name (`secretKey`) matches the key in your Secret
-   - Ensure the secret exists in the same namespace as your EventListener
+   - Ensure the Secret exists in the namespace of the Trigger: for triggers defined inline in the EventListener or referenced with `triggerRef`, the EventListener's namespace; for Triggers selected through `namespaceSelector`, the Trigger's own namespace
 
 2. **Secret Not Found**
    - Verify the secret name in `secretRef.secretName` matches the actual Secret name
-   - Check that the ServiceAccount has permissions to read Secrets:
-     ```yaml
-     - apiGroups: [""]
-       resources: ["secrets"]
-       verbs: ["get", "list"]
-     ```
+   - For built-in interceptors, check the Secret read permissions of the `tekton-triggers-core-interceptors` ServiceAccount in the Triggers installation namespace. The EventListener ServiceAccount does not perform this lookup. For a custom interceptor, check its own ServiceAccount and explicitly scoped RoleBinding.
 
 3. **Signature Validation Fails**
    - For GitHub/Bitbucket: Ensure the webhook is configured with the correct secret in the external system
    - For GitLab: Verify the `X-GitLab-Token` header matches the secret token
-   - Check EventListener logs for detailed error messages:
+   - Check the core interceptors log, where a rejected signature or token is logged (`payload signature check failed`, `Invalid X-GitLab-Token`). A GitHub request without a signature header, for example from a GitHub webhook without a secret, is logged as `no X-Hub-Signature-256 header set`. The EventListener still answers HTTP `202` to a rejected request. Reading this log needs read access to Pod logs in `tekton-pipelines`, usually a cluster administrator. `tekton-pipelines` is the default of `TektonConfig` `spec.targetNamespace`; replace it in the commands if your installation uses another namespace. The label selector reads the log of each Pod of the `tekton-triggers-core-interceptors` Deployment:
      ```bash
-     kubectl logs -n <namespace> -l app=el-<eventlistener-name>
+     kubectl logs -n tekton-pipelines -l app=tekton-triggers-core-interceptors --tail=-1
+     ```
+   - The EventListener Pod log does not show requests that an interceptor rejected; it does show the `Invalid event body format` rejection. With `-l`, `kubectl logs` prints only the last 10 lines unless `--tail` is set; `--tail=-1` prints all lines:
+     ```bash
+     kubectl logs -n <namespace> -l eventlistener=<eventlistener-name> --tail=-1
      ```
 
 ### Reference Materials

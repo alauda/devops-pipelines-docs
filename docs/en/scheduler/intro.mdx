@@ -1,0 +1,31 @@
+---
+weight: 10
+queries:
+  - How does Scheduler limit concurrent pipeline runs?
+  - When should I enable pipeline scheduling?
+  - What does the Scheduler component provide?
+---
+
+# Introduction
+
+Scheduler connects Tekton PipelineRuns to Kueue queues. Use it to limit the number of pipelines that execute concurrently and to keep excess runs waiting before they create TaskRuns or execution Pods.
+
+## When to use Scheduler \{#when_to_use}
+
+Use Scheduler when a namespace needs a predictable concurrency limit. For example, a team can admit one PipelineRun at a time while additional runs wait for quota. When the active run finishes, Kueue admits another waiting run automatically.
+
+Scheduler is disabled by default. Administrators enable the component through TektonConfig and explicitly enroll namespaces. PipelineRuns in namespaces that are not enrolled continue to execute normally.
+
+## Component responsibilities \{#component_responsibilities}
+
+Tekton Operator installs and removes Scheduler. Scheduler associates PipelineRuns with queues, creates Kueue Workloads, and starts admitted runs. Kueue manages queues and quota. Tekton Pipelines executes the admitted runs.
+
+Kueue and cert-manager are separate prerequisites. Enabling Scheduler does not install them or create queues. Administrators must prepare these resources before enrolling a namespace.
+
+## Supported configuration \{#supported_configuration}
+
+The initial validated configuration uses Tekton Pipelines 1.12.2, Scheduler 0.3.1, and Alauda Build of Kueue 0.17.0 with the `kueue.x-k8s.io/v1beta2` API. The validation environment uses cert-manager 1.16.2. Other version combinations require compatibility validation.
+
+This guide covers single-cluster scheduling and concurrency quotas. MultiKueue configuration and console-based administration are outside this guide.
+
+Start with the [Quick Start](./quick_start.mdx) to observe one running pipeline and one queued pipeline.

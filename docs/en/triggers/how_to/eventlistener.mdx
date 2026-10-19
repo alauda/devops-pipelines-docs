@@ -35,7 +35,7 @@ EventListener has the following key features:
 
 ## Configuration Instructions
 
-### Basic Structure
+### Basic Structure \{#basic-structure}
 
 ```yaml
 apiVersion: triggers.tekton.dev/v1beta1
@@ -93,10 +93,16 @@ Defines a set of trigger configurations:
 
 ### Security Configurations
 
+On Kubernetes, the configured default for an omitted or empty account is
+`triggers-default-sa` unless overridden; explicit nonempty accounts are preserved.
+The OpenShift default remains `pipeline`. See
+[Triggers Default ServiceAccount](../../configure/trigger_default_service_account.mdx)
+for administrator overrides, restoration and upgrade compatibility.
+
 EventListener supports multiple security configurations:
 
 1. **ServiceAccount**: 
-   - **Default ServiceAccount (`triggers-default-sa`)**: Set `spec.serviceAccountName: triggers-default-sa` explicitly. If you omit it, the EventListener uses the `default-service-account` value of the `config-defaults-triggers` ConfigMap, which is `default` unless configured. The `default` ServiceAccount has no Triggers permissions. The console's create dialog fills in the namespace's default Triggers ServiceAccount, the one labelled `triggers.tekton.dev/default-service-account` (`triggers-default-sa` unless configured). `triggers-default-sa` is automatically granted the necessary namespace-scoped permissions required for EventListeners to handle triggers within the same namespace. The permissions are automatically bound to the namespace where the ServiceAccount exists.
+   - **Default ServiceAccount (`triggers-default-sa`)**: On Kubernetes, omitting `spec.serviceAccountName` or setting it to an empty string selects the configured Triggers default, `triggers-default-sa` unless overridden. Explicit nonempty account names are preserved; the OpenShift platform default remains `pipeline`. The console's create dialog fills in the namespace's default Triggers ServiceAccount, the one labelled `triggers.tekton.dev/default-service-account` (`triggers-default-sa` unless configured). `triggers-default-sa` is automatically granted the necessary namespace-scoped permissions required for EventListeners to handle triggers within the same namespace. The permissions are automatically bound to the namespace where the ServiceAccount exists.
    - **Custom ServiceAccount**: When you need to handle triggers across multiple namespaces (e.g., when `namespaceSelector` is configured), you must specify a custom ServiceAccount with cluster-scoped permissions. Ensure that the specified ServiceAccount is configured with the corresponding permissions (see [Permission Guidelines](#permission-guidelines) below).
 2. **Interceptor Validation**: Use CEL interceptors for event validation.
 3. **TLS**: Supports configuring HTTPS certificates.
@@ -105,9 +111,9 @@ EventListener supports multiple security configurations:
 
 #### Default ServiceAccount vs Custom ServiceAccount
 
-- **Default ServiceAccount (`triggers-default-sa`)**: Set `spec.serviceAccountName: triggers-default-sa` explicitly. If you omit it, the EventListener uses the `default-service-account` value of the `config-defaults-triggers` ConfigMap, which is `default` unless configured. The `default` ServiceAccount has no Triggers permissions. The console's create dialog fills in the namespace's default Triggers ServiceAccount, the one labelled `triggers.tekton.dev/default-service-account` (`triggers-default-sa` unless configured). `triggers-default-sa` is automatically granted the necessary namespace-scoped permissions required for EventListeners to handle triggers within the same namespace. The permissions are automatically bound to the namespace where the ServiceAccount exists, so you don't need to manually configure Role or RoleBinding.
+- **Default ServiceAccount (`triggers-default-sa`)**: On Kubernetes, omitting `spec.serviceAccountName` or setting it to an empty string selects the configured Triggers default, `triggers-default-sa` unless overridden. Explicit nonempty account names are preserved; the OpenShift platform default remains `pipeline`. The console's create dialog fills in the namespace's default Triggers ServiceAccount, the one labelled `triggers.tekton.dev/default-service-account` (`triggers-default-sa` unless configured). `triggers-default-sa` is automatically granted the necessary namespace-scoped permissions required for EventListeners to handle triggers within the same namespace. The permissions are automatically bound to the namespace where the ServiceAccount exists, so you don't need to manually configure Role or RoleBinding.
 
-- **Custom ServiceAccount with Cluster Permissions**: When you configure `namespaceSelector` to listen to triggers from multiple namespaces (including `'*'` for all namespaces), you must specify a custom ServiceAccount with cluster-scoped permissions. The `triggers-default-sa` ServiceAccount only has namespace-scoped permissions and does not have the necessary cluster-scoped permissions to access resources across namespaces.
+- **Custom ServiceAccount with Cluster Permissions**: When you configure `namespaceSelector` to listen to triggers from multiple namespaces (including `'*'` for all namespaces), you must specify a custom ServiceAccount with cluster-scoped permissions. The `triggers-default-sa` ServiceAccount has namespace-scoped permissions for Trigger resources and cluster-scoped read permissions for ClusterTriggerBindings and ClusterInterceptors. It does not have permissions to access namespaced Trigger resources in other namespaces.
 
 #### Required Permissions
 
@@ -116,7 +122,6 @@ To trigger pipeline and tasks properly, the ServiceAccount used by EventListener
 | Permission                              | Resource                   | Description          |
 | --------------------------------------- | ------------------------- | ------------------- |
 | get, list, watch                        | configmaps                | Read ConfigMaps     |
-| get, list, watch                        | secrets                   | Read Secrets        |
 | get, list, watch                        | serviceaccounts           | Read ServiceAccounts |
 | create, get, list, watch, patch, update | deployments               | Manage Deployments   |
 | create, get, list, watch, patch, update | services                  | Manage Services      |
@@ -132,6 +137,10 @@ To trigger pipeline and tasks properly, the ServiceAccount used by EventListener
 | get, list, watch                        | triggertemplates          | Read TriggerTemplates |
 | get, list, watch                        | eventlisteners            | Read EventListeners  |
 
+The EventListener ServiceAccount does not need Secret API read permissions for built-in webhook authentication. Secret validation for GitHub, GitLab, Bitbucket, and CEL `compareSecret` runs in core-interceptors, using the separate `tekton-triggers-core-interceptors` ServiceAccount. The Slack interceptor only checks request headers and extracts configured fields; it does not read a Secret. The default EventListener cluster role grants only `get`, `list` and `watch` on ClusterTriggerBindings and ClusterInterceptors. HTTPS certificates mounted through Secret volumes do not require the EventListener ServiceAccount to read the Secret API.
+
+If a custom sidecar, custom interceptor or TaskRun needs to read a Secret through the Kubernetes API, use a dedicated ServiceAccount with a Role and RoleBinding in the required namespace. Grant only the necessary verbs and Secret names; do not use `triggers-default-sa` as a general-purpose Secret reader.
+
 Referable ClusterRole:
 
 ```yaml
@@ -141,7 +150,7 @@ metadata:
   name: eventlistener-role
 rules:
 - apiGroups: [""]
-  resources: ["configmaps", "secrets", "serviceaccounts"]
+  resources: ["configmaps", "serviceaccounts"]
   verbs: ["get", "list", "watch"]
 - apiGroups: ["apps"]
   resources: ["deployments"]
@@ -161,7 +170,10 @@ rules:
     - "triggers"
     - "triggertemplates"
     - "eventlisteners"
-  verbs: ["get", "list", "watch"]
+  verbs:
+    - "get"
+    - "list"
+    - "watch"
 ```
 
 ## User Guide
@@ -195,9 +207,9 @@ A namespace-level EventListener binds to specific triggers within the same names
 
 ```yaml
 spec:
-  # serviceAccountName defaults to "default-service-account" in config-defaults-triggers ("default" unless configured),
-  # which has no Triggers permissions; set it to triggers-default-sa explicitly. The console create dialog fills in
-  # the namespace's default Triggers ServiceAccount (labelled triggers.tekton.dev/default-service-account).
+  # Omitting serviceAccountName selects the configured Triggers default:
+  # triggers-default-sa on Kubernetes, unless overridden; pipeline on OpenShift.
+  # Explicit nonempty account names are preserved.
   serviceAccountName: triggers-default-sa
   triggers:
     - name: trigger-1
@@ -278,7 +290,7 @@ spec:
 
 | Scenario | Namespace Scope | ServiceAccount | Configuration Complexity | Use Case |
 | -------- | --------------- | -------------- | ----------------------- | -------- |
-| Namespace-Level | Single namespace | `triggers-default-sa` (set explicitly) | Simple | Single project/team |
+| Namespace-Level | Single namespace | `triggers-default-sa` (default; configurable) | Simple | Single project/team |
 | Project-Level | Multiple specified namespaces | Custom SA (cluster permissions) | Moderate | Multiple related projects |
 | Global-Level | All namespaces (`*`) | Custom SA (cluster permissions) | Complex | Cluster-wide management |
 
@@ -288,10 +300,10 @@ In different planning scenarios, different configurations can be used to meet va
 
 | Scale  | Trigger Count                                         | Resource Settings                         |
 | --- | ------------------------------------------------- | ------------------------------------- |
-| Small Scale | 2 (triggers) * 100 (namespaces) * 10 (pipelines) = 2,000 triggers/cluster | Moderate, more than two replicas        |
-| Medium Scale | 2 (triggers) * 1,000 (namespaces) * 10 (pipelines) = 20,000 triggers/cluster | Moderate, more than two replicas, deploy different EventListeners by namespace |
+| Small Scale | 2 (triggers) * 100 (namespaces) * 10 (pipelines) = 2,000 triggers/cluster | Two or more replicas; start from the requests and limits of the Basic Structure sample, then adjust them to the use you observe (see Best Practices below) |
+| Medium Scale | 2 (triggers) * 1,000 (namespaces) * 10 (pipelines) = 20,000 triggers/cluster | Two or more replicas; start from the requests and limits of the Basic Structure sample, then adjust them to the use you observe (see Best Practices below); deploy different EventListeners by namespace |
 
-### Network Configuration
+### Network Configuration \{#network-configuration}
 
 Depending on the priority of the environment and the available network resources, different network configurations can be chosen.
 
@@ -310,6 +322,8 @@ Depending on the priority of the environment and the available network resources
 - **Manual Control**: If you prefer manual control over Ingress resources, create them manually as shown in the examples below
 :::
 
+The Service that Triggers creates for an EventListener has two ports, whatever its `serviceType`: the event port and the metrics port `9000` (`http-metrics`). A `NodePort` or `LoadBalancer` Service therefore publishes both ports outside the cluster. Only the event port needs to be reachable from the Git provider: limit access to the metrics port with the load balancer, a firewall or a NetworkPolicy, or use an Ingress or the automatic exposure feature, which route to the event port.
+
 ### NodePort Configuration Example \{#nodeport-configuration-example}
 
 NodePort is suitable for development, testing, or environments where you don't have a LoadBalancer or Ingress controller configured. This method exposes the EventListener service on a high port (30000-32767) on each node in the cluster.
@@ -319,7 +333,8 @@ NodePort is suitable for development, testing, or environments where you don't h
 - Complete Step 2 and Step 3 of the [Quick Start](../quick_start.mdx) and keep the resources (skip its "Clean Up Resources" step): this example uses the `tekton-triggers-demo` namespace, the `hello-binding` TriggerBinding, and the `hello-template` TriggerTemplate that they create
 - Kubernetes cluster with nodes accessible from external systems
 - You should know at least one node's external IP address
-- Firewall rules should allow traffic to the NodePort range (30000-32767)
+- Firewall rules should allow traffic to the node port of the EventListener's event port, which is in the NodePort range (30000-32767); see [Network Configuration](#network-configuration)
+- The `curl` CLI on the machine where you run the commands, to send the test request in **Test NodePort Webhook**
 
 #### Configuration Example
 
@@ -335,9 +350,9 @@ NodePort is suitable for development, testing, or environments where you don't h
     name: el-demo
     namespace: tekton-triggers-demo
   spec:
-    # serviceAccountName defaults to "default-service-account" in config-defaults-triggers ("default" unless configured),
-    # which has no Triggers permissions; set it to triggers-default-sa explicitly. The console create dialog fills in
-    # the namespace's default Triggers ServiceAccount (labelled triggers.tekton.dev/default-service-account).
+    # Omitting serviceAccountName selects the configured Triggers default:
+    # triggers-default-sa on Kubernetes, unless overridden; pipeline on OpenShift.
+    # Explicit nonempty account names are preserved.
     serviceAccountName: triggers-default-sa
     resources:
       kubernetesResource:
@@ -356,7 +371,7 @@ NodePort is suitable for development, testing, or environments where you don't h
 
   ### Get NodePort Webhook Address
 
-  After the EventListener is created, you need to get the NodePort and node IP to construct the webhook URL:
+  After the EventListener is created, you need to get the NodePort and node IP to construct the webhook URL. The `kubectl get nodes` commands need read access to the cluster-scoped `nodes` resource, usually a cluster administrator; without it, `NODE_IP` stays empty:
 
   ```bash
   # 1. Get the NodePort assigned to the EventListener service
@@ -404,7 +419,20 @@ NodePort is suitable for development, testing, or environments where you don't h
     $WEBHOOK_URL
   ```
 
-  ### Verify EventListener Status
+  The `curl -v` output shows `< HTTP/1.1 202 Accepted`, followed by one line of JSON:
+
+  ```text
+  {"eventListener":"el-demo","namespace":"tekton-triggers-demo","eventListenerUID":"<eventlistener-uid>","eventID":"<event-id>"}
+  ```
+
+  The Quick Start `hello-template` then creates a `TaskRun` named `hello-run-<suffix>`. Its log contains `Hello from NodePort!`:
+
+  ```bash
+  kubectl get taskruns -n tekton-triggers-demo
+  kubectl logs -n tekton-triggers-demo <taskrun-name>-pod --all-containers
+  ```
+
+  ### Verify EventListener Status \{#verify-eventlistener-status}
 
   ```bash
   # Check EventListener is ready
@@ -413,8 +441,14 @@ NodePort is suitable for development, testing, or environments where you don't h
   # Check the service
   kubectl get svc el-el-demo -n tekton-triggers-demo
 
-  # View EventListener Pod logs
-  kubectl logs -n tekton-triggers-demo -l eventlistener=el-demo
+  # View EventListener Pod logs (with -l, kubectl logs prints only the last 10 lines unless --tail is set)
+  kubectl logs -n tekton-triggers-demo -l eventlistener=el-demo --tail=-1
+  ```
+
+  When you no longer need the NodePort test, delete the EventListener:
+
+  ```bash
+  kubectl delete eventlistener el-demo -n tekton-triggers-demo
   ```
 </Steps>
 
@@ -423,7 +457,7 @@ NodePort is suitable for development, testing, or environments where you don't h
 - **Security**: NodePort uses HTTP (not HTTPS), so it's not suitable for production environments where security is critical
 - **Accessibility**: The node IP must be accessible from external systems that will send webhooks
 - **High Availability**: If a node goes down, you'll need to use a different node's IP. Consider using a load balancer in front of multiple nodes
-- **Port Range**: NodePort uses ports in the range 30000-32767. Make sure your firewall allows traffic to these ports
+- **Port Range**: NodePort uses ports in the range 30000-32767. Make sure your firewall allows traffic to the node port of the event port (see [Network Configuration](#network-configuration))
 - **Multiple Nodes**: You can use any node's IP address, as the NodePort is available on all nodes
 
 #### When to Use NodePort
@@ -443,11 +477,11 @@ If you started with NodePort for testing and now want to move to a production se
 
 1. **Update EventListener Service Type**: Change `serviceType` from `NodePort` to `ClusterIP` in your EventListener spec
 2. **Configure Automatic Exposure** (Recommended): Use the [automatic exposure feature](../how_to/trigger-wrapper-config.mdx) to automatically create Ingress resources
-3. **Or Create Ingress Manually**: Follow the example below to create Ingress resources manually
+3. **Or Create Ingress Manually**: Follow the example below to create Ingress resources manually. Point the Ingress backend at the Service of your EventListener, `el-<eventlistener-name>`, on its Service port: `8080` when `servicePort` is not set. An EventListener that sets the `TLS_CERT` and `TLS_KEY` environment variables from a Secret serves HTTPS, on Service port `8443` when `servicePort` is not set; the Ingress example below has no setting for an HTTPS backend, so it does not fit such a listener. The example uses `el-eventlistener` on port `80` because its EventListener sets `servicePort: 80`
 
 The following example shows how to set up EventListener with Ingress for production use.
 
-### Small Scale + HTTPS + ALB Ingress Configuration Example
+### Small Scale + HTTPS + Ingress Configuration Example
 
 #### Prerequisites
 
@@ -460,16 +494,17 @@ Before configuring the EventListener with Ingress, ensure the following prerequi
 
 2. **Domain and Certificate Setup**:
    - The domain name is configured correctly and points to your LoadBalancer
-   - TLS certificates are in place (either manually created or via cert-manager)
+   - TLS certificates are in place (either manually created or via cert-manager with an issuer that works without internet access, such as a CA issuer)
    - DNS records are properly configured
 
 3. **Ingress Controller**:
-   - An Ingress controller (ALB in this example) is deployed and configured properly
+   - An Ingress controller (for example the platform ALB) is deployed and configured properly. Set `<ingress-class>` in the Ingress sample below to the IngressClass of that controller (`kubectl get ingressclass` lists them)
    - The Ingress controller is ready to handle Ingress resources
    - For more information on creating Ingresses, refer to <ExternalSiteLink name="acp" href="/configure/networking/functions" children="Creating Ingresses" />.
+   - On Alauda Container Platform, an ALB can be limited to the namespaces of certain projects. If the ALB is limited this way, the EventListener namespace must belong to one of those projects (create it in the console, or add the label with `kubectl label namespace tekton-webhooks cpaas.io/project=<project>`) before you create the Ingress. Otherwise the Ingress gets no address, and requests for `<host>` reach the ALB's default server instead of the EventListener. Adding the label needs permission to update the Namespace object, usually a cluster administrator. If you add the label after the Ingress exists, delete the Ingress and create it again, then check that `kubectl get ingress eventlistener-ingress -n tekton-webhooks` shows an `ADDRESS`.
 
 :::info
-**Note**: If you're using the automatic exposure feature (configured through `TektonConfig`), you typically don't need to manually create Ingress resources. The system will automatically create them based on your export rules. This example shows manual Ingress creation for cases where you prefer manual control or are not using the automatic exposure feature.
+**Note**: If you're using the automatic exposure feature (configured through `TektonConfig`), you typically don't need to manually create Ingress resources. The system will automatically create them based on your export rules. This example shows manual Ingress creation for cases where you prefer manual control or are not using the automatic exposure feature. Automatic exposure routes to port `8080` of the EventListener Service, which is the Service port only when `servicePort` is not set and the EventListener does not set the `TLS_CERT` and `TLS_KEY` environment variables (with them, the listener serves HTTPS and the Service has no port `8080`). If you use automatic exposure for this EventListener, remove `servicePort: 80` from the example below.
 :::
 
 #### Configuration Example
@@ -477,7 +512,7 @@ Before configuring the EventListener with Ingress, ensure the following prerequi
 <Steps>
   ### Create Namespace (Optional)
 
-  Ensure there is a Namespace for easy management of EventListener and other permissions; here we use `tekton-webhooks` as an example.
+  Ensure there is a Namespace for easy management of EventListener and other permissions; here we use `tekton-webhooks` as an example. On Alauda Container Platform, if the ALB is limited to the namespaces of certain projects, put it in one of those projects before you create the Ingress, as described in prerequisite 3; adding the project label needs permission to update the Namespace object, usually a cluster administrator. Creating the namespace needs permission to create `Namespace` objects, usually a cluster administrator.
 
   ```bash
   kubectl create namespace tekton-webhooks
@@ -485,9 +520,9 @@ Before configuring the EventListener with Ingress, ensure the following prerequi
 
   ### Create ClusterRole and ServiceAccount and Set Permissions
 
-    - **Default ServiceAccount (`triggers-default-sa`)**: Set `spec.serviceAccountName: triggers-default-sa` explicitly. If you omit it, the EventListener uses the `default-service-account` value of the `config-defaults-triggers` ConfigMap, which is `default` unless configured. The `default` ServiceAccount has no Triggers permissions. The console's create dialog fills in the namespace's default Triggers ServiceAccount, the one labelled `triggers.tekton.dev/default-service-account` (`triggers-default-sa` unless configured). `triggers-default-sa` is automatically granted the necessary namespace-scoped permissions required for EventListeners to handle triggers within the same namespace. The permissions are automatically bound to the namespace where the ServiceAccount exists, so you don't need to manually configure Role or RoleBinding.
+    - **Default ServiceAccount (`triggers-default-sa`)**: On Kubernetes, omitting `spec.serviceAccountName` or setting it to an empty string selects the configured Triggers default, `triggers-default-sa` unless overridden. Explicit nonempty account names are preserved; the OpenShift platform default remains `pipeline`. The console's create dialog fills in the namespace's default Triggers ServiceAccount, the one labelled `triggers.tekton.dev/default-service-account` (`triggers-default-sa` unless configured). `triggers-default-sa` is automatically granted the necessary namespace-scoped permissions required for EventListeners to handle triggers within the same namespace. The permissions are automatically bound to the namespace where the ServiceAccount exists, so you don't need to manually configure Role or RoleBinding.
 
-    - **Custom ServiceAccount with Cluster Permissions**: When you configure `namespaceSelector` to listen to triggers from multiple namespaces (including `'*'` for all namespaces), you must specify a custom ServiceAccount with cluster-scoped permissions. The `triggers-default-sa` ServiceAccount only has namespace-scoped permissions and does not have the necessary cluster-scoped permissions to access resources across namespaces.
+    - **Custom ServiceAccount with Cluster Permissions**: When you configure `namespaceSelector` to listen to triggers from multiple namespaces (including `'*'` for all namespaces), you must specify a custom ServiceAccount with cluster-scoped permissions. The `triggers-default-sa` ServiceAccount has namespace-scoped permissions for Trigger resources and cluster-scoped read permissions for ClusterTriggerBindings and ClusterInterceptors. It does not have permissions to access namespaced Trigger resources in other namespaces.
 
   :::warning
   **Required for namespaceSelector**: The following steps are only required when using `namespaceSelector` to listen to triggers across multiple namespaces. If your EventListener only handles triggers within the same namespace, you can skip these steps and set `serviceAccountName: triggers-default-sa`, which automatically has the required permissions.
@@ -502,7 +537,7 @@ Before configuring the EventListener with Ingress, ensure the following prerequi
     name: eventlistener-role
   rules:
   - apiGroups: [""]
-    resources: ["configmaps", "secrets", "serviceaccounts"]
+    resources: ["configmaps", "serviceaccounts"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["apps"]
     resources: ["deployments"]
@@ -522,7 +557,10 @@ Before configuring the EventListener with Ingress, ensure the following prerequi
       - "triggers"
       - "triggertemplates"
       - "eventlisteners"
-    verbs: ["get", "list", "watch"]
+    verbs:
+      - "get"
+      - "list"
+      - "watch"
   ```
 
   ```bash
@@ -536,13 +574,15 @@ Before configuring the EventListener with Ingress, ensure the following prerequi
   kubectl create clusterrolebinding tekton-webhooks:eventlistener:eventlistener-role --clusterrole=eventlistener-role --serviceaccount=tekton-webhooks:eventlistener
   ```
 
-  ### Create EventListener
+  Creating the ClusterRole and the ClusterRoleBinding needs cluster administrator rights. The ClusterRoleBinding grants the `eventlistener` ServiceAccount the permissions of `eventlistener-role` in every namespace, including `get`, `list`, and `watch` on Secrets, and creating PipelineRuns and TaskRuns. Use this ServiceAccount only for EventListeners that serve several namespaces.
+
+  ### Create EventListener \{#create-eventlistener}
 
   Save the following YAML as `eventlistener.yaml`.
 
   :::info
   **ServiceAccount Selection**:
-  - If you only need to handle triggers within the same namespace, set `serviceAccountName: triggers-default-sa`, which automatically has the required namespace-scoped permissions. If you omit it, the EventListener uses the `default-service-account` value of the `config-defaults-triggers` ConfigMap, which is `default` unless configured. The `default` ServiceAccount has no Triggers permissions.
+  - If you only need to handle triggers within the same namespace, set `serviceAccountName: triggers-default-sa`, which automatically has the required namespace-scoped permissions. On Kubernetes, omitting it uses the configured Triggers default, `triggers-default-sa` unless overridden. Explicit nonempty account names are preserved; the OpenShift platform default remains `pipeline`.
   - Since this example uses `namespaceSelector` with `'*'` to listen to triggers from all namespaces, a custom ServiceAccount with cluster-scoped permissions is required. Therefore, `serviceAccountName: "eventlistener"` is specified here.
   :::
 
@@ -565,7 +605,7 @@ Before configuring the EventListener with Ingress, ensure the following prerequi
     resources:
       kubernetesResource:
         serviceType: ClusterIP # ClusterIP service type
-        servicePort: 80  # Service port (container port)
+        servicePort: 80  # Service port; the EventListener container listens on 8080
         replicas: 2 # Replicas
         spec: # Deployment spec
           template:
@@ -573,39 +613,53 @@ Before configuring the EventListener with Ingress, ensure the following prerequi
               labels:
                 el.tekton.dev/namespaces: all
                 el.tekton.dev/size: small
-            spec: {}
+            spec:
+              containers:
+                - resources: # Start values from the Basic Structure sample
+                    requests:
+                      memory: "64Mi"
+                      cpu: "250m"
+                    limits:
+                      memory: "128Mi"
+                      cpu: "500m"
   ```
 
   ```bash
   kubectl apply -f eventlistener.yaml
   ```
 
-  ### Create Ingress and TLS Secrets
+  ### Create Ingress and TLS Secrets \{#create-ingress-and-tls-secrets}
 
   ::: info
 
   You need to set the \<host> with the corresponding domain name and certificate information.
   :::
 
+  Create the TLS Secret from the certificate and key files of `<host>`:
+
+  ```bash
+  kubectl create secret tls <tls-secret-name> --cert=<cert-file> --key=<key-file> -n tekton-webhooks
+  ```
+
+  :::warning
+  **Exposure**: This Ingress publishes an EventListener that serves the triggers of all namespaces. Expose it only on the networks that send webhooks, prefer HTTPS, and require webhook authentication on every trigger that the listener serves; see [Webhook Secret Authentication](../concepts/eventlistener_concept.mdx#webhook-secret-authentication).
+  :::
+
+  Save the following Ingress as `eventlistener-ingress.yaml`:
+
   ```yaml
   apiVersion: networking.k8s.io/v1
   kind: Ingress
   metadata:
     name: eventlistener-ingress
-    annotations:
-      ### Note ALB does not require setting ingressClassName
-      ## kubernetes.io/ingress.class: "nginx" ## Follow changes to the ingress class, and remember to add corresponding ingress annotations.
-      ### The following configuration should be customized based on requirements:
-      alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}, {"HTTP":80}]'
-      alb.ingress.kubernetes.io/scheme: internet-facing
-      alb.ingress.kubernetes.io/target-type: ip
+    namespace: tekton-webhooks  # Same namespace as the EventListener Service el-eventlistener
+    # Add the annotations that your Ingress controller needs
   spec:
-    ### Note ALB does not require setting ingressClassName
-    ## ingressClassName: alb ## Change according to the required ingress class
+    ingressClassName: <ingress-class>  # IngressClass of your Ingress controller; list them with kubectl get ingressclass
     tls:
     - hosts:
       - <host> # Domain name setting. Ensure DNS resolution is configured (or add to /etc/hosts for testing)
-      secretName: <tls secret> # Name of the secret containing TLS certificate
+      secretName: <tls-secret-name> # Name of the secret containing TLS certificate, in the tekton-webhooks namespace
     rules:
     - host: <host> # Domain name setting. Ensure DNS resolution is configured (or add to /etc/hosts for testing)
       http:
@@ -620,6 +674,10 @@ Before configuring the EventListener with Ingress, ensure the following prerequi
 
   ```
 
+  ```bash
+  kubectl apply -f eventlistener-ingress.yaml
+  ```
+
   :::warning
   **DNS Configuration**: When configuring the `host` field with a domain name, ensure that:
   - DNS records are properly configured to resolve the domain to your Ingress controller's IP address
@@ -627,7 +685,7 @@ Before configuring the EventListener with Ingress, ensure the following prerequi
   - The domain must be resolvable from the systems that will send webhooks (GitHub, GitLab, etc.)
   :::
 
-  ### Verify Domain Accessibility
+  ### Verify Domain Accessibility \{#verify-domain-accessibility}
 
   After configuring the domain and Ingress, ensure that your webhook domain is accessible:
 
@@ -638,6 +696,16 @@ Before configuring the EventListener with Ingress, ensure the following prerequi
   # Or test the specific webhook endpoint
   curl -kI https://<host>/triggers/<eventlistener-namespace>/<eventlistener-name>
   ```
+
+  `curl -kI` sends a `HEAD` request without a body. A `400` response with `content-type: application/json` comes from the EventListener, which rejects the empty body, and shows that the domain reaches the listener.
+
+  `-k` skips the certificate check, so these commands do not show which certificate the Ingress serves. Check it separately:
+
+  ```bash
+  curl -sS -k -v -o /dev/null https://<host>/ 2>&1 | grep -E 'subject:|issuer:'
+  ```
+
+  The `subject:` and `issuer:` lines must be those of the certificate in `<tls-secret-name>`. If they show another certificate, for example the default certificate of the ALB, the Ingress is not loaded or does not use that Secret.
 
   :::warning
   **Important**: Ensure that your webhook domain based on the LoadBalancer is accessible from external systems (such as GitHub, GitLab, or other webhook senders). If the domain is not accessible, webhooks will fail. Check:
@@ -653,44 +721,40 @@ Before configuring the EventListener with Ingress, ensure the following prerequi
 
   ```bash
   curl -k -X POST -H 'Content-Type: application/json' -d '{"hello": "world"}' https://<host>/triggers/<eventlistener-namespace>/<eventlistener-name>
+  ```
 
-  ## The following is the expected return format:
-  $> {
-    "eventListener": "eventlistener",
-    "namespace": "tekton-webhooks",
-    "eventListenerUID": "8a7edab2-b426-453a-9f92-xxxxxx",
-    "eventID": "aefd3b5b-2b19-4a14-b411-xxxxxxx"
-  }
+  When the request reaches the EventListener, it answers with one line of JSON, for example:
+
+  ```json
+  {"eventListener":"<eventlistener-name>","namespace":"<eventlistener-namespace>","eventListenerUID":"<eventlistener-uid>","eventID":"<event-id>"}
   ```
 </Steps>
 
 ## Best Practices
 
 1. **Resource Limits**:
-   - Set appropriate resource requests and limits for EventListener Pods.
-   - Adjust the number of replicas based on actual load.
+   - Set resource requests and limits for EventListener Pods. Start from the values of the [Basic Structure](#basic-structure) sample (requests `64Mi` memory and `250m` CPU, limits `128Mi` and `500m`), then adjust them to the CPU and memory use that you observe on the EventListener Pods.
+   - Adjust the number of replicas (`replicas`, as in [Create EventListener](#create-eventlistener)) based on actual load.
 
 2. **Security**:
-   - Use HTTPS and Webhook Secrets.
+   - Use HTTPS and Webhook Secrets: see [Create Ingress and TLS Secrets](#create-ingress-and-tls-secrets), the certificate check in [Verify Domain Accessibility](#verify-domain-accessibility), and [Webhook Secret Authentication](../concepts/eventlistener_concept.mdx#webhook-secret-authentication).
    - Configure the least privilege ServiceAccount.
-   - Validate all incoming events using interceptors.
+   - Validate all incoming events using interceptors, as described in [Webhook Secret Authentication](../concepts/eventlistener_concept.mdx#webhook-secret-authentication).
 
 3. **Availability**:
-   - Expose services using LoadBalancer or Ingress.
-   - Configure appropriate health checks.
-   - Implement high-availability deployments.
+   - Expose services using LoadBalancer or Ingress; see [Network Configuration](#network-configuration) and [Configure EventListener automatic exposure rules](./trigger-wrapper-config.mdx).
+   - Implement high-availability deployments, for example with `replicas: 2` as in [Create EventListener](#create-eventlistener).
 
 4. **Monitoring**:
-   - Monitor EventListener logs.
-   - Set appropriate alert mechanisms.
-   - Track event processing performance.
+   - Monitor EventListener logs, as in [Verify EventListener Status](#verify-eventlistener-status).
+   - Track event processing performance with the EventListener sink metrics described in [Metrics Collection for Tekton Components](../../configure/metrics_collection.mdx).
 
 ## Frequently Asked Questions
 
 1. **Events Not Triggering Pipeline**
    - Check interceptor configurations.
    - Validate Webhook configuration.
-   - Review EventListener logs.
+   - Review the core interceptors log, as in [Troubleshooting Secret Authentication](../concepts/eventlistener_concept.mdx#troubleshooting-secret-authentication): at the shipped `info` log level, the EventListener log does not show interceptor rejections.
 
 2. **Permission Issues**
    - Confirm ServiceAccount permissions.
@@ -710,4 +774,3 @@ Before configuring the EventListener with Ingress, ensure the following prerequi
 - [EventListener API Reference](https://tekton.dev/docs/triggers/eventlisteners/)
 - [Tekton Trigger Examples](https://github.com/tektoncd/triggers/tree/main/examples)
 - [In-Depth Understanding of EventListener](../concepts/eventlistener_concept.mdx)
-

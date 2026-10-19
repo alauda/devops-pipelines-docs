@@ -1,0 +1,46 @@
+---
+weight: 10
+queries:
+  - How do ClusterQueue and LocalQueue relate to PipelineRuns?
+  - Why is a PipelineRun waiting for quota?
+  - How does the pipeline concurrency resource work?
+---
+
+# Scheduler Concepts
+
+Scheduler uses existing Tekton and Kueue APIs. The following resources define which runs enter a queue and how many can execute.
+
+| Resource | Purpose |
+| --- | --- |
+| TektonConfig | Enables Scheduler and sets the default queue name. |
+| ResourceFlavor | Identifies a resource group used by a ClusterQueue. A concurrency-only queue can use an empty ResourceFlavor. |
+| ClusterQueue | Defines available quota and which namespaces can use it. |
+| LocalQueue | Connects PipelineRuns in one namespace to a ClusterQueue. |
+| Workload | Represents a PipelineRun's quota request and admission status in Kueue. |
+| PipelineRun | Describes the pipeline that Tekton executes after admission. |
+
+## Namespace enrollment \{#namespace_enrollment}
+
+The namespace label `tekton.dev/scheduler-enabled: "true"` enables Scheduler admission for newly created PipelineRuns. Create the LocalQueue before applying this label.
+
+A PipelineRun can select a LocalQueue using `kueue.x-k8s.io/queue-name`. If that label is absent, Scheduler assigns the configured default queue. The queue must exist in the same namespace as the PipelineRun. Removing the namespace enrollment label affects new submissions; it does not release runs that are already queued.
+
+Queue labels are configuration, not an authorization boundary. Use namespace permissions and ClusterQueue namespace selectors to control queue access.
+
+## Concurrency quota \{#concurrency_quota}
+
+Each managed PipelineRun requests one unit of `tekton.dev/pipelineruns`. A ClusterQueue with a nominal quota of `1` admits one PipelineRun at a time. Additional runs stay in `PipelineRunPending` until quota is available.
+
+For a limit that applies to one namespace, give that namespace a dedicated ClusterQueue. Multiple LocalQueues pointing to the same ClusterQueue share its quota. Do not add a cohort or borrowing configuration when you need a fixed isolated limit.
+
+This quota counts PipelineRuns, not their Tasks or Pods. A single admitted PipelineRun can execute several Tasks concurrently. CPU and memory limits remain separate Kubernetes resource controls.
+
+## Admission lifecycle \{#admission_lifecycle}
+
+1. Scheduler's webhook assigns a queue and suspends a new PipelineRun in an enrolled namespace.
+2. Scheduler creates a Workload that requests quota from the LocalQueue's ClusterQueue.
+3. Kueue admits the Workload when quota is available.
+4. Scheduler releases the PipelineRun, and Tekton creates its execution resources.
+5. Completion returns quota so another waiting run can be admitted.
+
+Disabling Scheduler removes the component using the upstream operator lifecycle. It does not wait for active work to finish or automatically release queued runs. Follow [Disable Scheduler](../guides/manage_scheduler.mdx#disable_scheduler) to finish managed work before removal.

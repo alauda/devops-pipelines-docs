@@ -1,0 +1,25 @@
+---
+weight: 200
+---
+
+# TektonScheduler [operator.tekton.dev/v1alpha1]
+
+TektonScheduler installs the `tektoncd-kueue` integration. It requires Tekton
+Pipelines, cert-manager, and a separately installed Alauda Build of Kueue serving
+`kueue.x-k8s.io/v1beta2`. Kueue must register `PipelineRun.v1.tekton.dev` under
+`integrations.externalFrameworks`.
+
+Manage the component through `TektonConfig.spec.scheduler`. It is disabled by
+default. The managed child is named `scheduler`. Enabling the component only
+intercepts PipelineRuns in namespaces labeled
+`tekton.dev/scheduler-enabled: "true"`. A LocalQueue and its ClusterQueue must
+already exist. Set `spec.scheduler.config.yaml.queueName` explicitly; the examples
+use `pipelines-queue`. See [Manage Scheduler](../../../scheduler/guides/manage_scheduler.mdx).
+
+Setting `spec.scheduler.disabled` to `true` removes the child and its managed
+component through the upstream operator lifecycle. Finish or cancel managed runs
+before disabling; the operator does not wait for queued or running work to finish.
+Completed PipelineRun history remains subject to its normal retention policy.
+Kueue, cert-manager, and administrator-created queues have independent lifecycles.
+
+<K8sCrd name="tektonschedulers.operator.tekton.dev" />

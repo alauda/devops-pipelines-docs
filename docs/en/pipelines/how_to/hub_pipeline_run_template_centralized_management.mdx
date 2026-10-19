@@ -92,9 +92,10 @@ Templates for:
 - Values supplied at runtime by a user or event.
 
 Content that has a fixed value in the Run Template and is not set to `Set at
-Runtime` is used as run input, so users do not need to care about it. A single
-Hub Pipeline can have multiple Run Templates, with each template representing
-one clear usage scenario.
+Runtime` is used as run input. The run form does not ask for most of it;
+Parameters and Workspaces that a Pipeline Integration binds stay shown and
+editable. A single Hub Pipeline can have multiple Run Templates, with each
+template representing one clear usage scenario.
 
 ### Manage the start conditions
 
@@ -120,7 +121,7 @@ Template.
 | 5 | Validate and deliver | Shared responsibility | Validate in development and test before production use. |
 | 6 | Upgrade by version | Central platform and project teams | Review the impact, update existing Run Templates, and validate each start method. |
 
-## Prerequisites
+## Prerequisites \{#prerequisites}
 
 Before establishing centralized management, confirm that:
 
@@ -191,8 +192,9 @@ For example, separate templates can represent these environments:
 | `order-service-prod` | Production release | Release branch, production target, production credentials, and approval requirements. |
 
 Values that are fixed in the Run Template and not set to `Set at Runtime` are
-used as run inputs, so users do not need to care about them. Only content set
-to `Set at Runtime` needs to be supplied as runtime content.
+used as run inputs. The run form does not ask for most of them; Parameters and
+Workspaces that a Pipeline Integration binds stay shown and editable. Only
+content set to `Set at Runtime` needs to be supplied as runtime content.
 
 ### 4. Configure the start method
 
@@ -301,7 +303,7 @@ be different:
 - In the current Tekton Triggers `v0.36.0` implementation, if a TriggerTemplate
   declares a parameter without a default and the TriggerBinding does not
   provide it, the generated PipelineRun can retain the literal
-  `$(tt.params.xxx)` value. Manual Run Template execution follows a different
+  `$(tt.params.<name>)` value. Manual Run Template execution follows a different
   frontend path and clears the entire value when its default is empty or
   missing.
 - A ScheduledTrigger supplies values through its scheduled template parameters.
@@ -351,8 +353,10 @@ runtime content.
 
 If the parameter needs a fixed default value or needs `Set at Runtime`,
 update and save the Run Template. Values that are not marked `Set at Runtime`
-are stored as fixed run inputs and are hidden on later executions. New
-Pipeline parameters remain visible until you save the template again.
+are stored as fixed run inputs. On later executions the run form does not ask
+for most of them; Parameters and Workspaces that a Pipeline Integration binds
+stay shown and editable. New Pipeline parameters remain visible until you save
+the template again.
 
 ### Rename, remove, or change a parameter
 
@@ -371,7 +375,7 @@ If a Pipeline changes its Integration requirements, task-level run
 requirements, or deployment behavior, validate direct Run Template execution,
 Triggers, and ScheduledTriggers again.
 
-## Upgrade a Hub Pipeline
+## Upgrade a Hub Pipeline \{#upgrade-a-hub-pipeline}
 
 When a new Hub Pipeline version is published, use the existing Run Templates
 as the basis for the upgrade. Do not create a new Run Template just because
@@ -384,10 +388,18 @@ the Hub Pipeline version changes.
    requirements, event variable mappings, and deployment behavior.
 4. Open each existing Run Template's update entry. In the form view, the
    associated Pipeline selector is read-only during an update. Switch to
-   **YAML** mode and update the Pipeline reference in the Run Template's
-   `PipelineRun` resource to the new Hub Pipeline version.
-5. Return to the form view and check new or changed parameters. Configure fixed
-   defaults or `Set at Runtime` in the existing Run Template when required.
+   **YAML** mode, update the Pipeline reference in the Run Template's
+   `PipelineRun` resource to the new Hub Pipeline version, and save from the
+   YAML view. Switching back to the form view before saving, after you change
+   the Pipeline reference in YAML, clears the fixed values of the template.
+   If the namespace enforces a `name@version` allowlist, such as the
+   `allow-approved-pipeline-versions` rule in
+   [Constrain Tekton Pipeline Execution with Kyverno](./constrain_pipeline_execution_with_kyverno.mdx),
+   add the new pair to the list first: a run that references an unlisted pair
+   is denied. Keep the previous pair listed while a rollback is possible.
+5. Reopen the update entry and check new or changed parameters in the form
+   view. Configure fixed defaults or `Set at Runtime` in the existing Run
+   Template when required.
 6. Check Workspaces, Integrations, deployment targets, and other run settings.
 7. Run the updated Run Template directly in development or test and validate
    parameters, Workspaces, artifacts, and deployment results.
@@ -413,7 +425,8 @@ Examples of stable configuration include:
 - Stable Integration.
 
 When these values are filled in the Run Template and are not set to `Set at
-Runtime`, they are used as run inputs, so users do not need to care about them.
+Runtime`, they are used as run inputs, and the run form does not ask for most
+of them (see the Integration exception under Runtime configuration below).
 
 ### Runtime configuration
 
@@ -426,10 +439,13 @@ Examples of content that may be set to `Set at Runtime` include:
 - Temporary verification flags.
 
 When running directly from a Run Template, users supply this runtime content.
-Fixed values are already stored in the Run Template and are not shown for
-editing; update the Run Template first when a fixed value must change.
+Fixed values are already stored in the Run Template, and most of them are not
+shown for editing. Parameters and Workspaces that a Pipeline Integration binds
+are the exception: the console run form still shows them as editable even when
+the Run Template gives them a fixed value. Update the Run Template first when a
+fixed value must change.
 
-## Best Practices
+## Best Practices \{#best-practices}
 
 ### Central platform team
 
@@ -492,6 +508,48 @@ One-time experiments, temporary debugging, and short-lived independent flows
 can use a project Pipeline and a one-time run configuration. Use Hub Pipeline
 and Run Template when a process must be reused across projects, environments,
 or start methods.
+
+## Recommended Settings
+
+**When to enable.** Use a Hub Pipeline with Run Templates when several
+projects need the same build, test, scan, or release process. The central
+platform team maintains the Hub Pipeline and its versions once, so security
+checks and artifact handling are not copied and patched in every project;
+project teams supply only the run values for their services and environments.
+The role-specific guidance in [Best Practices](#best-practices) still applies.
+
+**Recommended values.** Publish each standard process as one versioned Hub
+Pipeline, such as `build-and-deploy`, and keep project names, environment
+names, deployment targets, and temporary values out of it. In every Run
+Template, reference the Hub Pipeline through the `hub` resolver with an
+explicit `version` parameter set to a reviewed version, store stable values as
+fixed inputs, and mark only per-run values such as Git branch, commit SHA, and
+image tag as `Set at Runtime`. In the console run form, parameters and
+Workspaces that a Pipeline Integration binds, such as the Git URL, the target
+images, and credential Workspaces, are still shown and editable even when the
+Run Template gives them a fixed value. Check the run form after saving the
+template and review the parameters of the submitted `PipelineRun`. Keep one
+Run Template per service and
+environment, for example `order-service-dev`, `order-service-test`, and
+`order-service-prod`. Roll out a new Hub Pipeline version by changing the
+`version` value in the existing Run Templates, development and test first and
+production last, as described in [Upgrade a Hub
+Pipeline](#upgrade-a-hub-pipeline) and [Change a Hub Pipeline
+version](run_template.mdx#change-a-hub-pipeline-version), and keep the
+previous version available for rollback. Changing `version` back restores the
+previous behavior only if the content published under that version has not
+changed since it was reviewed. Whether a published catalog version can change
+depends on how the catalog is maintained (see [Reference shared Pipeline
+templates](../../pac/how_to/maintain_pipeline_code.mdx#reference-shared-pipeline-templates)),
+so confirm this with the catalog administrator, or keep a copy of the reviewed
+content and compare it before you roll back.
+
+**Prerequisites.** The Hub Pipeline must be published to the product catalog,
+which is served by the ArtifactHub Shim component, so that Run Templates can
+resolve it through the `hub` resolver. Project teams need access to the Hub
+Pipeline and Run Template and to the required Workspaces, Integrations, and run
+permissions; Triggers additionally need an EventListener. See
+[Prerequisites](#prerequisites) for the complete checklist.
 
 ## Related Topics
 

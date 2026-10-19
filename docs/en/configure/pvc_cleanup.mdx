@@ -1,0 +1,212 @@
+---
+weight: 355
+---
+
+# Dynamic workspace PVC cleanup
+
+Tekton creates a PersistentVolumeClaim (PVC) when a `TaskRun` or `PipelineRun`
+uses a workspace `volumeClaimTemplate`. The optional PVC cleanup controller
+removes only claims that it can prove were created for a completed Tekton run.
+It is disabled by default.
+
+## Workspace storage lifecycle
+
+Tekton's [`volumeClaimTemplate`](https://tekton.dev/docs/pipelines/workspaces/#volumeclaimtemplate)
+creates a new PVC for each TaskRun or PipelineRun. The PVC belongs to that Run,
+and Tekton documents that it is deleted when the owning Run is deleted. This
+optional cleanup controller additionally allows eligible dynamic PVCs to be
+deleted after the owning Run and its related tasks complete and the configured
+retention period expires, while preserving Run history.
+
+Tasks within the same PipelineRun can share its dynamic workspace. Cleanup waits
+for the whole PipelineRun, including its `finally` tasks and recorded descendants,
+to complete before applying retention.
+
+If another TaskRun or PipelineRun reuses this dynamically created PVC, the PVC
+still belongs to the original Run and remains subject to cleanup. Referencing
+its name through `persistentVolumeClaim.claimName` does not transfer ownership
+or provide a guarantee that it will be retained for another Run. These PVCs may
+therefore be cleaned up even when another Run intends to reuse them. The
+controller retains active or unknown usage observed during its checks, but this
+does not reserve the PVC for future consumers.
+
+For storage shared across independent Runs or data that must persist beyond a
+Run's lifecycle, create and manage a PVC independently, then bind it through
+[`persistentVolumeClaim`](https://tekton.dev/docs/pipelines/workspaces/#persistentvolumeclaim):
+
+```yaml
+workspaces:
+  - name: shared
+    persistentVolumeClaim:
+      claimName: user-managed-workspace
+```
+
+In this example, `user-managed-workspace` is a PVC you created independently of
+Tekton's `volumeClaimTemplate`. Such user-created PVCs are outside this cleanup
+controller's management and are not deleted by it. Their lifecycle remains under
+your own storage management policy.
+
+## Enable the capability
+
+This capability requires the full Tekton Pipeline installation supplied by the
+Operator, including the TaskRun, PipelineRun and CustomRun CRDs. CustomRun must
+serve `tekton.dev/v1beta1`. Minimal deployments without CustomRun are not supported:
+the cleanup controller remains unregistered rather than treating a missing
+consumer API as an empty list. If a required CRD is installed after the enhancement
+controller starts, restart that controller to register cleanup. A later API or
+permission failure retains claims until complete consumer reads succeed again.
+
+Configure the managed `tektoncd-enhancement-config` through
+`TektonConfig.spec.pipeline.options.configMaps`. The Operator writes the
+resulting `data.config` in the namespace where the Tekton components are
+installed:
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  pipeline:
+    options:
+      configMaps:
+        tektoncd-enhancement-config:
+          data:
+            config: |
+              pvc-cleanup:
+                enabled: true
+                retention-duration: 24h
+                check-interval: 10m
+                dry-run: false
+                namespace-selector:
+                  matchNames:
+                    - devops
+                    - ci
+                  matchLabels: {}
+```
+
+The controller reloads this ConfigMap when it changes. Once the controller
+observes `enabled: false`, it stops further deletion requests. Configuration
+changes do not withdraw deletion requests already in progress. `dry-run: true`
+records eligible claims and emits metrics without sending delete requests.
+Keep any other existing enhancement settings in the same `config` block. Do
+not edit the managed ConfigMap directly because the Operator can overwrite
+such changes during reconciliation.
+
+## Configuration
+
+| Field | Default | Description |
+| --- | --- | --- |
+| `enabled` | `false` | Enables automatic cleanup. |
+| `retention-duration` | `24h` | Time after the latest completed owner run before a claim is eligible. Uses Go duration syntax. |
+| `check-interval` | `10m` | Minimum interval between complete namespace scans. Uses Go duration syntax. |
+| `dry-run` | `false` | Reports candidates without deleting them. |
+| `namespace-selector.matchNames` | empty | Exact namespace names. Empty matches any namespace. |
+| `namespace-selector.matchLabels` | `{}` | Namespace labels. All configured labels must match. |
+
+Both namespace filters apply when they are present. A malformed duration or
+selector disables cleanup until the ConfigMap is corrected. The controller
+records the configuration error in its logs and Kubernetes Events.
+
+For a staged rollout, start with an audit-only scan in one namespace:
+
+```yaml
+pvc-cleanup:
+  enabled: true
+  dry-run: true
+  retention-duration: 24h
+  check-interval: 10m
+  namespace-selector:
+    matchNames:
+      - ci
+    matchLabels: {}
+```
+
+After reviewing the candidates and skip reasons, change only `dry-run` to
+`false`. To pause future deletion requests while retaining the policy for a
+later restart, set `enabled: false`.
+
+## What is protected
+
+The controller requires all of the following before deleting a claim:
+
+- The claim has one verified controller owner in the `tekton.dev` API group,
+  and the owner's UID still exists.
+- The owner is a completed `TaskRun` or `PipelineRun` with a completion time.
+  Failed, cancelled, and timed-out runs are terminal outcomes.
+- The PVC name matches the owner workspace `volumeClaimTemplate`. Independently
+  created, user-managed PVCs are outside this controller's management. Another
+  Run referencing a generated PVC does not change its original ownership.
+- For a `TaskRun` owned by a `PipelineRun`, the whole PipelineRun is complete,
+  including all `finally` tasks and nested PipelineRuns.
+- The final API reads find no active TaskRun, PipelineRun, CustomRun, or Pod
+  referencing the claim. Pending CustomRuns are checked before they create Pods.
+  Opaque custom task storage usage is treated as unknown until the CustomRun
+  has a terminal condition and completion time with no retry remaining.
+- Every TaskRun, PipelineRun and CustomRun recorded in a PipelineRun's child
+  references exists, belongs to that parent instance and has completed. Nested
+  descendants are checked as well. Missing, mismatched, deleting or retrying
+  children retain the claim, and the latest child completion starts retention.
+- The configured retention period has elapsed after the latest verified
+  completion time in the owner chain and its recorded descendants.
+
+If ownership, run status, or usage cannot be established, the controller keeps
+the PVC and records a skip reason. It does not remove PVC protection
+finalizers, delete Pods, or change StorageClass reclaim policy. Kubernetes and
+the storage backend determine when the underlying volume is reclaimed.
+
+A deletion request does not guarantee immediate storage reclamation. Kubernetes
+may keep `kubernetes.io/pvc-protection` while a retained, completed Pod still
+references the claim. In that case the PVC remains `Terminating` until the Pod
+object is removed by its normal lifecycle or pruning policy. This controller
+retains PipelineRun/TaskRun history and does not delete Pods or bypass finalizers.
+
+Before every delete request, the controller rereads the PVC, its owner chain,
+all namespace consumers, the namespace selector, and the ConfigMap. The delete
+uses the PVC UID and resourceVersion as preconditions. A `NotFound` response is
+treated as success; permission, conflict, storage-protection, and transient
+API errors are retried during a later scan.
+
+## Affinity Assistant claims
+
+With `coschedule=pipelineruns` or `coschedule=isolate-pipelinerun`, Tekton's
+Affinity Assistant creates StatefulSet PVCs with an additional
+`-affinity-assistant-...-0` suffix. These claims are outside this controller's
+provenance rules and remain managed by Tekton's built-in Affinity Assistant
+cleanup on PipelineRun completion. This controller's retention and dry-run
+settings do not override that lifecycle. Ordinary directly owned workspace
+claims in other coschedule modes remain subject to the checks above.
+
+## Observe and troubleshoot
+
+Controller logs contain the namespace, PVC name, owner run, outcome, completion
+time, and a bounded reason such as `retained`, `pod_in_use`, `unknown_owner`,
+or `delete_failed`. Prometheus metrics are exposed with these bounded labels:
+
+- `tektoncd_enhancement_pvc_cleanup_decisions_total`
+- `tektoncd_enhancement_pvc_cleanup_last_scan_timestamp_seconds`
+
+To inspect the controller log:
+
+```bash
+kubectl logs -n tekton-pipelines \
+  -l app.kubernetes.io/name=tektoncd-enhancement \
+  -c manager --since=1h
+```
+
+To confirm whether a claim is managed by Tekton, inspect its owner reference
+and compare the owner UID with the current TaskRun or PipelineRun. Do not
+manually remove `kubernetes.io/pvc-protection` while a Pod still mounts the
+claim.
+
+## Offline and storage validation
+
+The controller is part of the `tektoncd-enhancement` image and the generated
+operator manifests. Pin and mirror that image before installing in an air-gap
+environment. The feature does not contact an external service.
+
+For TopoLVM validation, run several PipelineRuns with a workspace
+`volumeClaimTemplate`, wait for the configured retention period, and verify
+that completed claims disappear while active claims remain. Confirm the
+StorageClass reclaim policy releases backing storage and that a subsequent
+PipelineRun can provision a new workspace.

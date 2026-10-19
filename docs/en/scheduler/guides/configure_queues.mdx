@@ -1,0 +1,63 @@
+---
+weight: 20
+queries:
+  - How do I set a namespace pipeline concurrency limit?
+  - How does a PipelineRun select a LocalQueue?
+  - Can namespaces share a pipeline quota?
+---
+
+# Configure Queues
+
+Cluster administrators define concurrency using ClusterQueues. Pipeline authors select LocalQueues within their namespaces. Scheduler and its prerequisites must be ready before enrolling a namespace.
+
+## Set a concurrency limit \{#set_concurrency_limit}
+
+Create a ResourceFlavor, a ClusterQueue with `tekton.dev/pipelineruns` quota, and a LocalQueue that points to it. The [Quick Start](../quick_start.mdx#create_queue) provides a complete example with a limit of one.
+
+To change that example's limit to two, edit the quota in its source YAML and apply it again:
+
+```yaml
+resources:
+  - name: tekton.dev/pipelineruns
+    nominalQuota: 2
+```
+
+For a strict namespace-specific limit, use a dedicated ClusterQueue with a namespace selector that matches only that namespace. Sharing the ClusterQueue across namespaces makes the quota shared. Decreasing the quota does not guarantee immediate cancellation of runs that were already admitted.
+
+## Enroll a namespace \{#enroll_namespace}
+
+Confirm that the LocalQueue exists before enrolling the namespace:
+
+```bash
+kubectl get localqueue pipelines-queue -n <namespace>
+kubectl label namespace <namespace> tekton.dev/scheduler-enabled=true
+```
+
+Only newly created PipelineRuns pass through this admission path. Existing runs are not retroactively enrolled.
+
+## Choose a queue \{#choose_queue}
+
+The default queue name is configured by `spec.scheduler["config.yaml"].queueName` in TektonConfig. Each enrolled namespace must contain a LocalQueue with that name unless every submitted run selects another queue explicitly.
+
+To select a different existing LocalQueue, set the following label when creating the PipelineRun:
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: example
+  namespace: scheduler-demo
+  labels:
+    kueue.x-k8s.io/queue-name: team-queue
+spec:
+  pipelineRef:
+    name: example-pipeline
+```
+
+Create `team-queue` and `example-pipeline` in the namespace before using this example. Apply queue selection at creation time rather than changing an admitted run's label.
+
+## Verify the configuration \{#verify_configuration}
+
+Submit more runs than the configured quota. Verify that excess runs remain pending without execution Pods and are admitted after active runs finish. Inspect the LocalQueue, ClusterQueue, and Workload conditions when the observed behavior differs from the limit.
+
+Removing `tekton.dev/scheduler-enabled` stops admission for new runs in that namespace. It does not drain or resume existing queued runs. Keep Scheduler enabled until those runs finish.

@@ -52,6 +52,15 @@ spec:
                 # webhook delivery only; it does not disable controller -> Git
                 # provider API TLS verification.
                 webhook-target-tls-verify: true
+              pvc-cleanup:
+                # Opt in only for temporary, dynamically generated workspaces.
+                enabled: false
+                retention-duration: 24h
+                check-interval: 10m
+                dry-run: false
+                namespace-selector:
+                  matchNames: []
+                  matchLabels: {}
 ```
 
 ### 2. Parameter reference and defaults \{#2-parameter-reference-and-defaults}
@@ -62,6 +71,16 @@ spec:
 | `template-render.time-zone`                | Global time zone setting for template rendering.                             | `""` (use container local time zone)                                                                                                                                                                                                                                                                                             |
 | `pac-webhook-registration.enabled`         | Enables automatic GitLab/GitHub webhook registration for PAC `Repository` resources. When set to `false`, the controller deletes provider webhooks it previously managed and marks the Repository as `Disabled`. | `true` |
 | `pac-webhook-registration.webhook-target-tls-verify` | Whether GitLab or GitHub verifies the PAC webhook URL certificate when delivering events. This only affects the provider -> PAC webhook connection; it does not affect TLS verification from `tektoncd-enhancement-controller` or `pipelines-as-code-controller` to the Git provider API. | `true` |
+| `pvc-cleanup.enabled` | Enables cleanup of eligible dynamic workspace PVCs after their owning runs finish. | `false` |
+| `pvc-cleanup.retention-duration` | Retention after the latest verified owner/child completion, in Go duration syntax. | `24h` |
+| `pvc-cleanup.check-interval` | Interval between cleanup scans, in Go duration syntax. | `10m` |
+| `pvc-cleanup.dry-run` | Records candidates without sending PVC delete requests. | `false` |
+| `pvc-cleanup.namespace-selector.matchNames` | Exact namespace allowlist; empty matches any namespace. | `[]` |
+| `pvc-cleanup.namespace-selector.matchLabels` | Namespace labels that must all match, combined with the name filter. | `{}` |
+
+See [Dynamic workspace PVC cleanup](./pvc_cleanup.mdx) for rollout examples,
+CustomRun protection, Kubernetes PVC protection, and the concurrency and
+Affinity Assistant boundaries. Explicitly managed PVCs are excluded from cleanup.
 
 PAC webhook registration reads the public webhook URL from `pipelines-as-code-info.data.controller-url`. Configure that value through the PAC component options; see [Get the PAC Webhook URL](../pac/how_to/get_pac_webhook_url.mdx#record-the-webhook-url).
 
@@ -89,7 +108,7 @@ The Tekton Operator applies the configuration from `TektonConfig`. Do not update
 
 ### 4. Restart the controller for startup-loaded settings
 
-`pac-webhook-registration.*` settings are hot-reloaded after the ConfigMap is updated. `template-render.*` settings are loaded when the enhancement controller starts, so restart `tektoncd-enhancement-controller` after changing `template-render.details-url-template` or `template-render.time-zone`:
+`pac-webhook-registration.*` and `pvc-cleanup.*` settings are hot-reloaded after the ConfigMap is updated. `template-render.*` settings are loaded when the enhancement controller starts, so restart `tektoncd-enhancement-controller` after changing `template-render.details-url-template` or `template-render.time-zone`:
 
 ```bash
 kubectl rollout restart deployment tektoncd-enhancement-controller -n <tekton-pipelines>

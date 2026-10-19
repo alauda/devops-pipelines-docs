@@ -1,0 +1,147 @@
+---
+weight: 40
+queries:
+  - How can I try pipeline scheduling with a concurrency limit of one?
+  - How do I verify that a PipelineRun is queued?
+  - How do queued pipelines resume after quota becomes available?
+---
+
+# Quick Start
+
+## Introduction \{#introduction}
+
+This walkthrough is for cluster administrators. In approximately 10 minutes, create a queue with a concurrency limit of one and submit two PipelineRuns. The second run waits until the first completes.
+
+## Prerequisites \{#prerequisites}
+
+- Tekton Pipelines is ready, and you can update TektonConfig and create Kueue resources.
+- Alauda Build of Kueue and cert-manager are installed. Kueue serves `v1beta2` and includes `PipelineRun.v1.tekton.dev` in its external frameworks. See [Prepare Dependencies](./guides/manage_scheduler.mdx#prepare_dependencies).
+- A BusyBox-compatible image is available in a registry reachable from the cluster. Mirror it before using an air-gapped environment.
+- The `scheduler-demo` namespace does not already exist.
+
+## Process overview \{#process_overview}
+
+Enable Scheduler, create an isolated queue, enroll a namespace, submit two runs, and observe quota admission. Then remove the example resources.
+
+## Enable Scheduler \{#enable_scheduler}
+
+Follow [Enable Scheduler](./guides/manage_scheduler.mdx#enable_scheduler) and wait for the component to become ready.
+
+## Create a queue \{#create_queue}
+
+Save the following as `scheduler_queues.yaml`:
+
+```yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: scheduler-demo
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: scheduler-demo
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: scheduler-demo
+spec:
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: scheduler-demo
+  resourceGroups:
+    - coveredResources: [tekton.dev/pipelineruns]
+      flavors:
+        - name: scheduler-demo
+          resources:
+            - name: tekton.dev/pipelineruns
+              nominalQuota: 1
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: LocalQueue
+metadata:
+  name: pipelines-queue
+  namespace: scheduler-demo
+spec:
+  clusterQueue: scheduler-demo
+```
+
+Apply the resources and enroll the namespace:
+
+```bash
+kubectl apply -f scheduler_queues.yaml
+kubectl wait clusterqueue/scheduler-demo --for=condition=Active --timeout=120s
+kubectl label namespace scheduler-demo tekton.dev/scheduler-enabled=true
+```
+
+## Submit two runs \{#submit_runs}
+
+Set `TEST_IMAGE` to your mirrored image, then create two runs with the following inline PipelineSpec:
+
+```bash
+export TEST_IMAGE='<your-registry>/<busybox-image>:<tag>'
+for RUN in first second; do
+  cat <<EOF | kubectl create -n scheduler-demo -f -
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: ${RUN}
+spec:
+  pipelineSpec:
+    tasks:
+      - name: pause
+        taskSpec:
+          steps:
+            - name: pause
+              image: ${TEST_IMAGE}
+              script: |
+                #!/bin/sh
+                sleep 60
+                echo "Pipeline completed"
+  timeouts:
+    pipeline: 10m
+EOF
+done
+```
+
+The API assigns the default `pipelines-queue` label. The run admitted first executes while the other waits; do not depend on the run names to determine admission order.
+
+## Observe admission \{#observe_admission}
+
+Inspect the run and queue states:
+
+```bash
+kubectl get pipelineruns -n scheduler-demo
+kubectl get workloads -n scheduler-demo
+kubectl get pipelineruns -n scheduler-demo \
+  -o custom-columns='NAME:.metadata.name,QUEUE:.metadata.labels.kueue\.x-k8s\.io/queue-name,STATUS:.spec.status'
+kubectl get pods -n scheduler-demo -l tekton.dev/pipelineRun
+kubectl get clusterqueue scheduler-demo -o yaml
+```
+
+Expected results:
+
+- Both PipelineRuns have `kueue.x-k8s.io/queue-name: pipelines-queue`.
+- One Workload is admitted; the other waits for quota.
+- The waiting PipelineRun has `spec.status: PipelineRunPending` and has no TaskRun or execution Pod.
+- After the first run completes, the waiting run executes automatically and succeeds.
+
+Wait for both runs to complete:
+
+```bash
+kubectl wait pipelinerun/first pipelinerun/second -n scheduler-demo \
+  --for=condition=Succeeded --timeout=5m
+```
+
+## Clean up \{#clean_up}
+
+After both runs have completed, delete only the resources created by this walkthrough:
+
+```bash
+kubectl delete namespace scheduler-demo --wait=true
+kubectl delete clusterqueue scheduler-demo
+kubectl delete resourceflavor scheduler-demo
+```
+
+If you enabled Scheduler only for this walkthrough, follow [Disable Scheduler](./guides/manage_scheduler.mdx#disable_scheduler). Otherwise, keep it enabled for other enrolled namespaces.

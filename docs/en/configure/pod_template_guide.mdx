@@ -13,7 +13,7 @@ weight: 30
 
 **Common Scenarios:**
 - [My custom images need root access](#example-4-override-for-custom-images-requiring-root-access) - How to override securely
-- [I migrated from Tekton v3 with global runAsUser: 0](#example-5-using-official-tasks-with-legacy-global-configuration) - How to use official Tekton Tasks
+- [I migrated from Tekton v3 with global runAsUser: 0](#example-5-using-official-tasks-with-legacy-global-configuration) - What to change
 
 **Troubleshooting:**
 - [My Pod creation is failing](#common-pitfalls) - Check common pitfalls and solutions
@@ -27,7 +27,7 @@ When running Tekton Pipelines in production environments, you'll likely encounte
 - **Security Policy Requirements**: Your organization's security policies require all containers to run as non-root users, but some Pipeline executions fail with permission errors.
 - **Private Registry Access**: Your Pipeline uses custom images from a private registry, but Pods fail to pull images due to missing credentials.
 - **Resource Scheduling**: You need build tasks to run on high-performance nodes with SSD storage, but Pods are scheduled to regular nodes, causing slow builds.
-- **Multi-tenant Environments**: Different teams need different security settings, resource quotas, or node placements for their Pipelines.
+- **Multi-tenant Environments**: Different teams need different security settings or node placements for their Pipelines.
 - **Compliance Requirements**: You must meet specific compliance standards (PCI DSS, HIPAA, etc.) that mandate certain Pod security configurations.
 
 **Without Pod Templates:**
@@ -60,7 +60,7 @@ Pod templates are useful in the following scenarios:
 - **Security Requirements**: Configure security contexts (e.g., `runAsUser`, `fsGroup`) to meet security policies
 - **Private Registry Access**: Configure image pull secrets for accessing private container registries
 - **Node Scheduling**: Configure node selectors, tolerations, or affinity rules to control Pod placement
-- **Resource Management**: Configure compute resources, volumes, and storage requirements
+- **Volumes**: Add Pod volumes, such as an `emptyDir` cache, that `Steps` mount with `volumeMounts`. Pod templates have no CPU or memory field; set compute resources with `computeResources` on a `Step`, or with `computeResources` on the `TaskRun` or on a `PipelineRun` `taskRunSpecs` entry (beta fields, enabled when `enable-api-fields` is `beta`, the default).
 - **Environment Variables**: Set environment variables for Pipeline executions
 - **Network Configuration**: Configure DNS policies and network settings
 - **Consistency**: Ensure consistent execution environments across multiple Pipeline executions
@@ -100,7 +100,7 @@ spec:
     name: build-task
   podTemplate:
     securityContext:
-      runAsUser: 65532  # Can be modified as needed (e.g., 0 for root, 1000 for custom user)
+      runAsUser: 65532  # Can be modified as needed (e.g., 1000 for a custom user; for root, see Example 4)
       fsGroup: 65532
     nodeSelector:
       disktype: ssd
@@ -126,13 +126,15 @@ spec:
   taskRunTemplate:
     podTemplate:
       securityContext:
-        runAsUser: 65532  # Can be modified as needed (e.g., 0 for root)
+        runAsUser: 65532  # Can be modified as needed (for root, see Example 4)
         fsGroup: 65532
       nodeSelector:
         environment: production
       imagePullSecrets:
         - name: private-registry-secret
 ```
+
+The run's `imagePullSecrets` list is written into each of its TaskRun Pods, so Kubernetes no longer adds the ServiceAccount's pull secrets to those Pods, and a global `imagePullSecrets` list from [Method 4](#method-4-global-default-configuration-tektonconfig) is not used either. List every Secret that the run needs (see [Example 2](#example-2-image-pull-secrets)).
 
 ### Method 3: PipelineRun TaskRunSpecs Configuration \{#method-3-pipelinerun-taskrunspecs-configuration}
 
@@ -154,8 +156,6 @@ spec:
   taskRunSpecs:
     - pipelineTaskName: build
       podTemplate:
-        securityContext:
-          runAsUser: 0  # Override for this specific task if needed
         nodeSelector:
           disktype: ssd
           performance: high
@@ -169,6 +169,8 @@ spec:
         securityContext:
           runAsUser: 65532  # Use secure default for this task
           runAsNonRoot: true
+          fsGroup: 65532
+          fsGroupChangePolicy: "OnRootMismatch"
         nodeSelector:
           environment: production
 ```
@@ -181,14 +183,14 @@ Configure a global default Pod template that applies to all TaskRuns and Pipelin
 
 **Configuration Location**: `spec.pipeline.default-pod-template` in TektonConfig
 
-:::tip[Security Best Practice]
-It is recommended to use a non-root user (e.g., `runAsUser: 65532`) as the default configuration to follow the principle of least privilege. Official Tekton Tasks are designed to work with UID 65532. Only override to `runAsUser: 0` for specific TaskRuns/PipelineRuns when required by custom images or legacy applications.
+:::tip Security Best Practice
+It is recommended to use a non-root user (e.g., `runAsUser: 65532`) as the default configuration to follow the principle of least privilege. Official Tekton Tasks are designed to work with UID 65532. Only set `runAsUser: 0` on the steps of specific Tasks when required by custom images or legacy applications (see [Example 4](#example-4-override-for-custom-images-requiring-root-access)).
 :::
 
-:::note[Why UID 65532?]
+:::note Why UID 65532?
 UID 65532 is the standard non-root user ID used by official Tekton Tasks and most Tekton catalog Tasks. This ID follows the principle of least privilege and is widely adopted in the Tekton ecosystem for security best practices.
 
-**fsGroup**: Sets the group ID for all containers in the Pod. This ensures files created by the Pod are owned by the specified group, allowing proper file access permissions.
+**fsGroup**: Adds the group ID as a supplemental group to every container in the Pod; the primary group of the container process does not change. For volume types that support it, Kubernetes also changes the group ownership of the volume to this ID and sets the setgid bit, so new files created in the volume are owned by this group.
 :::
 
 **Steps**:
@@ -196,15 +198,18 @@ UID 65532 is the standard non-root user ID used by official Tekton Tasks and mos
 <Steps>
 ### Step 1
 
-Edit the TektonConfig resource:
+The change applies to every new TaskRun on the cluster. Read the default Pod template in effect and the value set in `TektonConfig` first, and save both outputs, so that you can keep the default's fields and restore it later:
 
 ```bash
-$ kubectl edit tektonconfigs.operator.tekton.dev config
+kubectl get configmap -n tekton-pipelines config-defaults -o jsonpath='{.data.default-pod-template}'
+kubectl get tektonconfig config -o jsonpath='{.spec.pipeline.default-pod-template}'
 ```
+
+`tekton-pipelines` is the default of `TektonConfig` `spec.targetNamespace`; replace it in the commands if your installation uses another namespace.
 
 ### Step 2
 
-Add or modify the `spec.pipeline.default-pod-template` configuration:
+Save the `spec.pipeline.default-pod-template` configuration in a file, for example `tektonconfig-pod-template.yaml`. The value replaces the current default Pod template as a whole, so the sample keeps the shipped `fsGroup: 65532` and `fsGroupChangePolicy: "OnRootMismatch"` next to `runAsUser`:
 
 ```yaml
 apiVersion: operator.tekton.dev/v1alpha1
@@ -217,21 +222,41 @@ spec:
       securityContext:
         runAsUser: 65532
         fsGroup: 65532
+        fsGroupChangePolicy: "OnRootMismatch"
       imagePullSecrets:
         - name: private-registry-secret
 ```
 
-### Step 3
+:::warning
+A cluster-wide `imagePullSecrets` list is written into every TaskRun Pod whose run does not set its own list, so Kubernetes no longer adds the ServiceAccount's pull secrets to those Pods. The named Secret must exist in every namespace that runs TaskRuns. To give a pull secret only to some runs, attach the pull secret to the ServiceAccount that those runs use, and leave `imagePullSecrets` out of the global template. A per-run list (see [Example 2](#example-2-image-pull-secrets)) also works, but it replaces the ServiceAccount's pull secrets in that run's Pods in the same way, so it must name every pull secret that the run needs.
+:::
 
-Verify the configuration:
+Merge the file into the existing `TektonConfig`. A merge patch changes only the keys in the file and keeps the other fields of `TektonConfig`. It needs permission to patch `TektonConfig`, which is cluster-scoped, usually a cluster administrator:
 
 ```bash
-$ kubectl get configmap -n tekton-pipelines config-defaults -o yaml | grep 'default-pod-template: |' -A5
+kubectl patch tektonconfig config --type merge --patch-file tektonconfig-pod-template.yaml
+```
+
+Do not use `kubectl apply -f` for a file that holds only part of `TektonConfig`: a later `kubectl apply -f` of another partial file deletes the fields that this file set and the later file leaves out, such as this `default-pod-template`.
+
+To undo the change later: if the saved `TektonConfig` output was empty, remove the field from `TektonConfig`; otherwise set the saved `TektonConfig` value again:
+
+```bash
+kubectl patch tektonconfig config --type json \
+  -p '[{"op":"remove","path":"/spec/pipeline/default-pod-template"}]'
+```
+
+### Step 3
+
+Verify the configuration. The command prints the whole default Pod template, which must be the template that you set in Step 2:
+
+```bash
+kubectl get configmap -n tekton-pipelines config-defaults -o jsonpath='{.data.default-pod-template}'
 ```
 
 </Steps>
 
-### Configuration Methods Comparison
+### Configuration Methods Comparison \{#configuration-methods-comparison}
 
 | Method | Scope | Priority Level | When to Use | Advantages | Disadvantages |
 |--------|-------|----------------|-------------|------------|---------------|
@@ -240,7 +265,7 @@ $ kubectl get configmap -n tekton-pipelines config-defaults -o yaml | grep 'defa
 | **Method 3: TaskRunSpecs** | Specific tasks within a PipelineRun | **Highest** | Mixed workloads (official + custom Tasks) | Fine-grained control per task | More complex configuration |
 | **Method 4: Global (TektonConfig)** | All TaskRuns/PipelineRuns in cluster | **Lowest** | Baseline security and defaults | Set once, affects all executions | Global impact, requires cluster permissions |
 
-**Priority Rule**: When the same field is configured at multiple levels, the configuration with the higher priority level takes effect. TaskRunSpecs (highest) > PipelineRun/TaskRun (medium) > Global (lowest).
+**Priority Rule**: When the same field is configured at multiple levels, the configuration with the higher priority level takes effect. TaskRunSpecs (highest) > PipelineRun/TaskRun (medium) > Global (lowest). A field such as `securityContext` is replaced as a whole, not merged: a `securityContext` in a `TaskRun` Pod template drops every `securityContext` setting of the global default, including `runAsNonRoot`, so repeat the settings you still need. The default is the `default-pod-template` key of the `config-defaults` ConfigMap in `tekton-pipelines` (read it as in Step 1 of [Method 4](#method-4-global-default-configuration-tektonconfig)). The roles shipped with Tekton Pipelines let every authenticated user read only the `pipelines-info` ConfigMap in that namespace, so if you cannot read `config-defaults`, ask your cluster administrator for the default Pod template.
 
 ## Configuration Priority
 
@@ -262,12 +287,12 @@ Pod template configurations follow a clear priority hierarchy. When multiple con
 
 If you have:
 - Global config: `runAsUser: 65532` (secure default)
-- PipelineRun config: `runAsUser: 0` (override for custom images)
+- PipelineRun config: `runAsUser: 1000` (override for custom images)
 - TaskRunSpec config: `runAsUser: 65532` (restore secure default for official Tasks)
 
 The result will be:
 - Specific task (using official Task): `runAsUser: 65532`
-- Other tasks in the pipeline (using custom images): `runAsUser: 0`
+- Other tasks in the pipeline (using custom images): `runAsUser: 1000`
 
 ## Configuration Examples
 
@@ -293,7 +318,9 @@ spec:
 
 **Note**: Official Tekton Tasks and catalog Tasks are designed to work with UID 65532. This configuration ensures all Pipeline executions run securely by default.
 
-### Example 2: Image Pull Secrets
+Before you merge it into `TektonConfig` with `kubectl patch tektonconfig config --type merge --patch-file <file>`, read and save the default Pod template in effect and the value set in `TektonConfig`, and keep any of the default's fields that you still need. To undo the change: if the saved `TektonConfig` output was empty, remove the field from `TektonConfig`; otherwise set the saved `TektonConfig` value again. These steps are shown in [Method 4](#method-4-global-default-configuration-tektonconfig).
+
+### Example 2: Image Pull Secrets \{#example-2-image-pull-secrets}
 
 **Scenario**: Configure image pull secrets for accessing private registries.
 
@@ -312,6 +339,8 @@ spec:
         - name: private-registry-secret
         - name: enterprise-registry-secret
 ```
+
+The run's own `imagePullSecrets` list is written into each of its TaskRun Pods, so Kubernetes no longer adds the ServiceAccount's pull secrets to those Pods, and a global `imagePullSecrets` list from [Method 4](#method-4-global-default-configuration-tektonconfig) is not used either. List every Secret that the run needs.
 
 ### Example 3: Node Scheduling
 
@@ -341,7 +370,11 @@ spec:
 
 ### Example 4: Override for Custom Images Requiring Root Access \{#example-4-override-for-custom-images-requiring-root-access}
 
-**Scenario**: Your global default uses secure non-root user (65532), but you have a pipeline with custom images that require root access. Use TaskRunSpecs to override for specific tasks while maintaining secure defaults for official Tasks.
+**Scenario**: Your global default uses secure non-root user (65532), but you have a pipeline with custom images that require root access. Set `runAsUser: 0` on the steps of the Task that needs root, and use TaskRunSpecs for that task's Pod template, while maintaining secure defaults for official Tasks.
+
+With `set-security-context: true`, the default in Alauda DevOps Pipelines, Tekton starts its init containers (for example `prepare`) with `runAsNonRoot: true` and without `runAsUser`, so they run with the Pod-level `runAsUser`. A Pod-template `runAsUser: 0` therefore makes the TaskRun fail (see [Common Pitfalls](#common-pitfalls)); set `runAsUser: 0` in the step `securityContext` instead. A namespace that enforces the `restricted` Pod Security Standard rejects the Pod of a step that runs as root (the TaskRun fails with `PodAdmissionFailed`), so use this example only in a namespace that does not enforce `restricted`; see [Comply with Pod Security Restricted Standard](../pipelines/how_to/comply_with_pod_security_restricted.mdx).
+
+**Global Configuration** (merge it into `TektonConfig` with `kubectl patch tektonconfig config --type merge --patch-file <file>`; read and save the current values first and undo the change as described in [Method 4](#method-4-global-default-configuration-tektonconfig)):
 
 ```yaml
 # Global baseline configuration (secure default)
@@ -358,8 +391,29 @@ spec:
         fsGroupChangePolicy: "OnRootMismatch"
       imagePullSecrets:
         - name: default-registry-secret
+```
 
----
+**Task Configuration** (the Task that the `custom-build` pipeline task runs; replace the image with the custom image that needs root):
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: custom-build
+spec:
+  steps:
+    - name: build
+      image: docker.io/library/alpine:3
+      securityContext:
+        runAsUser: 0  # Only this step runs as root
+      script: |
+        #!/bin/sh
+        id -u
+```
+
+**PipelineRun Configuration** (a separate object in the namespace of the run):
+
+```yaml
 # Pipeline execution with selective overrides
 apiVersion: tekton.dev/v1
 kind: PipelineRun
@@ -369,24 +423,32 @@ spec:
   pipelineRef:
     name: build-deploy-pipeline
   taskRunSpecs:
-    # Override ONLY for tasks using custom images that require root
+    # Override ONLY for tasks whose steps set runAsUser: 0
     - pipelineTaskName: custom-build
       podTemplate:
         securityContext:
-          runAsUser: 0
-        nodeSelector:
-          disktype: ssd
+          # Replaces the global securityContext as a whole. Do not set a
+          # Pod-level runAsNonRoot: true here: it would also apply to the
+          # step that runs as root, and that step could not start
+          fsGroup: 65532
+          fsGroupChangePolicy: "OnRootMismatch"
     # Tasks using official Tekton catalog Tasks inherit the secure default (65532)
     # No override needed for 'git-clone', 'kaniko-build', etc.
 ```
 
-**Best Practice**: Only override `runAsUser` to `0` for specific tasks that truly require root access. Let official Tekton Tasks use the secure default (65532).
+The `imagePullSecrets` list in the global configuration above is written into every TaskRun Pod whose run does not set its own list, so Kubernetes no longer adds the ServiceAccount's pull secrets to those Pods, and `default-registry-secret` must exist in every namespace that runs TaskRuns (see the warning in [Method 4](#method-4-global-default-configuration-tektonconfig)).
+
+With this Pod template, the step of `custom-build` runs as UID `0` and prints `0`, while the init containers run as the non-root user of their images.
+
+**Best Practice**: Only set `runAsUser: 0` on the steps of specific Tasks that truly require root access. Let official Tekton Tasks use the secure default (65532).
 
 ### Example 5: Using Official Tasks with Legacy Global Configuration \{#example-5-using-official-tasks-with-legacy-global-configuration}
 
-**Scenario**: You migrated from Alauda DevOps Tekton v3 to Alauda DevOps Pipelines and set the global `default-pod-template` to `runAsUser: 0` for backward compatibility with existing custom images. Now you want to use official Tekton catalog Tasks, which require `runAsUser: 65532` and `fsGroup: 65532`.
+**Scenario**: You migrated from Alauda DevOps Tekton v3 to Alauda Container Platform Pipelines and set the global `default-pod-template` to `runAsUser: 0` for backward compatibility with existing custom images. Now you want to use official Tekton catalog Tasks, which require `runAsUser: 65532` and `fsGroup: 65532`.
 
-**Solution**: Override the global configuration at the PipelineRun level for Pipelines that use official Tasks.
+With `set-security-context: true`, the default in Alauda DevOps Pipelines, this global value makes the TaskRuns that use it fail, those of the custom images included (see [Common Pitfalls](#common-pitfalls)).
+
+**Solution**: Remove `runAsUser: 0` from the global configuration, and run only the steps of the custom-image Tasks as root, as in [Example 4](#example-4-override-for-custom-images-requiring-root-access).
 
 **Current Global Configuration** (set during migration):
 ```yaml
@@ -401,77 +463,23 @@ spec:
         runAsUser: 0  # Legacy global setting for custom images
 ```
 
-**PipelineRun Configuration for Official Tasks**:
-```yaml
-apiVersion: tekton.dev/v1
-kind: PipelineRun
-metadata:
-  name: catalog-tasks-pipeline-run
-spec:
-  pipelineRef:
-    name: pipeline-using-catalog-tasks  # Pipeline using git-clone, buildah, etc.
-  taskRunTemplate:
-    podTemplate:
-      # Override global runAsUser: 0 to use secure settings required by official Tasks
-      securityContext:
-        runAsUser: 65532
-        fsGroup: 65532
-```
+Read and save the current values first, then set the `securityContext` of the global configuration of [Example 4](#example-4-override-for-custom-images-requiring-root-access) in `TektonConfig` as described in [Method 4](#method-4-global-default-configuration-tektonconfig). Leave out the `imagePullSecrets` list of that example unless you want it for every TaskRun Pod (see the note under Example 4). Official Tasks then use the secure default without an override, and the custom-image Tasks set `runAsUser: 0` on their steps, with the Pod template shown in Example 4 for their pipeline tasks.
 
-**Alternative**: Use TaskRunSpecs for mixed scenarios:
-```yaml
-apiVersion: tekton.dev/v1
-kind: PipelineRun
-metadata:
-  name: mixed-pipeline-run
-spec:
-  pipelineRef:
-    name: mixed-pipeline
-  # Most tasks will use global runAsUser: 0 (for custom images)
-  taskRunSpecs:
-    # Override only for tasks using official catalog Tasks
-    - pipelineTaskName: git-clone
-      podTemplate:
-        securityContext:
-          runAsUser: 65532
-          fsGroup: 65532
-    - pipelineTaskName: buildah
-      podTemplate:
-        securityContext:
-          runAsUser: 65532
-          fsGroup: 65532
-    # Other tasks (using custom images) inherit global runAsUser: 0
-```
-
-**Long-term Recommendation**: Gradually update your custom images to support non-root users, then change the global default to `runAsUser: 65532` for better security.
+**Long-term Recommendation**: Gradually update your custom images to support non-root users, then remove `runAsUser: 0` from their steps.
 
 ### Example 6: Temporary Override During Active Migration
 
-**Scenario**: You are currently migrating from Alauda DevOps Tekton v3 to Alauda DevOps Pipelines and your custom images are not yet updated to support non-root users. You need a temporary solution to run legacy pipelines while you update your images.
+**Scenario**: You are currently migrating from Alauda DevOps Tekton v3 to Alauda Container Platform Pipelines and your custom images are not yet updated to support non-root users. You need a temporary solution to run legacy pipelines while you update your images.
 
-**Context**: Unlike Example 5 (where migration is complete with global `runAsUser: 0`), this scenario is for users who:
+**Context**: Unlike Example 5 (where the global default still sets `runAsUser: 0`), this scenario is for users who:
 - Have a secure global default (`runAsUser: 65532`)
 - Are actively migrating legacy pipelines
 - Need temporary overrides while updating container images
 
-**Temporary PipelineRun Configuration**:
-```yaml
-apiVersion: tekton.dev/v1
-kind: PipelineRun
-metadata:
-  name: legacy-pipeline-run
-spec:
-  pipelineRef:
-    name: legacy-pipeline-requiring-root
-  taskRunTemplate:
-    podTemplate:
-      # Temporary override for migration - plan to remove this
-      securityContext:
-        runAsUser: 0
-```
+**Temporary Configuration**: A PipelineRun-level Pod template with `runAsUser: 0` makes the TaskRuns fail while `set-security-context` is `true` (see [Common Pitfalls](#common-pitfalls)). Set `runAsUser: 0` on the steps of the legacy Tasks that require root, and give their pipeline tasks a Pod template `securityContext` without `runAsUser` and `runAsNonRoot`, as in [Example 4](#example-4-override-for-custom-images-requiring-root-access).
 
 **Migration Path**:
-1. **Short-term**: Use this override for legacy pipelines that require root
+1. **Short-term**: Use these step settings for legacy pipelines that require root
 2. **Medium-term**: Update your custom container images to support non-root users (UID 65532)
 3. **Long-term**: Remove these overrides and rely on the secure global default
 
@@ -483,9 +491,9 @@ spec:
 
 These are the most common issues users encounter. Review these before configuring Pod templates:
 
-1. **❌ Setting Global runAsUser to 0**: **Do not** set `runAsUser: 0` in the global `default-pod-template`. This violates security best practices and exposes all Pipeline executions to unnecessary risk. Always use `runAsUser: 65532` as the global default. If you need root access, override at TaskRun/PipelineRun level only.
+1. **❌ Setting Global runAsUser to 0**: **Do not** set `runAsUser: 0` in the global `default-pod-template`. This violates security best practices and exposes all Pipeline executions to unnecessary risk. Always use `runAsUser: 65532` as the global default. If you need root access, set `runAsUser: 0` on the steps that need it, as in [Example 4](#example-4-override-for-custom-images-requiring-root-access).
 
-2. **❌ Security Context Conflicts**: Ensure Task-level security context settings (e.g., `runAsNonRoot: true`) are compatible with Pod template security context. Common error: `container's runAsUser breaks non-root policy`. See [Troubleshooting: Custom Image Pod Creation Failed](../pipelines/trouble_shooting/custom_image_pod_creation_failed.mdx) for solutions.
+2. **❌ Security Context Conflicts**: A Pod template with `runAsUser: 0`, at any level, conflicts with the `runAsNonRoot: true` that Tekton sets on its init containers while `set-security-context` is `true`, the default. In a namespace that does not enforce the `restricted` Pod Security Standard, the TaskRun fails with `CreateContainerConfigError`, and the Pod events show `Error: container's runAsUser breaks non-root policy (pod: "<pod-name>_<namespace>(<pod-uid>)", container: prepare)`. In a namespace that enforces `restricted`, the Pod is rejected at admission instead, and the TaskRun fails with `PodAdmissionFailed`. Remove `runAsUser: 0` from the Pod template and set it on the steps that need root, as in [Example 4](#example-4-override-for-custom-images-requiring-root-access).
 
 3. **❌ Configuration Priority Misunderstanding**: Remember that higher-priority configurations override lower-priority ones:
    - TaskRunSpecs (highest) > PipelineRun/TaskRun (medium) > Global (lowest)
@@ -498,11 +506,13 @@ These are the most common issues users encounter. Review these before configurin
    default-pod-template: |
      securityContext:
        runAsUser: 65532
+       fsGroup: 65532
+       fsGroupChangePolicy: "OnRootMismatch"
    ```
 
 ### Configuration Scope and Timing
 
-- **Global Configuration**: Affects all newly created TaskRuns and PipelineRuns after the configuration is applied. Does **NOT** affect existing running executions.
+- **Global Configuration**: Affects all TaskRuns and PipelineRuns created after the configuration is applied. It also reaches the TaskRuns that an already running PipelineRun creates after the change: they get every field of the new default that the PipelineRun did not store when it was created. Fields stored at creation, including those filled in from the previous default, keep their values, and existing Pods do not change.
 - **TaskRun/PipelineRun Configuration**: Affects only the specific execution.
 - **Configuration Changes**: Take effect immediately for new executions. No restart of Tekton components is required.
 
@@ -513,17 +523,20 @@ These are the most common issues users encounter. Review these before configurin
 
 ### Best Practices
 
-1. **Follow Security Best Practices**: Always use non-root user (`runAsUser: 65532`) as the global default. Official Tekton Tasks are designed to work with UID 65532. Only override to `runAsUser: 0` for specific tasks that require root privileges.
+1. **Follow Security Best Practices**: Always use non-root user (`runAsUser: 65532`) as the global default. Official Tekton Tasks are designed to work with UID 65532. Only set `runAsUser: 0` on the steps of specific Tasks that require root privileges.
 
-2. **Start with Secure Global Defaults**: Configure secure baseline settings in the global `default-pod-template`:
+2. **Start with Secure Global Defaults**: Configure secure baseline settings in the global `default-pod-template`, and keep the shipped `fsGroupChangePolicy`:
    ```yaml
    securityContext:
      runAsUser: 65532
      runAsNonRoot: true
      fsGroup: 65532
+     fsGroupChangePolicy: "OnRootMismatch"
    ```
 
-3. **Override Selectively**: When you have custom images requiring root access, override ONLY at the TaskRun or taskRunSpecs level for those specific tasks. Do not change the global default to `runAsUser: 0`.
+   Read and save the value in effect and the value set in `TektonConfig` before the change. To undo it: if the saved `TektonConfig` output was empty, remove the field from `TektonConfig`; otherwise set the saved `TektonConfig` value again; see [Method 4](#method-4-global-default-configuration-tektonconfig).
+
+3. **Override Selectively**: When you have custom images requiring root access, set `runAsUser: 0` ONLY on the steps of those Tasks, with a Pod template for their tasks that sets no `runAsUser` or `runAsNonRoot`, as in [Example 4](#example-4-override-for-custom-images-requiring-root-access). Do not change the global default to `runAsUser: 0`.
 
 4. **Use TaskRunSpecs for Fine-Grained Control**: When different tasks in a pipeline require different security contexts (e.g., custom images vs. official Tasks), use `taskRunSpecs` to apply different configurations.
 
@@ -537,18 +550,20 @@ After applying Pod template configurations, verify they are effective:
 
 ### For Global Configuration
 
-Check that the configuration is applied to the ConfigMap:
+Check that the configuration is applied to the ConfigMap. The command prints the whole default Pod template, which must be the template that you set in `TektonConfig`:
 
 ```bash
 # Check ConfigMap
-$ kubectl get configmap -n tekton-pipelines config-defaults -o yaml | grep 'default-pod-template' -A 10
-
-  default-pod-template: |
-    securityContext:
-      runAsUser: 65532
+kubectl get configmap -n tekton-pipelines config-defaults -o jsonpath='{.data.default-pod-template}'
 ```
 
-Expected output should show your configured pod template.
+On a default installation, where `TektonConfig` sets no `default-pod-template`, it prints the shipped template:
+
+```text
+securityContext:
+  fsGroup: 65532
+  fsGroupChangePolicy: "OnRootMismatch"
+```
 
 ### For TaskRun/PipelineRun Configuration
 
@@ -556,10 +571,10 @@ Expected output should show your configured pod template.
 
 ```bash
 # For TaskRun
-$ kubectl get pods -n <namespace> -l tekton.dev/taskRun=<taskrun-name>
+kubectl get pods -n <namespace> -l tekton.dev/taskRun=<taskrun-name>
 
 # For PipelineRun (shows all Pods created by the PipelineRun)
-$ kubectl get pods -n <namespace> -l tekton.dev/pipelineRun=<pipelinerun-name>
+kubectl get pods -n <namespace> -l tekton.dev/pipelineRun=<pipelinerun-name>
 
 # Example output:
 # NAME                                      READY   STATUS      RESTARTS   AGE
@@ -569,19 +584,12 @@ $ kubectl get pods -n <namespace> -l tekton.dev/pipelineRun=<pipelinerun-name>
 **Step 2: Verify the Pod specification**
 
 ```bash
-# Check the Pod's security context
-$ kubectl get pod -n <namespace> <pod-name> -o yaml | grep -A 10 "securityContext:"
-
-  securityContext:
-    runAsUser: 65532
-    fsGroup: 65532
-
-# Check specific fields
-$ kubectl get pod -n <namespace> <pod-name> -o jsonpath='{.spec.securityContext.runAsUser}'
+# Check the Pod-level runAsUser
+kubectl get pod -n <namespace> <pod-name> -o jsonpath='{.spec.securityContext.runAsUser}'
 # Should output: 65532 (or your configured value)
 
 # Check fsGroup
-$ kubectl get pod -n <namespace> <pod-name> -o jsonpath='{.spec.securityContext.fsGroup}'
+kubectl get pod -n <namespace> <pod-name> -o jsonpath='{.spec.securityContext.fsGroup}'
 # Should output: 65532 (or your configured value)
 ```
 
@@ -591,4 +599,3 @@ $ kubectl get pod -n <namespace> <pod-name> -o jsonpath='{.spec.securityContext.
 - [Troubleshooting: Custom Image Pod Creation Failed](../pipelines/trouble_shooting/custom_image_pod_creation_failed.mdx) - Solutions for common Pod template configuration issues
 - [Adjusting Optional Configuration Items](./customize_options.mdx) - General guide for customizing TektonConfig options
 - [Kubernetes PodSpec Documentation](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#podspec-v1-core) - Official Kubernetes PodSpec reference
-

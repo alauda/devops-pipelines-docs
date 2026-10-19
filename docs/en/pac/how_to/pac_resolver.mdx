@@ -403,7 +403,7 @@ PipelineRun definition using PAC annotations:
 **How it works**:
 - PAC automatically resolves and embeds tasks from your repository when you use relative paths in task annotations
 - The task name in `taskRef.name` should match the task name defined in the YAML file
-- This method is simpler than using `resolver: git` syntax and is the recommended approach for PAC
+- With this method, the `taskRef` does not need the `resolver: git` syntax
 
 ### When to Use Local Tasks \{#when-to-use-local-tasks}
 
@@ -640,9 +640,9 @@ For catalog source configuration and resource authoring, see <ExternalSiteLink n
 
 ## Comparison with Resolver Syntax \{#comparison-with-resolver-syntax}
 
-PAC annotations provide a simpler alternative to Tekton's resolver syntax:
+PAC annotations provide an alternative to Tekton's resolver syntax for referencing a Task in an inline `pipelineSpec`:
 
-### Using PAC Annotations (Recommended) \{#using-pac-annotations-recommended}
+### Using PAC Annotations \{#using-pac-annotations}
 
     ```yaml
     metadata:
@@ -673,10 +673,10 @@ PAC annotations provide a simpler alternative to Tekton's resolver syntax:
     ```
 
 **Advantages of PAC annotations**:
-- Simpler syntax
-- Automatic task embedding
+- Automatic task embedding (with the default [`remote-tasks: "true"`](../install/manage_pac.mdx#disable-remote-tasks))
 - No need to specify resolver parameters
-- Works seamlessly with PAC's task resolution
+
+Both samples above define the Pipeline inline with `pipelineSpec`. For a Pipeline shared by several repositories, the recommended form is `pipelineRef` with a Tekton resolver, as described in [Reference shared Pipeline templates](./maintain_pipeline_code.mdx#reference-shared-pipeline-templates). An admission policy that rejects an inline `pipelineSpec`, such as the `deny-pipelinerun-inline-pipelinespec` rule in [Constrain Tekton Pipeline Execution with Kyverno](../../pipelines/how_to/constrain_pipeline_execution_with_kyverno.mdx), rejects, in the namespaces where it is enforced, runs written like the two samples and, with the default `remote-tasks: "true"`, the runs into which PAC embeds a resolved Pipeline or Task.
 
 ## Troubleshooting \{#troubleshooting}
 

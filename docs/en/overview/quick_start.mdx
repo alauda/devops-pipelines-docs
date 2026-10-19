@@ -46,7 +46,7 @@ The Tekton Operator allows you to install, upgrade, and manage Tekton Pipeline, 
 
 1. Open the Operator Hub in Marketplace of Platform Management
 
-2. Search for "Alauda DevOps Pipelines" and click "Install"
+2. Search for "Alauda Container Platform Pipelines" and click "Install"
 
 3. Select the namespace to install the Operator, e.g. `tekton-operator`
 
@@ -97,6 +97,7 @@ After installing the Tekton Operator, you should verify that it's running proper
 The Tekton Operator uses custom resources to manage Tekton components.
 By default, the Operator will install Pipeline, Triggers, and Chains automatically.
 You can install Results, Pipelines-as-Code by creating these custom resources.
+Scheduler is an optional component for queue-based pipeline concurrency control. Enable it through TektonConfig after preparing Kueue and cert-manager; see [Manage Scheduler](../scheduler/guides/manage_scheduler.mdx).
 Starting from `v4.14.0`, the built-in `Tekton Hub` is no longer shipped. Catalog resources are delivered by the standalone `ArtifactHub` component; see <ExternalSiteLink name="artifacthub-shim" href="/catalog/index.html" children="ArtifactHub Shim Catalog" />.
 
 

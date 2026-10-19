@@ -14,9 +14,10 @@ ScheduledTrigger.
 
 Run Template is useful when you have already verified how a Pipeline should
 run. Values that are filled in the Run Template and are not set to `Set at
-Runtime` are used as run inputs, so users do not need to care about them.
-Only values that are expected to change need to be supplied for a particular
-run.
+Runtime` are used as run inputs. The run form does not ask for most of them;
+parameters and Workspaces bound by the Pipeline's Integrations are the
+exception and stay shown and editable (see the run steps below). Only values
+that are expected to change need to be supplied for a particular run.
 
 :::tip
 The product name for reusable Pipeline execution settings is **Run Template**.
@@ -95,6 +96,17 @@ Run content generally falls into two categories:
    merged.
 7. Save the Run Template.
 
+### Configure Run Templates while creating a Pipeline
+
+When you create a Pipeline, the **Run Templates** step lets you configure
+templates for that Pipeline before saving it. Add a template, configure its
+parameters, Workspaces, Integrations, and other run settings, and save the
+Pipeline. For details about using the saved template, see
+[Use a Run Template](#use-a-run-template).
+
+You can skip this step and create the Pipeline without a Run Template. You can
+create a Run Template later from the Run Template list.
+
 ### Copy an existing Run Template
 
 1. Find an existing Run Template.
@@ -142,22 +154,22 @@ Triggers or ScheduledTriggers that reference it. Review those start methods
 before saving.
 :::
 
-## Run a Pipeline with a Run Template
+## Use a Run Template \{#use-a-run-template}
 
-### Run directly from Run Template
+### Run directly from a Run Template
 
-You can start a run from the Run Template list or details page:
+You can start a run directly from the Run Template list or details page:
 
 1. Find the Run Template.
-2. Click the run action.
-3. Supply content marked as `Set at Runtime`.
-4. Check the runtime Parameters, Workspaces, or Integrations for this run.
-5. Submit the run.
+2. Select **Run**.
+3. Provide values marked as `Set at Runtime`.
+4. Submit the PipelineRun.
 
-The run form shows only content marked as `Set at Runtime`. Parameters,
-Workspaces, and Integrations that have a fixed value in the Run Template are
-used as run inputs and are not shown for editing. Typical runtime content
-includes:
+The run form shows content marked as `Set at Runtime` and, in addition, the
+parameters and Workspaces bound by the Pipeline's Integrations, even when the
+Run Template gives them a fixed value. Other Parameters, Workspaces, and
+Integrations that have a fixed value in the Run Template are used as run inputs
+and are not shown for editing. Typical runtime content includes:
 
 - **Parameters**, such as a Git branch, commit, image tag, or release batch.
 - **Workspaces**, when a different workspace is needed for this run.
@@ -173,6 +185,19 @@ and apply its values to the current run.
 long-term repeated use, run the Pipeline directly from the Run Template list or
 details page so that the run configuration can be maintained in one place.**
 
+### Apply a Run Template in the Pipeline execution dialog
+
+1. Open the Pipeline execution dialog.
+2. In **Run Templates**, select a Run Template.
+3. Review the values imported from the Run Template and complete the fields
+   shown by the Pipeline execution form.
+4. Submit the PipelineRun.
+
+When you apply a Run Template in the Pipeline execution dialog, the Pipeline
+execution form controls which fields are shown. The Run Template supplies
+values for the current run; it does not filter the Pipeline execution form by
+its `Set at Runtime` settings.
+
 ## Configure a Trigger for a Run Template
 
 ### Trigger responsibilities
@@ -187,8 +212,8 @@ Run Template workflow:
   Trigger.
 
 For the complete Trigger configuration procedure, see
-[Centralized Trigger Management with Hub Pipeline and Run
-Template](hub_pipeline_run_template_centralized_management.mdx).
+[Centralized Trigger Management](hub_pipeline_run_template_centralized_management.mdx#centralized-trigger-management)
+in Centralized Management with Hub Pipeline and Run Template.
 
 This page focuses on the relationship between the Trigger event and Run
 Template event variables:
@@ -205,7 +230,7 @@ Template event variables:
 2. Open the **Triggers** tab and create a Trigger. The current Run Template is
    already selected as a fixed reference. **Template Type** is not shown.
 3. Configure the event and trigger conditions according to the
-   [Trigger configuration](hub_pipeline_run_template_centralized_management.mdx#centralized-trigger-management)
+   [Centralized Trigger Management](hub_pipeline_run_template_centralized_management.mdx#centralized-trigger-management)
    guidance.
 4. If the Run Template has runtime content and this Trigger needs to complete
    runtime values, inject event variables, or associate a new Event, select
@@ -280,15 +305,15 @@ same Run Template, but their run contexts are different. The variables
 available in each context may also be different:
 
 - **Trigger execution**: When the TriggerBinding for the current event provides
-  a variable, `$(tt.params.xxx)` uses the value from that event.
+  a variable, `$(tt.params.<name>)` uses the value from that event.
 - **Manual execution**: No external event provides variables. If a run value
-  contains `$(tt.params.xxx)`, manual execution renders it with the variable's
+  contains `$(tt.params.<name>)`, manual execution renders it with the variable's
   default value. If no default value is configured, the entire value is
   cleared.
 - **Trigger execution without a value**: In the current Tekton Triggers
   `v0.36.0` implementation, if the TriggerTemplate declares the parameter
   without a default and the TriggerBinding does not provide it, the
-  PipelineRun can retain the literal `$(tt.params.xxx)` value. This is
+  PipelineRun can retain the literal `$(tt.params.<name>)` value. This is
   different from manual Run Template execution, where the frontend clears the
   entire value.
 - **ScheduledTrigger execution**: A ScheduledTrigger supplies values through its
@@ -387,8 +412,10 @@ runtime content.
 
 If you need a fixed default value, or you need `Set at Runtime` for the
 parameter, update and save the Run Template. Values that are not marked `Set
-at Runtime` are stored as fixed run inputs and are hidden on later executions.
-New Pipeline parameters remain visible until you save the template again.
+at Runtime` are stored as fixed run inputs. On later executions the run form
+does not ask for most of them; parameters and Workspaces bound by the
+Pipeline's Integrations stay shown and editable. New Pipeline parameters remain
+visible until you save the template again.
 
 ### Rename, remove, or change a parameter
 
@@ -418,9 +445,12 @@ When the Run Template uses a Hub Pipeline, update the existing Run Template
 after reviewing the new Hub Pipeline version. In the Run Template update
 dialog, the Pipeline selector is read-only in the form view. To change the
 associated Hub Pipeline version without creating another Run Template, switch
-to **YAML** mode and update the Pipeline reference in the Run Template's
-`PipelineRun` resource. Then return to the form view and check the resulting
-parameters, Workspaces, Integrations, and runtime settings before saving.
+to **YAML** mode, update the Pipeline reference in the Run Template's
+`PipelineRun` resource, and save from the YAML view. Then reopen the update
+dialog and check the resulting parameters, Workspaces, Integrations, and
+runtime settings in the form view. Switching back to the form view before
+saving, after you change the Pipeline reference in YAML, clears the fixed
+values of the template.
 
 For a Hub Pipeline reference, keep the existing catalog, kind, and Pipeline
 name, and change the `version` value to the version that you reviewed:
@@ -440,7 +470,7 @@ spec:
             - name: name
               value: <pipeline-name>
             - name: version
-              value: <new-version>
+              value: "<new-version>"
 ```
 
 Keep the other Run Template settings unchanged unless the new Hub Pipeline
@@ -471,7 +501,8 @@ its associated Triggers, ScheduledTriggers, and execution history.
 1. Create separate templates for development, test, and production instead of
    switching environments by editing one shared template.
 2. Keep fixed values that are not set to `Set at Runtime` in the template, so
-   users do not need to care about them during execution.
+   users do not have to supply them at run time. Parameters and Workspaces
+   bound by the Pipeline's Integrations still appear in the run form.
 3. For long-term repeated use, run directly from the Run Template list or
    details page.
 4. Include the service, environment, and purpose in the template name.
@@ -487,10 +518,12 @@ its associated Triggers, ScheduledTriggers, and execution history.
 
 ### Which values do I need to provide for a direct run?
 
-Provide only the Parameters, Workspaces, and Integrations that are set to `Set
-at Runtime`. Fixed values already stored in the Run Template are used as run
-inputs and are not shown for editing. To change a fixed value, update the Run
-Template first.
+Provide the Parameters, Workspaces, and Integrations that are set to `Set at
+Runtime`. Fixed values already stored in the Run Template are used as run
+inputs. Parameters and Workspaces bound by the Pipeline's Integrations are
+also shown in the run form, prefilled with their fixed values and editable,
+so check them before you submit. To change a fixed value for every run, update
+the Run Template first.
 
 ### Why did an event variable not reach the Pipeline?
 
@@ -524,7 +557,7 @@ remain available according to the platform's execution history policy.
 
 ## Related Topics
 
-- [Hub Pipeline and Run Template Centralized Management](hub_pipeline_run_template_centralized_management.mdx)
+- [Centralized Management with Hub Pipeline and Run Template](hub_pipeline_run_template_centralized_management.mdx)
 - [TriggerBinding](../../triggers/concepts/triggerbinding_concept)
 - [ScheduledTrigger](../../triggers/concepts/scheduledtrigger_concept)
 - [TriggerTemplate](../../triggers/concepts/triggertemplate_concept)

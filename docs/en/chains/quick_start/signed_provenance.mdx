@@ -18,7 +18,7 @@ Tekton Chains helps you secure your software supply chain by automatically gener
 
 ## Important Notes
 
-- Tekton Chains is installed by default in the `tekton-pipelines` namespace when using Alauda Devops Pipelines Operator
+- Tekton Chains is installed by default in the `tekton-pipelines` namespace when using Alauda Container Platform Pipelines Operator
 - The signing keys should be securely managed; in production environments, consider using a key management system (KMS)
 - This guide uses a simplified workflow by generating the Containerfile inline within the pipeline
 - In production environments, you should use proper source code management and version control
@@ -55,11 +55,23 @@ For more details, please refer to [Signing Key Configuration](../configure/signi
 Tekton Chains uses cryptographic keys to sign artifacts. By default, it looks for a secret named `signing-secrets` in the Chains namespace.
 
 1. Install [cosign](https://github.com/sigstore/cosign) if you haven't already
-2. Generate a key pair and store it as a Kubernetes secret:
+2. Generate a key pair and store it as a Kubernetes secret. The command replaces a key pair that `signing-secrets` already holds, unless the Secret is immutable (against an immutable Secret the command fails), so read [Generate Signing Key](../configure/signing_key_configuration.mdx#generate-signing-key) first. It writes a Secret in `tekton-pipelines`, which needs the matching rights there, usually a cluster administrator. Run the `read -rs` line on its own, type the password and press Enter: `read -rs` does not show it, so it does not appear on the screen or in the shell history:
 
    ```bash
-   $ COSIGN_PASSWORD={password} cosign generate-key-pair k8s://tekton-pipelines/signing-secrets
+   read -rs COSIGN_PASSWORD
+   ```
 
+   Then run:
+
+   ```bash
+   export COSIGN_PASSWORD
+   cosign generate-key-pair k8s://tekton-pipelines/signing-secrets
+   unset COSIGN_PASSWORD
+   ```
+
+   The `cosign` command prints:
+
+   ```text
    Successfully created secret signing-secrets in namespace tekton-pipelines
    Public key written to cosign.pub
    ```
@@ -83,30 +95,42 @@ Tekton Chains uses cryptographic keys to sign artifacts. By default, it looks fo
 For more details, please refer to [Authentication for Chains](../configure/authentication_for_chains)
 :::
 
-Configure registry credentials for image pushing:
+Configure registry credentials for image pushing. First set the namespace where the pipeline runs and the service account that the PipelineRun uses; Step 5 uses the same two values:
 
-1. Create a secret with credentials:
+```bash
+export NAMESPACE=<default>
+export SERVICE_ACCOUNT_NAME=<default>
+```
+
+1. Create a secret with credentials. Run the `read -rs` line on its own, type the registry password and press Enter; `read -rs` does not show it:
 
    ```bash
-   $ kubectl create secret docker-registry registry-credentials \
+   read -rs REGISTRY_PASSWORD
+   ```
+
+   Then run:
+
+   ```bash
+   kubectl create secret docker-registry registry-credentials \
      --docker-server=<gcr.io> \
      --docker-username=<username> \
      --docker-email=<email> \
-     --docker-password=<password> \
+     --docker-password="$REGISTRY_PASSWORD" \
      -n $NAMESPACE
+   unset REGISTRY_PASSWORD
    ```
 
 2. Set the `config.json` key:
 
    ```bash
-   $ DOCKER_CONFIG=$(kubectl get secret -n $NAMESPACE $REGISTRY_CREDENTIALS -o jsonpath='{.data.\.dockerconfigjson}')
-   $ kubectl patch secret -n $NAMESPACE $REGISTRY_CREDENTIALS -p "{\"data\":{\"config.json\":\"$DOCKER_CONFIG\"}}"
+   DOCKERCONFIGJSON=$(kubectl get secret -n $NAMESPACE registry-credentials -o jsonpath='{.data.\.dockerconfigjson}')
+   kubectl patch secret -n $NAMESPACE registry-credentials -p "{\"data\":{\"config.json\":\"$DOCKERCONFIGJSON\"}}"
    ```
 
 3. Patch the service account to use the secret:
 
    ```bash
-   $ kubectl patch serviceaccount $SERVICE_ACCOUNT_NAME \
+   kubectl patch serviceaccount $SERVICE_ACCOUNT_NAME \
      -p "{\"secrets\": [{\"name\": \"registry-credentials\"}]}" -n $NAMESPACE
    ```
 
@@ -116,7 +140,7 @@ Configure registry credentials for image pushing:
 For more details, please refer to [Chains Configuration](../configure/chains_configuration)
 :::
 
-Configure Tekton Chains to store artifacts in OCI format:
+Configure Tekton Chains to store artifacts in OCI format. The patch changes the Chains settings for the whole cluster, not for one namespace. It needs permission to patch `TektonConfig`, which is cluster-scoped, usually a cluster administrator:
 
 ```bash
 $ kubectl patch tektonconfigs.operator.tekton.dev config --type=merge -p='{
@@ -191,6 +215,8 @@ spec:
             - $(params.image)
         - name: TLS_VERIFY
           value: "false"
+        - name: CONTAINERFILE
+          value: ./Containerfile
       runAfter:
         - generate-containerfile
       taskRef:
@@ -238,7 +264,8 @@ In production environments, you should:
 - `tasks`: The tasks for the pipeline.
   - `generate-containerfile`: The task to generate a Containerfile for building an image.
   - `build-image`: The task to build and push the image to the registry.
-    - `params.TLS_VERIFY`: Whether to verify the TLS certificate of the registry.
+    - `params.TLS_VERIFY`: Whether the build step verifies the TLS certificate of the registry. `"false"` is for a test registry whose certificate the cluster does not trust; with a trusted certificate, set `"true"`. The parameter affects the build step: Chains has its own setting for such a registry, `storage.oci.repository.insecure` (see [Chains Configuration](../configure/chains_configuration.mdx)), and `cosign` in Step 8 has the `--allow-insecure-registry` flag.
+    - `params.CONTAINERFILE`: The path of the Containerfile to build, here the file that the `generate-containerfile` task writes.
 - `results`: The results for the pipeline.
   - `first_image_ARTIFACT_OUTPUTS`: The result of the first image artifact output.
     - `digest`: The digest of the image.
@@ -342,7 +369,7 @@ $ kubectl get pipelinerun -n $NAMESPACE $PIPELINERUN_NAME -o yaml | grep "chains
     chains.tekton.dev/signed: "true"
 ```
 
-Once the PipelineRun has `chains.tekton.dev/signed: "true"` annotation, means the image is signed.
+The `chains.tekton.dev/signed: "true"` annotation shows that Chains has processed the PipelineRun. It does not prove that the image is signed; verify the signature in [Step 8](#step-8-verifying-the-image-and-attestation).
 
 ### Step 7: Get the image from the PipelineRun \{#step-7-get-the-image-from-the-pipelinerun}
 
@@ -377,6 +404,12 @@ This image will be used to verify the signature.
 
 2. Verify signature
 
+   Step 3 does not set `transparency.enabled`, and with its default `false` Chains does not upload the signature or the attestation to a transparency log. Tell `cosign` to skip the transparency log check for the `cosign` commands of this step, in the shell where you run them:
+
+   ```bash
+   export COSIGN_PRIVATE_INFRASTRUCTURE=true
+   ```
+
    ```bash
    $ cosign verify --key cosign.pub ${IMAGE}
    ```
@@ -403,6 +436,9 @@ This image will be used to verify the signature.
 
    {"payloadType":"application/vnd.in-toto+json","payload":"...","signatures":[{"keyid":"SHA256:B8CzieJ9/kKhU9hiIPXY+dvvz9DLVOQ3XokyYLdladc","sig":"MEQCIEeS/gGpMV4Y22pYJw3hTyCg92KXACAYvnDwm3fzPxyLAiA3cDP6zjCfaVrf35wED1ylSUdsEJzwlXDCvj2i2A6BYg=="}]}
    ```
+
+   The sample above shows one attestation line, but in this quick start the command prints two, one for the `TaskRun` of the `build-image` task and one for the `PipelineRun`; the command of the next item therefore prints two payloads, and the sample there shows the one of the `TaskRun`.
+
 4. Extract the payload using jq:
 
    ```bash
@@ -441,9 +477,9 @@ This image will be used to verify the signature.
                 }
               ]
             },
-            "buildType": "tekton.dev/v1beta1/TaskRun",
+            "buildType": "tekton.dev/v1/TaskRun",
             "builder": {
-              "id": "https://alauda.io/builders/tekton/v1"
+              "id": "https://tekton.dev/chains/v2"
             },
             "invocation": {
               "configSource": {

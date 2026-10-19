@@ -5,7 +5,7 @@
   },
   "scripts": {
     "dev": "doom dev",
-    "build": "doom build",
+    "build": "doom build && bash docs/scripts/test-doc-branding.sh",
     "lint": "doom lint",
     "serve": "doom serve",
     "prepare": "simple-git-hooks",

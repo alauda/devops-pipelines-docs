@@ -175,15 +175,15 @@ results.tekton.dev/v1alpha2/parents/default/results?filter=summary.status==SUCCE
 | Parameter | Description | Default | Usage |
 |-----------|-------------|---------|-------|
 | `completed_run_grace_period` | How long to wait after completion before deleting resources | `0` (no deletion) | Set to a duration (e.g., `24h`) to enable automatic deletion |
-| `check_owner` | Whether to check for owner references before deletion | `false` | Set to `true` to prevent deletion of resources with owner references |
+| `check_owner` | Whether to check for owner references before deletion | `true` | Keep `true` to prevent deletion of resources with owner references |
 | `store_deadline` | Maximum time to wait for storing a resource | `10m` | Increase for large resources or slow database connections |
 
 ### API Server Parameters
 
 | Parameter | Description | Default | Usage |
 |-----------|-------------|---------|-------|
-| `AUTH_IMPERSONATE` | Enable user impersonation | `false` | Set to `true` to allow service accounts to impersonate users |
-| `page_size` | Maximum number of results per page | `100` | Adjust based on query performance and client needs |
+| `AUTH_IMPERSONATE` | Enable user impersonation | `true` | Keep `true` to allow service accounts to impersonate users |
+| `page_size` | Maximum number of results in one page of a list request. It is a query parameter of the request, not a server setting | `50` | Set it per request, from `5` to `10000` |
 
 ### Retention Policy Parameters
 
