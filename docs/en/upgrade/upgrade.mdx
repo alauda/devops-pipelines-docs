@@ -2,17 +2,17 @@
 weight: 20
 ---
 
-# Upgrade `Alauda DevOps Pipelines` Operator
+# Upgrade `Alauda Container Platform Pipelines` Operator
 
-This document provides instructions for upgrading the `Alauda DevOps Pipelines` Operator to a newer version using the `Marketplace`/`OperatorHub` interface in your cluster. The upgrade process is designed to be straightforward while ensuring minimal disruption to existing Tekton resources.
+This document provides instructions for upgrading the `Alauda Container Platform Pipelines` Operator to a newer version using the `Marketplace`/`OperatorHub` interface in your cluster. The upgrade process is designed to be straightforward while ensuring minimal disruption to existing Tekton resources.
 
 ## Upgrade Overview
 
-Upgrading the `Alauda DevOps Pipelines` Operator allows you to access new features, bug fixes, and improvements to the Tekton ecosystem. The `Alauda DevOps Pipelines` Operator handles the upgrade of all Tekton components (Pipelines, Triggers, Hub, etc.) according to your configuration.
+Upgrading the `Alauda Container Platform Pipelines` Operator allows you to access new features, bug fixes, and improvements to the Tekton ecosystem. The `Alauda Container Platform Pipelines` Operator handles the upgrade of all Tekton components (Pipelines, Triggers, Hub, etc.) according to your configuration.
 
 ## Before You Begin
 
-Before upgrading the `Alauda DevOps Pipelines` Operator, ensure you:
+Before upgrading the `Alauda Container Platform Pipelines` Operator, ensure you:
 
 - Have administrative access to your cluster
 - Review the release notes for the new version to understand any breaking changes
@@ -41,12 +41,12 @@ If you are currently on a non-LTS version in `latest`, switching to `stable` doe
    - Log in to your cluster's management console
    - Navigate to the `Marketplace` or `OperatorHub` section
 
-2. **Locate the `Alauda DevOps Pipelines` Operator**
-   - Search for `Alauda DevOps Pipelines` in the search bar
-   - Click on the `Alauda DevOps Pipelines` card
+2. **Locate the `Alauda Container Platform Pipelines` Operator**
+   - Search for `Alauda Container Platform Pipelines` in the search bar
+   - Click on the `Alauda Container Platform Pipelines` card
 
 3. **View Available Versions**
-   - On the `Alauda DevOps Pipelines` Operator details page, you'll see information about the currently installed version
+   - On the `Alauda Container Platform Pipelines` Operator details page, you'll see information about the currently installed version
    - The interface will indicate if a newer version is available
    - You can click different `Channels` to view all available versions
 
@@ -63,7 +63,7 @@ If you are currently on a non-LTS version in `latest`, switching to `stable` doe
 6. **Confirm and Start the Upgrade**
    - Click `Confirm` to begin the process
    - Review the upgrade details and confirm your selection
-   - The system will update the `Alauda DevOps Pipelines` Operator while maintaining your custom resources
+   - The system will update the `Alauda Container Platform Pipelines` Operator while maintaining your custom resources
 
 7. **Monitor the Upgrade**
    - The upgrade progress will be displayed in the `OperatorHub` interface
@@ -81,12 +81,12 @@ If you are currently on a non-LTS version in `latest`, switching to `stable` doe
      When all components and pods are in `Ready` state, the components upgrade is complete.
 
 8. **Verify the Upgrade**
-   - Check that the `Alauda DevOps Pipelines` Operator version has been updated:
+   - Check that the `Alauda Container Platform Pipelines` Operator version has been updated:
      ```bash
      $ kubectl get csv -n tekton-operator
      
      NAME                        DISPLAY                   VERSION   REPLACES   PHASE
-     tektoncd-operator.v4.x.x    Alauda DevOps Pipelines   4.x.x     x          Succeeded
+     tektoncd-operator.v4.x.x    Alauda Container Platform Pipelines   4.x.x     x          Succeeded
      ```
      When the `VERSION` matches the new version, the upgrade is complete.
    - Verify that your Tekton components are functioning correctly
@@ -94,7 +94,7 @@ If you are currently on a non-LTS version in `latest`, switching to `stable` doe
 
 ### Using `kubectl` CLI
 
-You can also upgrade the `Alauda DevOps Pipelines` Operator using the command line interface. This method is useful for automation or when you prefer CLI-based operations.
+You can also upgrade the `Alauda Container Platform Pipelines` Operator using the command line interface. This method is useful for automation or when you prefer CLI-based operations.
 
 1. **Check Current Subscription**
    - First, identify the current subscription and its channel:
@@ -159,7 +159,7 @@ You can also upgrade the `Alauda DevOps Pipelines` Operator using the command li
      $ kubectl get csv -n tekton-operator
      
      NAME                        DISPLAY                   VERSION   REPLACES   PHASE
-     tektoncd-operator.v4.x.x    Alauda DevOps Pipelines   4.x.x     x          Succeeded
+     tektoncd-operator.v4.x.x    Alauda Container Platform Pipelines   4.x.x     x          Succeeded
      ```
 
 7. **Monitor Component Upgrades**
@@ -198,7 +198,7 @@ After the upgrade completes successfully:
 If you encounter issues with the new version, you can roll back to the previous version:
 
 1. Return to the `Marketplace`/`OperatorHub` interface
-2. Select the `Alauda DevOps Pipelines` Operator
+2. Select the `Alauda Container Platform Pipelines` Operator
 3. `Uninstall` the current version
 4. Choose the previous version from the version list
 5. Follow the installation process for that version
@@ -213,7 +213,7 @@ This depends on the differences between the version you upgraded from and the ve
 
 If you encounter issues during or after the upgrade:
 
-- Check the `Alauda DevOps Pipelines` Operator pod logs:
+- Check the `Alauda Container Platform Pipelines` Operator pod logs:
   ```bash
   $ kubectl logs -l name=tekton-operator -n tekton-operator
   ```
@@ -230,7 +230,7 @@ If you encounter issues during or after the upgrade:
 
 ## Next Steps
 
-After successfully upgrading the `Alauda DevOps Pipelines` Operator:
+After successfully upgrading the `Alauda Container Platform Pipelines` Operator:
 
 - Explore new features introduced in the latest version
 - Update your CI/CD pipelines to leverage new capabilities
