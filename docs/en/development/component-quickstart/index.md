@@ -330,11 +330,11 @@ All components follow a unified branch management strategy:
 
 **Exception Cases:**
 
-**tektoncd-operator**: Although it is a community component, as a core component of `Alauda DevOps Pipelines`, it follows the self-developed component branch management strategy:
+**tektoncd-operator**: Although it is a community component, as a core component of `Alauda Container Platform Pipelines`, it follows the self-developed component branch management strategy:
 
 - Use `release-{feature-milestone}` format based on functional milestones
 - Examples: `release-4.0`, `release-4.1` for new features
-- This exception is made because `tektoncd-operator` serves as the central orchestration component for the entire Tekton ecosystem and requires more flexible release management to align with Alauda DevOps Pipelines' development cycle
+- This exception is made because `tektoncd-operator` serves as the central orchestration component for the entire Tekton ecosystem and requires more flexible release management to align with Alauda Container Platform Pipelines' development cycle
 
 #### 4.2 Benefits
 

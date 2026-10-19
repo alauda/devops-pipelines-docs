@@ -170,9 +170,11 @@ The ServiceAccount parameter is crucial for EventListener as it determines what 
 
 #### Principles
 The ServiceAccount needs permissions to:
-- Read ConfigMaps, Secrets, and ServiceAccounts
+- Read ConfigMaps and the required namespaced Trigger resources
 - Create and manage PipelineRuns and TaskRuns
 - Access TriggerBindings and TriggerTemplates
+
+The default EventListener cluster role grants read access to ClusterTriggerBindings and ClusterInterceptors. Built-in webhook Secret validation uses the separate core-interceptors ServiceAccount, so the EventListener ServiceAccount does not need cluster-wide Secret read permissions. Custom workloads that read Secrets through the Kubernetes API must use a dedicated ServiceAccount with explicit namespace-scoped access.
 
 ### Resources Configuration
 
@@ -392,12 +394,7 @@ spec:
 
 2. **Secret Not Found**
    - Verify the secret name in `secretRef.secretName` matches the actual Secret name
-   - Check that the ServiceAccount has permissions to read Secrets:
-     ```yaml
-     - apiGroups: [""]
-       resources: ["secrets"]
-       verbs: ["get", "list"]
-     ```
+   - For built-in interceptors, check the Secret read permissions of the `tekton-triggers-core-interceptors` ServiceAccount in the Triggers installation namespace. The EventListener ServiceAccount does not perform this lookup. For a custom interceptor, check its own ServiceAccount and explicitly scoped RoleBinding.
 
 3. **Signature Validation Fails**
    - For GitHub/Bitbucket: Ensure the webhook is configured with the correct secret in the external system

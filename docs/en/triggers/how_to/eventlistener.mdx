@@ -94,6 +94,12 @@ Defines a set of trigger configurations:
 
 ### Security Configurations
 
+On Kubernetes, the configured default for an omitted or empty account is
+`triggers-default-sa` unless overridden; explicit nonempty accounts are preserved.
+The OpenShift default remains `pipeline`. See
+[Triggers Default ServiceAccount](../../configure/trigger_default_service_account.mdx)
+for administrator overrides, restoration and upgrade compatibility.
+
 EventListener supports multiple security configurations:
 
 1. **ServiceAccount**: 
@@ -108,7 +114,7 @@ EventListener supports multiple security configurations:
 
 - **Default ServiceAccount (`triggers-default-sa`)**: When `spec.serviceAccountName` is not specified, EventListener automatically uses the `triggers-default-sa` ServiceAccount in the namespace. This ServiceAccount is automatically granted the necessary namespace-scoped permissions required for EventListeners to handle triggers within the same namespace. The permissions are automatically bound to the namespace where the ServiceAccount exists, so you don't need to manually configure Role or RoleBinding.
 
-- **Custom ServiceAccount with Cluster Permissions**: When you configure `namespaceSelector` to listen to triggers from multiple namespaces (including `'*'` for all namespaces), you must specify a custom ServiceAccount with cluster-scoped permissions. The `triggers-default-sa` ServiceAccount only has namespace-scoped permissions and does not have the necessary cluster-scoped permissions to access resources across namespaces.
+- **Custom ServiceAccount with Cluster Permissions**: When you configure `namespaceSelector` to listen to triggers from multiple namespaces (including `'*'` for all namespaces), you must specify a custom ServiceAccount with cluster-scoped permissions. The `triggers-default-sa` ServiceAccount has namespace-scoped permissions for Trigger resources and cluster-scoped read permissions for ClusterTriggerBindings and ClusterInterceptors. It does not have permissions to access namespaced Trigger resources in other namespaces.
 
 #### Required Permissions
 
@@ -117,7 +123,6 @@ To trigger pipeline and tasks properly, the ServiceAccount used by EventListener
 | Permission                              | Resource                   | Description          |
 | --------------------------------------- | ------------------------- | ------------------- |
 | get, list, watch                        | configmaps                | Read ConfigMaps     |
-| get, list, watch                        | secrets                   | Read Secrets        |
 | get, list, watch                        | serviceaccounts           | Read ServiceAccounts |
 | create, get, list, watch, patch, update | deployments               | Manage Deployments   |
 | create, get, list, watch, patch, update | services                  | Manage Services      |
@@ -133,6 +138,10 @@ To trigger pipeline and tasks properly, the ServiceAccount used by EventListener
 | get, list, watch                        | triggertemplates          | Read TriggerTemplates |
 | get, list, watch                        | eventlisteners            | Read EventListeners  |
 
+The EventListener ServiceAccount does not need Secret API read permissions for built-in webhook authentication. Secret validation for GitHub, GitLab, Bitbucket, and CEL `compareSecret` runs in core-interceptors, using the separate `tekton-triggers-core-interceptors` ServiceAccount. The Slack interceptor only checks request headers and extracts configured fields; it does not read a Secret. The default EventListener cluster role grants only `get`, `list` and `watch` on ClusterTriggerBindings and ClusterInterceptors. HTTPS certificates mounted through Secret volumes do not require the EventListener ServiceAccount to read the Secret API.
+
+If a custom sidecar, custom interceptor or TaskRun needs to read a Secret through the Kubernetes API, use a dedicated ServiceAccount with a Role and RoleBinding in the required namespace. Grant only the necessary verbs and Secret names; do not use `triggers-default-sa` as a general-purpose Secret reader.
+
 Referable ClusterRole:
 
 ```yaml
@@ -142,7 +151,7 @@ metadata:
   name: eventlistener-role
 rules:
 - apiGroups: [""]
-  resources: ["configmaps", "secrets", "serviceaccounts"]
+  resources: ["configmaps", "serviceaccounts"]
   verbs: ["get", "list", "watch"]
 - apiGroups: ["apps"]
   resources: ["deployments"]
@@ -483,7 +492,7 @@ Before configuring the EventListener with Ingress, ensure the following prerequi
 
     - **Default ServiceAccount (`triggers-default-sa`)**: When `spec.serviceAccountName` is not specified, EventListener automatically uses the `triggers-default-sa` ServiceAccount in the namespace. This ServiceAccount is automatically granted the necessary namespace-scoped permissions required for EventListeners to handle triggers within the same namespace. The permissions are automatically bound to the namespace where the ServiceAccount exists, so you don't need to manually configure Role or RoleBinding.
 
-    - **Custom ServiceAccount with Cluster Permissions**: When you configure `namespaceSelector` to listen to triggers from multiple namespaces (including `'*'` for all namespaces), you must specify a custom ServiceAccount with cluster-scoped permissions. The `triggers-default-sa` ServiceAccount only has namespace-scoped permissions and does not have the necessary cluster-scoped permissions to access resources across namespaces.
+    - **Custom ServiceAccount with Cluster Permissions**: When you configure `namespaceSelector` to listen to triggers from multiple namespaces (including `'*'` for all namespaces), you must specify a custom ServiceAccount with cluster-scoped permissions. The `triggers-default-sa` ServiceAccount has namespace-scoped permissions for Trigger resources and cluster-scoped read permissions for ClusterTriggerBindings and ClusterInterceptors. It does not have permissions to access namespaced Trigger resources in other namespaces.
 
   :::warning
   **Required for namespaceSelector**: The following steps are only required when using `namespaceSelector` to listen to triggers across multiple namespaces. If your EventListener only handles triggers within the same namespace, you can skip these steps and use the default `triggers-default-sa` ServiceAccount, which will automatically have the required permissions.
@@ -498,7 +507,7 @@ Before configuring the EventListener with Ingress, ensure the following prerequi
     name: eventlistener-role
   rules:
   - apiGroups: [""]
-    resources: ["configmaps", "secrets", "serviceaccounts"]
+    resources: ["configmaps", "serviceaccounts"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["apps"]
     resources: ["deployments"]
