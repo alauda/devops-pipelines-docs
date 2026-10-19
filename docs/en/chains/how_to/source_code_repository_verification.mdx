@@ -193,6 +193,8 @@ spec:
             - $(params.image)
         - name: TLS_VERIFY
           value: "false"
+        - name: CONTAINERFILE
+          value: ./Containerfile
       runAfter:
         - generate-containerfile
       taskRef:
@@ -315,7 +317,7 @@ $ kubectl get pipelinerun -n $NAMESPACE $PIPELINERUN_NAME -o yaml | grep "chains
     chains.tekton.dev/signed: "true"
 ```
 
-Once the PipelineRun has `chains.tekton.dev/signed: "true"` annotation, means the image is signed.
+The `chains.tekton.dev/signed: "true"` annotation shows that Chains has processed the PipelineRun. It does not prove that the image is signed; to verify the signature, see [Step 8: Verifying the Image and Attestation](../quick_start/signed_provenance.mdx#step-8-verifying-the-image-and-attestation) of the Quick Start.
 
 ### Step 7: Get the image from the PipelineRun
 
@@ -376,9 +378,9 @@ The output will be similar to the following, which contains the SLSA Provenance 
     "buildConfig": {
       "tasks": null
     },
-    "buildType": "tekton.dev/v1beta1/PipelineRun",
+    "buildType": "tekton.dev/v1/PipelineRun",
     "builder": {
-      "id": "https://alauda.io/builders/tekton/v1"
+      "id": "https://tekton.dev/chains/v2"
     },
     "invocation": {
       "parameters": {
@@ -413,9 +415,9 @@ The output will be similar to the following, which contains the SLSA Provenance 
 - `predicate`:
   - `buildConfig`:
     - `tasks`: The tasks of the build.
-  - `buildType`: The type of the build, this is `tekton.dev/v1beta1/PipelineRun`.
+  - `buildType`: The type of the build, this is `tekton.dev/v1/PipelineRun`.
   - `builder`:
-    - `id`: The id of the builder, this is `https://alauda.io/builders/tekton/v1`.
+    - `id`: The id of the builder, this is `https://tekton.dev/chains/v2`.
   - `invocation`:
     - `parameters`: The parameters of the build.
   - `materials`: The materials of the build.
@@ -494,8 +496,8 @@ spec:
                 - all:
                     - key: "{{ buildType }}"
                       operator: Equals
-                      value: "tekton.dev/v1beta1/PipelineRun"
-                      message: "The buildType must be equal to tekton.dev/v1beta1/PipelineRun, not {{ buildType }}"
+                      value: "tekton.dev/v1/PipelineRun"
+                      message: "The buildType must be equal to tekton.dev/v1/PipelineRun, not {{ buildType }}"
 
                     - key: "{{ materials[?starts_with(uri, 'https://github.com/tektoncd/')] | length(@) }}"
                       operator: GreaterThan
@@ -507,7 +509,7 @@ spec:
 - The policy is largely consistent with the one in [Image Signature Verification](../how_to/image_signature_verification.mdx#step-81-create-a-kyverno-policy-to-allow-only-signed-images-to-be-deployed)
 - `spec.rules[].verifyImages[].attestations[].conditions`: The conditions to verify.
   - `all`: The all conditions must be met.
-    - `key: "{{ buildType }}"`: The build type must be equal to `tekton.dev/v1beta1/PipelineRun`.
+    - `key: "{{ buildType }}"`: The build type must be equal to `tekton.dev/v1/PipelineRun`.
     - `key: "{{ materials[?starts_with(uri, 'https://github.com/tektoncd/')] | length(@) }}"`: The materials must have at least one entry starts with `https://github.com/tektoncd/`.
 
 :::
@@ -521,12 +523,12 @@ clusterpolicy.kyverno.io/verify-code-repository-material created
 ```
 
 #### Step 9.2: Verify the policy
-In the `policy` namespace where the policy is defined, create a Pod to verify the policy.
+The policy applies to Pods in the namespace `policy`, the namespace listed under `match` in the `ClusterPolicy`. Create the Pod in that namespace, and create the namespace first if it does not exist. To use another namespace, list it under `namespaces` in the policy: the policy does not check Pods in a namespace that it does not list.
 
 Use the built image to create a Pod.
 
 ```shell
-$ export NAMESPACE=<policy>
+$ export NAMESPACE=policy
 $ export IMAGE=<<registry>/test/chains/demo-3:latest@sha256:db2607375049e8defa75a8317a53fd71fd3b448aec3c507de7179ded0d4b0f20>
 
 $ kubectl run -n $NAMESPACE built-from-specific-repo --image=${IMAGE} -- sleep 3600
@@ -550,8 +552,8 @@ conditions:
   - all:
       - key: "{{ buildType }}"
         operator: Equals
-        value: "tekton.dev/v1beta1/PipelineRun"
-        message: "The buildType must be equal to tekton.dev/v1beta1/PipelineRun, not {{ buildType }}"
+        value: "tekton.dev/v1/PipelineRun"
+        message: "The buildType must be equal to tekton.dev/v1/PipelineRun, not {{ buildType }}"
 
       - key: "{{ materials[?starts_with(uri, 'https://gitlab.com/')] | length(@) }}"
         operator: GreaterThan
@@ -584,7 +586,7 @@ verify-code-repository-material:
 Delete the Pods created in the previous steps.
 
 ```shell
-$ export NAMESPACE=<policy>
+$ export NAMESPACE=policy
 $ kubectl delete pod -n $NAMESPACE built-from-specific-repo
 ```
 

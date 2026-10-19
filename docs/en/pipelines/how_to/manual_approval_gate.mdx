@@ -18,7 +18,8 @@ weight: 30
 
 - A cluster administrator has deployed `Manual Approval Gate`. If not, refer to the [deployment guide](../../how_to/manual_approval_gate_operator.mdx).
 - You can create or edit `Pipeline`/`PipelineRun` objects in the target namespace.
-- Approvers can patch `approvaltasks.openshift-pipelines.org` resources (typically via `kubectl`) in the target namespace. Platforms such as `Alauda Container Platform` grant this capability by default; only customize RBAC if you have explicitly removed the built-in permissions.
+- Approvers can patch `approvaltasks.openshift-pipelines.org` resources (typically via `kubectl`) in the target namespace.
+- The `jq` CLI, used to read `ApprovalTask` fields in the steps below.
 
 ## Steps
 
@@ -74,7 +75,30 @@ Approvals are counted per distinct user name. For a `group:` approver, each grou
 
 If `numberOfApprovalsRequired` is larger than the number of users who can actually approve, no error is reported. The `ApprovalTask` stays pending until an approver rejects it or the approval times out; on timeout, the controller marks the `ApprovalTask` as `rejected` and fails the `CustomRun`.
 
+This applies to the `timeout` of the approval step. If the whole `PipelineRun` times out first, Tekton cancels the approval step, but the `ApprovalTask` stays `pending` and its `CustomRun` keeps the `Succeeded` condition `Unknown` until the approval timeout has passed since the `ApprovalTask` was created. Then the controller marks the `ApprovalTask` as `rejected` and fails the `CustomRun`, although nobody rejected it. The approval timeout is the `spec.timeout` of the step's `CustomRun`, or 60 minutes when that field is empty. When the step sets a `timeout`, such as `"24h"` above, the field holds that value, unless a `taskRunSpecs` entry of the `PipelineRun` sets another `timeout` for the step; without a step `timeout`, read the field on the `CustomRun`. Check the `PipelineRun` status before you act on a pending `ApprovalTask`.
+
 :::
+
+Then start a `PipelineRun` of the Pipeline. Its timeouts must be longer than the approval window (see step 4). Save the following YAML as `deploy-with-approval-run.yaml` and create it in the namespace of the Pipeline:
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: deploy-with-approval-run
+spec:
+  pipelineRef:
+    name: deploy-with-approval
+  timeouts:
+    pipeline: 72h
+    tasks: 72h
+```
+
+```bash
+kubectl create -f deploy-with-approval-run.yaml
+```
+
+When the run reaches `wait-for-approval`, the `ApprovalTask` `deploy-with-approval-run-wait-for-approval` appears. The steps below use this name.
 
 ### 2. Monitor approval status
 
@@ -89,24 +113,20 @@ deploy-with-approval-run-wait-for-approval   4m16s
 $ kubectl describe approvaltask deploy-with-approval-run-wait-for-approval
 Name:         deploy-with-approval-run-wait-for-approval
 Status:
-  Approvals Received:  1
   Approvals Required:  1
   Approvers:
     alice
     release-managers
-  Approvers Response:
-    Name:      alice
-    Response:  approved
-    Type:      User
-  Start Time:  2025-11-17T10:37:01Z
-  State:       approved
-Events:        <none>
+  State:  pending
+Events:   <none>
 ```
+
+The output above is abbreviated and shows the `ApprovalTask` before anyone responds: `State` is `pending`. `Approvers Response` appears after the first response, and `Approvals Received` only after the first approval: it counts approvals, and a rejection alone does not add it.
 
 Important status fields:
 
 - `status.state`: overall gate state such as `pending`, `approved`, or `rejected`.
-- `status.approvalsRequired` / `status.approvalsReceived`: quorum tracking (the received count appears only after at least one approver responds).
+- `status.approvalsRequired` / `status.approvalsReceived`: quorum tracking (the received count counts approvals and appears only after the first approval; a rejection alone does not add it).
 - `status.approversResponse`: per-user/group outcome plus messages, useful for auditing.
 
 ### 3. Approve or reject
@@ -119,23 +139,24 @@ First, inspect the approvers list to determine the correct index:
 $ kubectl get approvaltask deploy-with-approval-run-wait-for-approval -o json | jq '.spec.approvers'
 [
   {
-    "name": "alice",
-    "type": "User",
     "input": "pending",
+    "name": "alice",
+    "type": "User"
   },
   {
-    "name": "release-managers",
-    "type": "Group",
     "input": "pending",
-    "users": []
+    "name": "release-managers",
+    "type": "Group"
   }
 ]
 ```
 
+The examples below use `--as` (and `--as-group`) to show which identity sends each request. An approver who runs the command with their own credentials leaves these flags out; see the tip at the end of this step.
+
 To approve as a user:
 
 ```bash
-$ kubectl patch approvaltask deploy-with-approval-run-wait-for-approval \
+kubectl patch approvaltask deploy-with-approval-run-wait-for-approval \
     --type='json' \
     --as alice \
     -p='[
@@ -147,7 +168,7 @@ $ kubectl patch approvaltask deploy-with-approval-run-wait-for-approval \
 To reject as a user:
 
 ```bash
-$ kubectl patch approvaltask deploy-with-approval-run-wait-for-approval \
+kubectl patch approvaltask deploy-with-approval-run-wait-for-approval \
     --type='json' \
     --as alice \
     -p='[
@@ -157,6 +178,12 @@ $ kubectl patch approvaltask deploy-with-approval-run-wait-for-approval \
 ```
 
 #### Group approvals
+
+The group walk-through below needs two approvals. Before you start the `PipelineRun` in step 1, set `numberOfApprovalsRequired` to `"2"` in the Pipeline. With the value `"1"` from step 1, the first approval completes the `ApprovalTask` (`state: approved`). If you have already run step 1, delete that run first, because step 1 creates it under the fixed name `deploy-with-approval-run`. Then wait until `kubectl get approvaltasks.openshift-pipelines.org` no longer lists `deploy-with-approval-run-wait-for-approval`:
+
+```bash
+kubectl delete pipelinerun deploy-with-approval-run
+```
 
 When a group is configured as an approver, individual members of that group can submit their approval by adding their response to the `users` array under the group entry. Multiple group members can approve independently, and each approval counts toward the `approvalsReceived` total.
 
@@ -168,11 +195,9 @@ spec:
   - name: alice
     type: User
     input: pending
-    message: ""
   - name: release-managers
     type: Group
     input: pending
-    message: ""
   numberOfApprovalsRequired: 2
 ```
 
@@ -180,7 +205,7 @@ The first group member creates the `users` array and sets the group's `input` to
 
 ```bash
 # First member (bob) from release-managers group approves
-$ kubectl patch approvaltask deploy-with-approval-run-wait-for-approval \
+kubectl patch approvaltask deploy-with-approval-run-wait-for-approval \
     --type='json' \
     --as bob \
     --as-group release-managers \
@@ -195,7 +220,7 @@ Subsequent group members append to the existing `users` array and update the gro
 
 ```bash
 # Second member (carol) from release-managers group also approves
-$ kubectl patch approvaltask deploy-with-approval-run-wait-for-approval \
+kubectl patch approvaltask deploy-with-approval-run-wait-for-approval \
     --type='json' \
     --as carol \
     --as-group release-managers \
@@ -210,7 +235,7 @@ To reject as a group member:
 
 ```bash
 # A member (david) from release-managers group rejects
-$ kubectl patch approvaltask deploy-with-approval-run-wait-for-approval \
+kubectl patch approvaltask deploy-with-approval-run-wait-for-approval \
     --type='json' \
     --as david \
     --as-group release-managers \
@@ -221,7 +246,7 @@ $ kubectl patch approvaltask deploy-with-approval-run-wait-for-approval \
     ]'
 ```
 
-After these patches, check the group entry and status to see all members' responses:
+After the bob and carol patches, check the group entry and status to see all members' responses:
 
 ```bash
 $ kubectl get approvaltask deploy-with-approval-run-wait-for-approval -o json | jq '{spec: .spec.approvers[1], status: .status}'
@@ -253,12 +278,10 @@ $ kubectl get approvaltask deploy-with-approval-run-wait-for-approval -o json | 
       {
         "groupMembers": [
           {
-            "message": "Approved by carol",
             "name": "bob",
             "response": "approved"
           },
           {
-            "message": "Approved by carol",
             "name": "carol",
             "response": "approved"
           }
@@ -282,40 +305,27 @@ In this example, both `bob` and `carol` from the `release-managers` group have a
 - Each group member must perform **two required operations**: add their entry to the `users` array AND set the group's `input` (either `approve` or `reject`). Optionally, they can also set the group's `message`
 - The first group member creates the `users` array using path `/spec/approvers/<index>/users` with an array value
 - Subsequent members append to the array using path `/spec/approvers/<index>/users/-` where `-` appends to the array end
-- Each user entry in the `users` array contains only `name` and `input` fields (no `message` field within the user entry)
+- A user entry in the `users` array has `name` and `input`, and may also have its own `message`. That message appears in the member's `groupMembers` entry in `status.approversResponse`; the entries in the output above have none because the patches set none
 - The group-level `message` field is optional and shared; it will be overwritten by subsequent responses if they provide a new message
 - Each group member approval increments `approvalsReceived` independently
 - Multiple members from the same group can approve, and each counts toward the required total
 - The `status.approversResponse` field tracks detailed approval information including individual group members
-- Use `--as <username> --as-group <groupname>` to identify as a group member when patching
+- Each group member patches with their own identity: the webhook matches the user name and groups of the request against the approver entries
 
 The controller sets the corresponding `CustomRun` and `PipelineRun` to `Succeeded` or `Failed` accordingly: approvals accumulate until `numberOfApprovalsRequired` is satisfied, while any rejection immediately fails that section of the pipeline.
 
-> **Tip:** Use `--as <username>` (required) and `--as-group <group>` when you need to approve as a specific identity. The validation webhook allows you to modify only the entry that matches that impersonated user and group. RBAC must grant you impersonation rights. For example, `kubectl patch ... --as bob --as-group release-managers` identifies you as user `bob` acting within the `release-managers` group.
+> **Tip:** Approvers patch the `ApprovalTask` as themselves. The validation webhook reads the user name and groups of the request and allows you to modify only the entry that matches them. Use `--as <username>` and `--as-group <group>` only when you act as another identity, for example in a test; this needs impersonation rights in RBAC. For example, `kubectl patch ... --as bob --as-group release-managers` sends the request as user `bob` in the `release-managers` group.
 
 ### 4. Extend `PipelineRun` timeouts for long approvals
 
-If an approval could take hours or days, configure both `PipelineRun.spec.timeouts.pipeline` and `PipelineRun.spec.timeouts.tasks` to exceed the approval window so the run does not terminate before approvers respond. A simple `PipelineRun` to exercise the approval gate looks like the following:
+Set the approval window with the `timeout` field of the approval step (`timeout: "24h"` in step 1). If an approval could take hours or days, size both `PipelineRun.spec.timeouts.pipeline` and `PipelineRun.spec.timeouts.tasks` to cover the tasks that run before the approval step, the approval step `timeout`, and the tasks that run after it: both are measured from the start of the PipelineRun, and `timeouts.tasks` covers all non-finally tasks. The `PipelineRun` in step 1 sets both to `72h`, which leaves 48 hours for the other tasks around the `"24h"` approval step.
 
-```yaml
-apiVersion: tekton.dev/v1
-kind: PipelineRun
-metadata:
-  name: deploy-with-approval-run
-spec:
-  pipelineRef:
-    name: deploy-with-approval
-  timeouts:
-    pipeline: 72h
-    tasks: 72h
-```
-
-Ensure the approval task's `timeout` parameter is shorter than the pipeline timeout. Otherwise, the `PipelineRun` might expire first, leaving the approval unresolved.
+If the `PipelineRun` timeouts are shorter, the `PipelineRun` might expire first, leaving the approval unresolved.
 
 ## Operation Results
 
-- `kubectl get approvaltasks -o yaml` shows each approval gate with `state` and quorum-related fields (the `approvalsReceived` column appears after someone responds).
-- `PipelineRun` status reflects the approval outcome: when approved, downstream tasks resume; when rejected, the run fails with the reason propagated from the `ApprovalTask`.
+- `kubectl get approvaltasks -o yaml` shows each approval gate with `state` and quorum-related fields (the `status.approvalsReceived` field counts approvals and appears after the first approval).
+- `PipelineRun` status reflects the approval outcome: when approved, downstream tasks resume; when rejected, the `PipelineRun` fails (`Succeeded` is `False`, reason `Failed`). The approval step's `CustomRun` shows `Approval Task denied`, and `status.approversResponse` of the `ApprovalTask` shows who rejected it and their message.
 - Dispatch logs or `kubectl get approvaltask -o yaml` output provide the approval history for auditing. The `ApprovalTask` is deleted together with its `PipelineRun`; see [ApprovalTask Lifecycle](#approvaltask-lifecycle).
 
 ## ApprovalTask Lifecycle \{#approvaltask-lifecycle}
@@ -329,10 +339,10 @@ The approval record kept on the `ApprovalTask`, such as `status.approversRespons
 
 ## Troubleshooting
 
-- **Approval task never appears:** Confirm the administrator-installed `ManualApprovalGate` CR is `READY`. Without the controller, `CustomRun` objects remain pending.
-- **Approvers lack permissions:** Grant them `get`, `list`, `update`, and `patch` access to `approvaltasks.openshift-pipelines.org` in the relevant namespace.
+- **Approval task never appears:** First run `kubectl get customruns -n <namespace>`. If it lists no `CustomRun` for the approval step, the `PipelineRun` has not reached that step yet, for example because a task that runs before it is still running or has failed; check the `PipelineRun` status. If the `CustomRun` exists but `kubectl get approvaltasks.openshift-pipelines.org -n <namespace>` lists no `ApprovalTask` with the same name, ask a cluster administrator to confirm that the `ManualApprovalGate` CR is `READY` (`kubectl get manualapprovalgate` shows `True` in the `READY` column). The CR is cluster-scoped, and the roles shipped with the Operator do not let pipeline authors read it. Without the controller, `CustomRun` objects remain pending.
+- **Approvers lack permissions:** If the API server answers an approver's `kubectl patch` with `Forbidden`, grant them `get`, `list`, `update`, and `patch` access to `approvaltasks.openshift-pipelines.org` in the relevant namespace. A denial by the admission webhook with `User does not exist in the approval list` or `User can only update their own approval input` is not fixed by RBAC: check that the approver entry uses the identifier described in [User and group identifiers](#user-and-group-identifiers), and that the patch changes only the approver's own entry.
 - **Pipeline ended before approval finished:** Set both `PipelineRun.spec.timeouts.pipeline` and `PipelineRun.spec.timeouts.tasks` to cover the expected approval window, and ensure the approval `timeout` is realistic. Otherwise the run may time out even if approvers have not responded.
-- **Stuck in pending even after approvals:** Check `status.approversResponse` for users who changed their vote or rejected. You may need to update the approver list and rerun the pipeline.
+- **Stuck in pending even after approvals:** Compare `status.approvalsReceived` with `status.approvalsRequired` in `kubectl get approvaltask <name> -n <namespace> -o yaml`. Approvals are counted per distinct user name: a user who is a user approver and a member of an approver group counts once. Once a user's approval in one of the two roles is recorded in `status.approversResponse`, the webhook denies that user's approval in the other role with `User has already approved`. A group member's approval counts only while the group's `input` is `approve`. Collect the missing approvals from other approvers.
 
 ## User and group identifiers \{#user-and-group-identifiers}
 
@@ -344,7 +354,7 @@ NAME                               TYPE    USERNAME   AGE
 21232f297a57a5a743894a0e4a801fc3   local   admin      19d
 ```
 
-Use the `USERNAME` column (such as `admin`) when adding user approvers.
+For local users, use the `USERNAME` column (such as `admin`) when adding user approvers. For a user from an LDAP or OIDC connector, run `kubectl auth whoami` as that user and use the `Username` it prints.
 
 ```bash
 $ kubectl get groups.auth.alauda.io
@@ -352,9 +362,10 @@ NAME      DISPLAYNAME   CONNTYPE   CONNID   AGE
 g-v9mfs   test-group    local      local    19d
 ```
 
-Use the `NAME` column (such as `g-v9mfs`) when referencing group approvers (for example, `group:g-v9mfs`). Other platforms expose similar resources—consult the identity service documentation for the exact field names.
+For groups created in the console, use the `NAME` column (such as `g-v9mfs`), not the display name, when referencing group approvers (for example, `group:g-v9mfs`). For a group from an LDAP or OIDC connector, run `kubectl auth whoami` as a member of the group and use the group name as it appears in `Groups`. Other platforms expose similar resources—consult the identity service documentation for the exact field names.
 
 ## Learn More
 
 - [Deploying `Manual Approval Gate` as an administrator](../../how_to/manual_approval_gate_operator.mdx)
 - [Manual Approval Gate upstream repository](https://github.com/openshift-pipelines/manual-approval-gate)
+- <ExternalSiteLink name="artifacthub-shim" href="/catalog/how_to/promote_artifacts_with_skopeo_copy.html" children="Promote Artifacts with Skopeo Copy" /> — shows an approval gate in front of a registry-to-registry image copy

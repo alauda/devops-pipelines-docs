@@ -29,9 +29,9 @@ ScheduledTrigger adds cron-like automation to Tekton Triggers. Instead of waitin
 ScheduledTrigger keeps scheduling and pipeline execution in the same system:
 
 1. **Single definition** – declare the cadence, timezone, and template in one manifest.
-2. **Event parity** – TriggerTemplates run exactly as if they were invoked by an EventListener, so downstream tooling, RBAC, and observability behave the same.
-3. **Context awareness** – every run receives structured timestamps, enabling deterministic naming, reporting, or data partitioning.
-4. **Built-in catch-up** – if the controller restarts, it can replay missed ticks up to a reasonable limit, reducing manual intervention.
+2. **Same template format** – a ScheduledTrigger renders a Tekton Triggers `TriggerTemplate`, with the same `$(tt.params.<name>)` substitution. The ScheduledTrigger controller creates the resources, and they carry the labels `tekton.alaudadevops.io/scheduled-trigger-name` and `tekton.alaudadevops.io/scheduled-trigger-id` in place of the `triggers.tekton.dev/*` labels that an EventListener adds.
+3. **Context awareness** – a run receives the scheduled time through parameters that use `$(context.date)` or `$(context.datetime)`, enabling deterministic naming, reporting, or data partitioning.
+4. **Built-in catch-up** – if the controller restarts, it can create one run for the most recent missed tick, reducing manual intervention. Earlier missed ticks are not replayed.
 
 ## Advantages
 
@@ -54,8 +54,8 @@ ScheduledTrigger keeps scheduling and pipeline execution in the same system:
 
 - ScheduledTrigger accepts cron expressions supported by `robfig/cron` (standard five-field form).
 - Only string parameters are supported in TriggerTemplates; convert complex data to strings before passing it.
-- Excessive missed ticks are intentionally capped to protect clusters from bursts of backlogged executions.
-- Timezone names must match entries in the TZ database available inside the controller container.
+- Missed ticks are not replayed one by one: the controller creates at most one catch-up run, for the most recent missed tick. With uneven intervals, such as `47,48 * * * *`, this run can be skipped.
+- Time zone names must be valid IANA time zone names; the controller binary carries its own copy of the IANA time zone database.
 - ScheduledTrigger focuses on TriggerTemplate execution. For generic Pods without Tekton context, Kubernetes CronJobs may still be preferable.
 
 ## How ScheduledTrigger Works

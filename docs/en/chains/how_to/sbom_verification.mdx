@@ -46,7 +46,7 @@ The following scenarios require referring to the guidance in this document:
 |------|-----------|-------------|
 | 1 | Generate signing keys | Create a key pair for signing artifacts using cosign |
 | 2 | Set up authentication | Configure registry credentials for image pushing |
-| 3 | Configure Tekton Chains | Set up Chains to use OCI storage and configure signing, disable TaskRun SLSA Provenance |
+| 3 | Configure Tekton Chains | Set up Chains to use OCI storage and configure signing |
 | 4 | Create a sample pipeline | Create a pipeline definition with syft task to generate SBOM |
 | 5 | Run a sample pipeline | Create and run a PipelineRun with proper configuration |
 | 6 | Wait for signing | Wait for the PipelineRun to be signed by Chains |
@@ -133,6 +133,8 @@ spec:
             - $(params.image)
         - name: TLS_VERIFY
           value: "false"
+        - name: CONTAINERFILE
+          value: ./Containerfile
       runAfter:
         - generate-containerfile
       taskRef:
@@ -216,6 +218,8 @@ In production environments, you would typically:
     - `syft-sbom`: The task to generate the SBOM for the image and upload the attestation.
 :::
 
+Replace the public `ubuntu:latest` image in the `generate-containerfile` default with an image your cluster can pull, for example from an internal registry in an air-gapped environment.
+
 Save into a yaml file named `chains-demo-5.yaml` and apply it with:
 
 ```shell
@@ -293,7 +297,7 @@ $ kubectl get pipelinerun -n $NAMESPACE $PIPELINERUN_NAME -o yaml | grep "chains
     chains.tekton.dev/signed: "true"
 ```
 
-Once the PipelineRun has `chains.tekton.dev/signed: "true"` annotation, means the image is signed.
+The `chains.tekton.dev/signed: "true"` annotation shows that Chains has processed the PipelineRun. It does not prove that the image is signed; to verify the signature, see [Step 8: Verifying the Image and Attestation](../quick_start/signed_provenance.mdx#step-8-verifying-the-image-and-attestation) of the Quick Start.
 
 ### Step 7: Get the image from the PipelineRun
 
@@ -501,12 +505,12 @@ clusterpolicy.kyverno.io/verify-base-image created
 ```
 
 #### Step 9.2: Verify the policy
-In the `policy` namespace where the policy is defined, create a Pod to verify the policy.
+The policy applies to Pods in the namespace `policy`, the namespace listed under `match` in the `ClusterPolicy`. Create the Pod in that namespace, and create the namespace first if it does not exist. To use another namespace, list it under `namespaces` in the policy: the policy does not check Pods in a namespace that it does not list.
 
 Use the built image to create a Pod.
 
 ```shell
-$ export NAMESPACE=<policy>
+$ export NAMESPACE=policy
 $ export IMAGE=<<registry>/test/chains/demo-5:latest@sha256:a6c727554be7f9496e413a789663060cd2e62b3be083954188470a94b66239c7>
 
 $ kubectl run -n $NAMESPACE base-image --image=${IMAGE} -- sleep 3600
@@ -550,7 +554,7 @@ verify-base-image:
 Delete the Pods created in the previous steps.
 
 ```shell
-$ export NAMESPACE=<policy>
+$ export NAMESPACE=policy
 $ kubectl delete pod -n $NAMESPACE base-image
 ```
 

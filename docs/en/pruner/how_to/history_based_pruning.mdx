@@ -18,7 +18,21 @@ History limits and TTL can both apply. A run is eligible for deletion if it exce
 | `failedHistoryLimit`     | Keep N most recent failed runs                            |
 | `historyLimit`           | Keep N runs of EACH status (when specific limits not set) |
 
+A completed run that did not succeed counts as failed, including a cancelled or timed-out run. Runs that PAC cancels, for example with `cancel-in-progress` (see [Cancellation in Progress](../../pac/how_to/maintain_pipeline_code.mdx#cancellation-in-progress)), therefore count toward `failedHistoryLimit`.
+
+**What N counts.** The Pruner checks a history limit when a run completes, and for every completed PipelineRun and standalone TaskRun when the controller starts or the global configuration changes, in every namespace except `tekton-pipelines`, `tekton-operator` and `kube-*` / `openshift-*` (runs there are checked when they complete). It counts completed runs of the completing run's status in its namespace, keeps the N most recently created ones and deletes the older ones. Which runs it counts depends on where the completing run's limit comes from:
+
+- A limit from the global configuration, from an inline `namespaces.<namespace>` entry or from the top level of a namespace ConfigMap counts all completed PipelineRuns (or TaskRuns) of that status in the namespace together, not per Pipeline. This includes the runs that `pipelineRuns` / `taskRuns` entries match: such a run is deleted once N newer runs of its status exist in the namespace, whatever limit its own entry sets.
+- A limit from an entry under `pipelineRuns` or `taskRuns` counts the runs that match the entry's own selector, or that have the same Pipeline or Task name for a `name` entry, including runs that an earlier entry matched first. "First match wins" decides only which entry's limit applies to the completing run (see [Pipeline-specific Limits](#pipeline-specific-limits)).
+- For TaskRuns, only a standalone TaskRun starts the check, but the count also includes the TaskRuns that PipelineRuns created. A standalone TaskRun that completes under a namespace-wide limit can therefore delete TaskRuns of PipelineRuns that are kept.
+
 ## Basic Configuration
+
+:::warning
+
+The `TektonConfig` samples on this page are cluster-wide. Right after the Pruner starts, and each time the global configuration changes, it deletes the completed runs above the history limits in every namespace it covers, including the runs of other teams; the deleted runs and their logs cannot be restored. Before you apply a sample, follow the steps in [Namespace Configuration](./namespace_configuration#recommended-settings) (count the runs, agree with the teams, list the existing namespace ConfigMaps, start with permissive values). Merge a sample into the existing `TektonConfig` with `kubectl patch tektonconfig config --type merge --patch-file <file>`, not with `kubectl apply -f`.
+
+:::
 
 **Separate limits by status:**
 ```yaml
@@ -32,8 +46,8 @@ spec:
   tektonpruner:
     disabled: false  # Enable event-based pruner
     global-config:
-      successfulHistoryLimit: 5    # Keep last 5 successful
-      failedHistoryLimit: 10       # Keep last 10 failed (for debugging)
+      successfulHistoryLimit: 5    # Keep the last 5 successful runs of each namespace
+      failedHistoryLimit: 10       # Keep the last 10 failed runs of each namespace (for debugging)
 ```
 
 **Same limit for both:**
@@ -41,16 +55,20 @@ spec:
 spec:
   tektonpruner:
     global-config:
-      historyLimit: 5  # Keep last 5 successful AND last 5 failed
+      historyLimit: 5  # Keep the last 5 successful AND the last 5 failed runs of each namespace
 ```
 
-## Environment-specific Limits
+To confirm, read the Pruner's global ConfigMap as in [Changing a Pruner ConfigMap](../configure/configmap_validation.mdx#changing-a-pruner-configmap): the output must contain the values that you merged, for example `successfulHistoryLimit: 5`.
+
+## Environment-specific Limits \{#environment-specific-limits}
 
 ```yaml
 spec:
   tektonpruner:
     global-config:
       enforcedConfigLevel: namespace
+      successfulHistoryLimit: 10    # Default for other namespaces and upper limit for the entries below
+      failedHistoryLimit: 20        # Default for other namespaces and upper limit for the entries below
       namespaces:
         dev:
           successfulHistoryLimit: 3
@@ -63,9 +81,11 @@ spec:
           failedHistoryLimit: 20
 ```
 
-## Pipeline-specific Limits
+A value under `namespaces.<namespace>` cannot exceed the root value of the same field, or the root `historyLimit` when the root does not set that field. For example, on top of the first Basic Configuration sample (root `successfulHistoryLimit: 5`), this sample without its two root values is rejected by the Operator webhook with a message that contains `global-config.namespaces.prod: successfulHistoryLimit (10) cannot exceed global limit (5)`. Set the root values to at least the largest namespace values, as the sample does. Namespaces without an entry under `namespaces` use the root values, unless their namespace ConfigMap sets them.
 
-Use selectors in namespace ConfigMaps for pipeline-specific limits:
+## Pipeline-specific Limits \{#pipeline-specific-limits}
+
+Use selectors in namespace ConfigMaps for pipeline-specific limits. A namespace ConfigMap takes effect only when the `enforcedConfigLevel` that applies to its namespace is `namespace`: the value in the `namespaces.<namespace>` entry of `global-config` if that entry sets one, else the root value of `global-config` (see [Namespace Configuration](./namespace_configuration#configuration-hierarchy)). The Basic Configuration above does not set the level. Merged into the existing `TektonConfig` as the warning in that section instructs, it leaves the existing `enforcedConfigLevel` in place: `global` if the value is still the one that the Operator wrote. A `global-config` that has no `enforcedConfigLevel` at all falls back to `resource`. At every level other than `namespace`, the Pruner ignores namespace ConfigMaps although the webhook accepts them:
 
 :::warning
 
@@ -84,26 +104,40 @@ metadata:
     pruner.tekton.dev/config-type: namespace
 data:
   ns-config: |
-    successfulHistoryLimit: 25  # Upper bound for the sum of selector successfulHistoryLimit values
-    failedHistoryLimit: 35      # Upper bound for the sum of selector failedHistoryLimit values
+    successfulHistoryLimit: 25  # Namespace-wide limit; also the upper bound for the sum of selector successfulHistoryLimit values
+    failedHistoryLimit: 35      # Namespace-wide limit; also the upper bound for the sum of selector failedHistoryLimit values
     pipelineRuns:
       - selector:
-          matchLabels:
-            critical: "true"
+          - matchLabels:
+              critical: "true"
         successfulHistoryLimit: 20
         failedHistoryLimit: 30
       - selector:
-          matchLabels:
-            pipeline-type: test
+          - matchLabels:
+              pipeline-type: test
         successfulHistoryLimit: 3
         failedHistoryLimit: 5
 ```
 
-For each field, the sum of the selector limits cannot exceed the namespace-level value of the same field in this ConfigMap. If that field is not set, the bound falls back to the namespace-level `historyLimit`, then to the global configuration, then to the system maximum of 100. The namespace-level values themselves cannot exceed the global limits.
+:::warning
+
+The higher limits of the `critical: "true"` entry do not protect its runs from the namespace-wide limits. When a run that no entry matches completes, the Pruner keeps the 25 newest successful (or 35 newest failed) runs of the whole namespace, the `critical` and `test` runs included, and deletes the older ones. A `critical` run is therefore kept only while it is among the 25 newest successful (35 newest failed) runs of the namespace. To keep more runs of a group, run its Pipelines in a namespace of their own and set the limit there.
+
+:::
+
+Unlike a TTL, whose value the Pruner writes on the run when one applies (see [Pipeline-specific TTLs](./time_based_pruning#pipeline-specific-ttls)), a history limit leaves no value on the run: the Pruner records only the time of its check, in the annotation `pruner.tekton.dev/historyLimitCheckProcessed`. Whether an entry's limit applies shows only in which runs are kept and which are deleted.
+
+For each kind (`pipelineRuns`, `taskRuns`), the webhook bounds the sums of the selector entries' history limits:
+
+- The sum of their `successfulHistoryLimit` values cannot exceed the namespace-level `successfulHistoryLimit` of this ConfigMap. If that is not set, the bound is the namespace-level `historyLimit`, then the inline `namespaces.<namespace>` entry of the global configuration, then the root of the global configuration (each with its `successfulHistoryLimit`, else its `historyLimit`), then the system maximum of 100. `failedHistoryLimit` works the same way.
+- The sum of their `historyLimit` values is not bounded by the namespace-level `historyLimit`. Its bound is the `historyLimit` of the inline entry, else the global `historyLimit`, else 100.
+- Single entry values are not compared with the namespace or global values, and the history limits of a `name` entry are not bounded; they must only be non-negative.
+
+The namespace-level values themselves are checked against the global limits as described in [Validation Rules](./namespace_configuration#validation-rules).
 
 ## Interaction with TTL
 
-History limits do not override TTL:
+History limits do not override TTL. The example is the `ns-config` of a namespace ConfigMap, so it also needs `enforcedConfigLevel: namespace`:
 
 ```yaml
 data:
@@ -113,15 +147,14 @@ data:
     failedHistoryLimit: 10
 ```
 
-**Result**: Runs older than 5 minutes are deleted even if they are within the last 5 successful or last 10 failed. History limits can still delete older runs sooner if more than the configured counts exist.
+**Result**: Each run is deleted 5 minutes after it finishes, even if it is within the last 5 successful or last 10 failed runs of the namespace. History limits can still delete older runs sooner if more than the configured counts exist.
 
 ## Best Practices
 
-1. **Keep more failed runs** than successful for debugging
-2. **Critical pipelines**: Higher limits for audit trails
-3. **Development**: Lower limits (3-5) for rapid iteration
-4. **Production**: Higher limits (10-20) for analysis
-5. **Monitor storage**: Adjust limits based on cluster capacity
+1. **Keep more failed runs** than successful runs for debugging: set `failedHistoryLimit` higher than `successfulHistoryLimit`, as in the first sample of Basic Configuration (5 successful, 10 failed).
+2. **Critical pipelines**: an entry with higher limits does not keep its runs from the namespace-wide limits (see the warning in [Pipeline-specific Limits](#pipeline-specific-limits)). Run critical Pipelines in a namespace of their own when their runs must be kept.
+3. **Development and production**: keep fewer runs in development namespaces than in production namespaces, as in [Environment-specific Limits](#environment-specific-limits) (`dev` 3 successful and 5 failed runs, `prod` 10 and 20).
+4. **Count before you lower a limit**: count the runs per namespace first (command in [Namespace Configuration](./namespace_configuration#recommended-settings); it reads all namespaces). For a namespace limit, a namespace owner counts the runs of their own namespace with `kubectl get pipelineruns,taskruns -n <namespace> --no-headers | wc -l`. A lower global limit deletes the runs above it right away in the namespaces that use it (except the namespaces listed under What N counts); a lower namespace limit deletes them when the next run of that status that uses the namespace limit completes in the namespace (for TaskRuns, the next standalone TaskRun).
 
 ## Related
 

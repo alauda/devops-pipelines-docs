@@ -6,32 +6,42 @@ weight: 400
 
 Configure different pruning policies per namespace for environment-specific retention needs.
 
-## Configuration Hierarchy
+## Configuration Hierarchy \{#configuration-hierarchy}
 
 Settings flow: **Global** → **Namespace** → **Resource Group**
 
-Set `enforcedConfigLevel: namespace` in global config to enable namespace-level overrides.
+Set `enforcedConfigLevel: namespace` in global config to enable namespace-level overrides. The level that applies to a namespace is the `enforcedConfigLevel` in the `namespaces.<namespace>` entry of `global-config` if that entry sets one, else the root `enforcedConfigLevel` of `global-config`. `global` is the Operator default, which the Operator writes when `TektonConfig` has no `global-config`; a `global-config` that has no `enforcedConfigLevel` makes the Pruner fall back to `resource`. A namespace ConfigMap takes effect when the level that applies to its namespace is `namespace`; at every other level, the Pruner ignores it although the webhook accepts it.
 
-## Validation Boundaries
+## Validation Boundaries \{#validation-boundaries}
 
 :::warning
 **CRITICAL - System Boundaries**: Create namespace-level ConfigMaps **ONLY** in user namespaces where PipelineRuns/TaskRuns run.
 
-**FORBIDDEN namespaces** (validation will reject):
-- System: `kube-*`
-- Tekton controllers: `tekton-pipelines`, `tekton-*`
+Do not create them in system namespaces. The validation webhook rejects them in `tekton-pipelines`, `tekton-operator` and every namespace whose name starts with `kube-` or `openshift-`. It is not called for `kube-system`, `kube-public` and `kube-node-lease`, and it does not check other `tekton-*` namespaces, so keep them out of those yourself.
 
-**Required labels** for all configs:
+**Labels** for all configs:
 ```yaml
 labels:
   app.kubernetes.io/part-of: tekton-pruner
   pruner.tekton.dev/config-type: <global|namespace>
 ```
+
+The webhook validates only ConfigMaps that carry both labels. An unlabeled namespace ConfigMap is still applied by the Pruner, but without any validation, so always set both labels.
 :::
 
 :::warning
 
 Namespace-level ConfigMaps are outside the TektonConfig lifecycle. If you need to back up or restore Tekton configuration later, save these ConfigMaps separately.
+
+:::
+
+:::warning
+
+**Enabling the Pruner deletes runs at once.** The `TektonConfig` samples on this page are cluster-wide. Right after the Pruner controller starts, and again each time the global configuration changes, it applies the limits to the completed PipelineRuns and TaskRuns in every namespace except `tekton-pipelines`, `tekton-operator` and those whose names start with `kube-` or `openshift-`; runs that complete later are checked in every namespace, these included. This includes the runs of other teams. Deleted runs and their logs cannot be restored; only a copy that Tekton Results stored before the deletion stays readable in Results. With `enforcedConfigLevel: namespace`, every existing `tekton-pruner-namespace-spec` ConfigMap takes effect at the same time, except in a namespace whose `namespaces.<namespace>` entry sets another `enforcedConfigLevel`.
+
+Before you apply a sample, follow the steps in [Recommended Settings](#recommended-settings): count the runs, agree with the teams, list the existing namespace ConfigMaps, and start with permissive values.
+
+Merge a sample into the existing `TektonConfig` with `kubectl patch tektonconfig config --type merge --patch-file <file>`, not with `kubectl apply -f`: `kubectl apply` stores the file in the `kubectl.kubernetes.io/last-applied-configuration` annotation, and a later `kubectl apply -f` of another partial file deletes the fields that the earlier file set and the later file leaves out.
 
 :::
 
@@ -64,12 +74,14 @@ spec:
           successfulHistoryLimit: 10
 ```
 
-Inline `namespaces` entries are validated against the root-level `global-config` values in the same way as per-namespace ConfigMaps: a namespace value cannot exceed the corresponding global value, regardless of `enforcedConfigLevel`. See [Validation Rules](#validation-rules).
+Inline `namespaces` entries are checked against the root-level `global-config` values by the same rules as per-namespace ConfigMaps, regardless of `enforcedConfigLevel`. See [Validation Rules](#validation-rules). With `enforcedConfigLevel: global`, they are accepted but ignored: the Pruner applies the root values to every namespace, except in a namespace whose entry sets another `enforcedConfigLevel` itself.
+
+To confirm Method 1, run the `TektonConfig` read under Method 2 ("Check that the ConfigMap is in effect"): it must print `false namespace`. Then read the `pruner.tekton.dev/ttlSecondsAfterFinished` annotation of a run in `dev` that started after the change and has completed, with the command in [Pipeline-specific TTLs](./time_based_pruning#pipeline-specific-ttls): when `dev` has no namespace ConfigMap that sets a TTL, it must show `300`. Read it within 300 seconds after the run completes: the Pruner then deletes the run, and a later read returns `NotFound`.
 
 ## Method 2: Per-Namespace ConfigMaps (Self-Service)
 **Recommended** for namespace isolation and team autonomy.
 
-**Step 1:** Enable namespace-level config in TektonConfig:
+**Step 1:** Enable namespace-level config in TektonConfig. This needs permission to patch the cluster-scoped `TektonConfig`, usually a cluster administrator:
 
 ```yaml
 apiVersion: operator.tekton.dev/v1alpha1
@@ -83,10 +95,10 @@ spec:
     disabled: false  # Enable event-based pruner
     global-config:
       enforcedConfigLevel: namespace
-      ttlSecondsAfterFinished: 3600  # Fallback for namespaces without config
+      ttlSecondsAfterFinished: 3600  # Default for namespaces whose ConfigMap does not set a TTL, or that have no ConfigMap; a namespace with an inline namespaces.<namespace> entry uses that entry instead (see Inline Entries Replace Global Values)
 ```
 
-**Step 2:** Create namespace-specific ConfigMap (fixed name: `tekton-pruner-namespace-spec`):
+**Step 2:** The namespace owner creates the namespace-specific ConfigMap (fixed name: `tekton-pruner-namespace-spec`). This needs permission to create ConfigMaps in that namespace:
 
 ```yaml
 apiVersion: v1
@@ -104,6 +116,14 @@ data:
     failedHistoryLimit: 10
 ```
 
+**Check that the ConfigMap is in effect.** Every authenticated user can read `TektonConfig`, so the namespace owner can check Step 1:
+
+```bash
+kubectl get tektonconfig config -o jsonpath='{.spec.tektonpruner.disabled} {.spec.tektonpruner.global-config.enforcedConfigLevel}'
+```
+
+The Pruner applies namespace ConfigMaps only when this prints `false namespace`; with the Operator defaults it prints `true global`. An `enforcedConfigLevel` inside the `namespaces.<namespace>` entry of `global-config`, if your namespace has one, replaces the second value for that namespace. After a run in the namespace completes, its `pruner.tekton.dev/ttlSecondsAfterFinished` annotation shows the TTL that the Pruner chose for it, here `300` (command in [Pipeline-specific TTLs](./time_based_pruning#pipeline-specific-ttls)). Read it within 300 seconds after the run completes; after that the Pruner deletes the run. History limits leave no such value on the run (see [Pipeline-specific Limits](./history_based_pruning#pipeline-specific-limits)).
+
 **Benefits:**
 - Self-service for namespace owners
 - Independent lifecycle management
@@ -115,7 +135,15 @@ Namespace configurations are validated against limits to prevent resource exhaus
 
 ### 1. Explicit Global Limits
 
-When the global config defines a limit, namespace configs cannot exceed it.
+When the global config defines a limit, the webhook checks the namespace-wide values of a namespace config against it, field by field:
+
+- `ttlSecondsAfterFinished` against the global `ttlSecondsAfterFinished`.
+- `successfulHistoryLimit` and `failedHistoryLimit` against the global value of the same field, or against the global `historyLimit` when the global config does not set that field.
+- `historyLimit` only against the global `historyLimit`.
+
+A namespace `historyLimit` applies to both statuses when the namespace config does not set `successfulHistoryLimit` / `failedHistoryLimit`. So a global `successfulHistoryLimit` or `failedHistoryLimit` alone does not cap a namespace config that sets only `historyLimit`; set the global `historyLimit` as well (see [Recommended Settings](#recommended-settings)).
+
+Inside `pipelineRuns` / `taskRuns` entries, only the sums of the selector entries' history limits are bounded (see [Pipeline-specific Limits](./history_based_pruning#pipeline-specific-limits)). A `ttlSecondsAfterFinished` inside an entry is not checked (see [Configuration Content Validation](../configure/configmap_validation.mdx#5-configuration-content-validation)).
 
 ```yaml
 apiVersion: operator.tekton.dev/v1alpha1
@@ -154,22 +182,25 @@ spec:
   tektonpruner:
     global-config:
       enforcedConfigLevel: namespace
-      # No limits defined - system maximums apply
+      # No ttlSecondsAfterFinished defined - the system maximum applies to the TTL
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: tekton-pruner-namespace-spec
   namespace: my-app
+  labels:
+    app.kubernetes.io/part-of: tekton-pruner
+    pruner.tekton.dev/config-type: namespace
 data:
   ns-config: |
     ttlSecondsAfterFinished: 2592001   # Invalid: exceeds system maximum
-    successfulHistoryLimit: 150        # Invalid: exceeds system maximum
+    successfulHistoryLimit: 150        # Invalid: exceeds the global historyLimit (Operator default 100)
 ```
 
 ### 3. Override Defaults
 
-Cluster admins can set stricter limits via global config. When a global value is set, it replaces the system maximum as the upper bound for namespace configs. The global values themselves are not checked against the system maximums.
+Cluster admins can set stricter limits via global config. A global value replaces the system maximum as the upper bound for the namespace-wide values that are checked against it (see Explicit Global Limits above), and it takes part in the bounds of the selector sums (see [Pipeline-specific Limits](./history_based_pruning#pipeline-specific-limits)). It does not bound a `ttlSecondsAfterFinished` inside a `pipelineRuns` / `taskRuns` entry. The global values themselves are not checked against the system maximums.
 
 ```yaml
 apiVersion: operator.tekton.dev/v1alpha1
@@ -183,16 +214,20 @@ spec:
     disabled: false  # Enable event-based pruner
     global-config:
       ttlSecondsAfterFinished: 86400     # Admin limit: 1 day
-      successfulHistoryLimit: 20         # Admin limit: 20 runs
+      successfulHistoryLimit: 20         # Admin limit for a namespace successfulHistoryLimit
+      failedHistoryLimit: 20             # Admin limit for a namespace failedHistoryLimit
+      historyLimit: 20                   # Admin limit for a namespace historyLimit (otherwise the default 100 stays)
       namespaces:
         development:
           ttlSecondsAfterFinished: 3600   # Valid: within global limit
         # ttlSecondsAfterFinished: 172800 # Invalid example: exceeds global limit
 ```
 
-## Configuration Inheritance
+The root values are not only limits: runs also use them. Under `enforcedConfigLevel: global` (the Operator default; this sample does not set the level), every namespace keeps at most 20 successful and 20 failed runs, and each run is deleted one day after it finishes. Under `namespace`, the same applies to every namespace that has no inline entry and whose namespace ConfigMap does not set these fields. Set `failedHistoryLimit` together with `historyLimit`: without it, the root `historyLimit` is also the failed-run limit of those namespaces.
 
-Unspecified settings inherit from higher levels:
+## Inline Entries Replace Global Values
+
+An inline `namespaces.<namespace>` entry replaces the root-level `global-config` values for that namespace. Fields that the entry leaves unset are not taken from the root level; to keep a root value for that namespace, repeat it in the entry:
 
 ```yaml
 apiVersion: operator.tekton.dev/v1alpha1
@@ -211,7 +246,7 @@ spec:
       namespaces:
         dev:
           ttlSecondsAfterFinished: 300   # Override TTL
-          # Inherits successfulHistoryLimit: 5 from global
+          # successfulHistoryLimit is not set here, so the root value 5 does not apply to dev
 ```
 
 ## Selector Support
@@ -232,12 +267,16 @@ data:
   ns-config: |
     pipelineRuns:
       - selector:
-          matchLabels:
-            critical: "true"
+          - matchLabels:
+              critical: "true"
         ttlSecondsAfterFinished: 2592000
 ```
 
-**This is IGNORED** (inline namespace in global ConfigMap):
+To confirm that the entry applies, read the `pruner.tekton.dev/ttlSecondsAfterFinished` annotation of a `critical: "true"` run that started after you created the ConfigMap and has completed: it must show `2592000`. The command and the causes of another value, which give no error, are in [Pipeline-specific TTLs](./time_based_pruning#pipeline-specific-ttls).
+
+`selector` is a list: each item holds `matchLabels` and/or `matchAnnotations`. Written as a single map, the ConfigMap is denied with `cannot unmarshal object into Go struct field ResourceSpec.pipelineRuns.selector of type []config.SelectorSpec`.
+
+**This is rejected** (inline namespace in the global config): the Tekton Operator webhook denies a `selector` under `spec.tektonpruner.global-config.namespaces.<namespace>`:
 ```yaml
 spec:
   tektonpruner:
@@ -246,9 +285,11 @@ spec:
         production:
           pipelineRuns:
             - selector:
-                matchLabels:
-                  critical: "true"
+                - matchLabels:
+                    critical: "true"
 ```
+
+The denial message contains `selectors are NOT supported in global ConfigMap. Use namespace-level ConfigMap (tekton-pruner-namespace-spec) instead`.
 
 For selector-based resource groups, use separate namespace ConfigMaps (Method 2).
 
@@ -268,17 +309,96 @@ spec:
           ttlSecondsAfterFinished: 86400
           successfulHistoryLimit: 5
         prod:
+          ttlSecondsAfterFinished: 604800
+          successfulHistoryLimit: 10
 ```
 
-## Best Practices
+## Best Practices \{#best-practices}
 
-1. Use clear namespace naming conventions
-2. Start with permissive limits in development
-3. Implement stricter retention in production
-4. Document namespace configuration decisions
-5. Regularly review and adjust settings
-6. Test configurations before deployment
-7. Use namespace ConfigMaps for selector-based groups
+1. Keep shorter retention in development namespaces than in production namespaces, as the samples on this page do (for example `dev` 300 seconds and 3 successful runs, `prod` 604800 seconds and 10 successful runs).
+2. After you lower a global value, list the namespace ConfigMaps (command in [Recommended Settings](#recommended-settings)) and lower the values that are now above it: the webhook does not re-check existing ConfigMaps, and the Pruner applies their values as they are.
+3. Before you create a namespace ConfigMap, check it with `kubectl create --dry-run=server -f <file>`: while the event-based Pruner is enabled and the ConfigMap carries both labels, the webhook validates it, and the dry run stores nothing. A dry run that reports the ConfigMap as created shows only that nothing denied it; it also passes when the webhook did not validate it. To see that the webhook checks ConfigMaps in your namespace, send a copy of the file in which the top-level `ttlSecondsAfterFinished` of `ns-config` is set to `-1`, replacing any existing value, the same way: it must be denied with a message that contains `ttlSecondsAfterFinished cannot be negative, got -1`; if it is reported as created, the webhook did not check it. The webhook log lines (Best Practices on [ConfigMap Validation](../configure/configmap_validation.mdx)) show the same, but reading them needs access to Pod logs in `tekton-pipelines`, usually a cluster administrator.
+4. Use namespace ConfigMaps for selector-based groups.
+
+## Recommended Settings \{#recommended-settings}
+
+**When to enable.** Enable the event-based Tekton Pruner with namespace-level overrides when many projects share a cluster and completed PipelineRuns and TaskRuns from one project must not accumulate or crowd out the history of others. Set the cluster-wide default and its limits in `TektonConfig`; override per namespace with the namespace ConfigMap when a namespace needs a different value. The general guidance in [Best Practices](#best-practices) still applies.
+
+**Recommended values.** Set `spec.pruner.disabled: true` and `spec.tektonpruner.disabled: false` in the same change: the legacy job-based cleanup described in [Regular Cleanup of TaskRun and PipelineRun Resources](../../configure/pruner_resources.mdx) and the event-based Pruner cannot be enabled at the same time (see [Pruner Configuration](../configure/pruner_configuration.mdx)). The API server accepts a `TektonConfig` with both enabled, but `TektonConfig` then reports `Ready=False` with a message that contains `Invalid Pruner Configuration!! Both pruners, tektonpruner(event based) and pruner(job based) cannot be enabled simultaneously. Please disable one of them.` Set `enforcedConfigLevel: namespace`. With the value `global`, namespace ConfigMaps are accepted but ignored: the webhook still checks them, but the Pruner applies only the root values, except in a namespace whose `namespaces.<namespace>` entry sets another `enforcedConfigLevel` (see the check under Method 2). Define the global `ttlSecondsAfterFinished` and history limits as the platform default. They are also the upper limits for the namespace-wide values of namespace configurations (see [Validation Rules](#validation-rules)), so set them to the longest retention that any namespace is allowed to request. Set the global `historyLimit` as well, to the lower of the two history limits: a namespace `historyLimit` is checked only against the global `historyLimit` and then applies to both statuses, and the Operator default `historyLimit: 100` stays in `TektonConfig` after a merge patch that does not set it. Without it, a namespace config that sets only `historyLimit: 100` keeps 100 successful runs even under a global `successfulHistoryLimit: 5`. The global values do not bound a `ttlSecondsAfterFinished` inside a `pipelineRuns` / `taskRuns` entry, and they bound the history limits of the entries only through the sums of the selector entries; a `name` entry is not bounded (see [Configuration Content Validation](../configure/configmap_validation.mdx#5-configuration-content-validation)). Let project teams override within those limits through the `tekton-pruner-namespace-spec` ConfigMap described in Method 2.
+
+:::warning
+
+**Enabling the Pruner deletes runs at once**, in every namespace it covers, as described in the warning before Method 1. The commands in this section patch the cluster-scoped `TektonConfig`, list PipelineRuns, TaskRuns and ConfigMaps in all namespaces (`-A`) and read a ConfigMap in `tekton-pipelines`, so they need these permissions, usually a cluster administrator. `tekton-pipelines` is the default of `TektonConfig` `spec.targetNamespace`; replace it in the commands if your installation uses another namespace. Before you enable the Pruner:
+
+1. Count the runs per namespace:
+
+   ```bash
+   kubectl get pipelineruns,taskruns -A --no-headers | awk '{print $1}' | sort | uniq -c
+   ```
+
+2. Agree on the values with the teams that own those namespaces.
+3. List the existing namespace ConfigMaps with their values, which take effect with `enforcedConfigLevel: namespace`. The webhook did not check the ones created while the event-based Pruner was disabled, so compare the values under `ns-config` with the new global limits:
+
+   ```bash
+   kubectl get configmaps -A --field-selector metadata.name=tekton-pruner-namespace-spec -o yaml
+   ```
+
+4. Start with permissive values, for example a high `historyLimit` and no `ttlSecondsAfterFinished`, and lower them step by step.
+
+:::
+
+The sample below shows the target values. For the first patch, use permissive values instead, as step 4 of the warning describes, and lower them to the target values step by step.
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  pruner:
+    disabled: true  # Must disable job-based pruner
+  tektonpruner:
+    disabled: false  # Enable event-based pruner
+    global-config:
+      enforcedConfigLevel: namespace
+      ttlSecondsAfterFinished: 3600  # Global default and namespace limit
+      successfulHistoryLimit: 5      # Global default and namespace limit
+      failedHistoryLimit: 10         # Global default and namespace limit
+      historyLimit: 5                # Namespace limit for historyLimit, which applies to both statuses
+```
+
+Save the sample, with the permissive values for the first patch, as `tektonconfig-pruner.yaml` and merge it into the existing `TektonConfig` with a merge patch, not `kubectl apply -f` (see the warning before Method 1):
+
+```bash
+kubectl patch tektonconfig config --type merge --patch-file tektonconfig-pruner.yaml
+```
+
+**Confirm.** After the patch, run the `TektonConfig` read under Method 2 ("Check that the ConfigMap is in effect"): it must print `false namespace`. Then read the Pruner's global ConfigMap as in [Changing a Pruner ConfigMap](../configure/configmap_validation.mdx#changing-a-pruner-configmap); the output must contain the values that you merged, for example `enforcedConfigLevel: namespace` and, with the values of the sample, `historyLimit: 5`. This ConfigMap exists only while the event-based Pruner is enabled.
+
+**Prerequisites.** The Tekton Pruner components are deployed only after the job-based pruner is disabled and the event-based pruner is enabled in the `TektonConfig` resource named `config` (see [Tekton Pruner Is Not Deployed](../trouble_shooting/tekton-pruner-not-deployed.mdx)). If Tekton Chains is disabled after it handled runs, the Pruner's deletions of those runs do not complete; see `disabled` in [Chains Configuration](../../chains/configure/chains_configuration.mdx). Give each namespace ConfigMap the labels listed in [Validation Boundaries](#validation-boundaries): only labeled ConfigMaps are checked against the global limits, while an unlabeled one is still applied without any check. Create them only in the user namespaces whose runs they govern. The webhook rejects them in `tekton-pipelines`, `tekton-operator` and every namespace whose name starts with `kube-` or `openshift-`. It is not called for `kube-system`, `kube-public` and `kube-node-lease`, and it does not check other `tekton-*` namespaces. The permissions that the commands in this section need are listed in the warning above.
+
+**Undo.** To turn the event-based Pruner off, merge the following patch with `kubectl patch tektonconfig config --type merge --patch-file <file>`. Keep `spec.pruner.disabled: false` in the same file to bring back the job-based cleanup, which then runs with the values still in `spec.pruner` (see [Regular Cleanup of TaskRun and PipelineRun Resources](../../configure/pruner_resources.mdx)); leave `pruner` out to keep it off. Do not enable it in an earlier patch: with both pruners enabled, `TektonConfig` reports `Ready=False`.
+
+```yaml
+spec:
+  pruner:
+    disabled: false  # Brings back the job-based cleanup; leave pruner out to keep it off
+  tektonpruner:
+    disabled: true  # Turns the event-based Pruner off
+```
+
+The operator then removes the Pruner controller, its webhook and `tekton-pruner-default-spec`. The `TektonConfig` read under Method 2 prints `true` as its first value, and `kubectl get configmap tekton-pruner-default-spec -n tekton-pipelines` reports `Error from server (NotFound): configmaps "tekton-pruner-default-spec" not found`. If your installation uses another `spec.targetNamespace`, replace `tekton-pipelines` in this command first: read in a namespace other than the Pruner's, the command reports `NotFound` also while the Pruner is still installed.
+
+To keep the event-based Pruner but stop the namespace overrides, merge the following patch the same way instead. Namespace ConfigMaps are then accepted but ignored, with the exception named under Recommended values, and the `TektonConfig` read prints `false global`. The patch changes the global configuration, so the root values apply at once to the completed runs in every namespace that the Pruner covers, as described in the warning before Method 1:
+
+```yaml
+spec:
+  tektonpruner:
+    global-config:
+      enforcedConfigLevel: global
+```
+
+Taking a TTL away does not reach the runs that already have one. The Pruner writes the TTL of a run into its `pruner.tekton.dev/ttlSecondsAfterFinished` annotation and later replaces that value only with another TTL; it never removes it. So when a new configuration gives a run no TTL, for example after the switch to `global` while the root values set no `ttlSecondsAfterFinished`, the run keeps its old value and, while the event-based Pruner is enabled, is still deleted at that time.
 
 ## Next Steps
 

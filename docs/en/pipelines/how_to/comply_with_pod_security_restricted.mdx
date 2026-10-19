@@ -19,10 +19,11 @@ This guide explains how to configure `Tekton Pipelines` to meet the `restricted`
 
 ## Prerequisites
 
-- `Tekton Pipelines` is installed via `TektonPipeline` or `TektonConfig` CR
-- You have permission to modify `TektonPipeline` or `TektonConfig` resources
+- `Tekton Pipelines` is installed via `TektonConfig` CR, or via a `TektonPipeline` CR that is not managed by `TektonConfig`
+- You have permission to modify the `TektonConfig` resource, or the `TektonPipeline` resource when it is not managed by `TektonConfig`
 - You can create or edit `Task` definitions
 - For custom images, you have access to modify `Containerfiles` and rebuild images
+- To check an image on your workstation (step 3), a container CLI such as `podman` or `docker` that can pull the image
 
 ## Understanding the Restricted Standard
 
@@ -32,7 +33,7 @@ The `pod-security.kubernetes.io/enforce=restricted` standard requires all three 
 - **Init containers** (`initContainers`)
 - **Ephemeral containers** (`ephemeralContainers`)
 
-Each container must have the following security context configuration:
+Each container must set `allowPrivilegeEscalation: false` and drop `ALL` capabilities. `runAsNonRoot: true` and a `seccompProfile` of type `RuntimeDefault` or `Localhost` can be set on each container or once in the Pod `securityContext`. The following container security context sets all four fields, as the step samples on this page do:
 
 ```yaml
 securityContext:
@@ -51,18 +52,20 @@ securityContext:
 |-------|-------|---------|--------|
 | `allowPrivilegeEscalation` | `false` | Prevents processes from gaining more privileges than their parent process | Blocks malicious code from escalating privileges through setuid binaries or file capabilities |
 | `runAsNonRoot` | `true` | Requires containers to run as a non-root user (UID ≠ 0) | Prevents containers from running as root, reducing the impact of container breakout vulnerabilities |
-| `capabilities.drop` | `["ALL"]` | Removes all Linux capabilities from the container | Limits the container's ability to perform privileged operations (e.g., network configuration, loading kernel modules) |
+| `capabilities.drop` | a list with the single entry `ALL` | Removes all Linux capabilities from the container | Limits the container's ability to perform privileged operations (e.g., network configuration, loading kernel modules) |
 | `seccompProfile.type` | `RuntimeDefault` | Applies the container runtime's default seccomp profile | Restricts the system calls available to the container, reducing the kernel attack surface |
 
 ## Steps
 
 ### 1. Configure Tekton to add security context to init containers
 
-`Tekton` creates init containers for each `Pod` it manages. To comply with the `restricted` standard, you need to enable `Tekton` to automatically add the required security context to these init containers.
+`Tekton` creates init containers for each `Pod` it manages. To comply with the `restricted` standard, these init containers need the required security context, which `Tekton` adds when `set-security-context` is `true`. In Alauda DevOps Pipelines 4.15.1, `set-security-context` is `true` by default. The commands below only re-enable it if it was set to `false`; on a default installation they report `patched (no change)`.
 
 #### Option A: Configure via TektonPipeline
 
 If you manage `Tekton` directly through `TektonPipeline` CR:
+
+> **Note:** On the default installation, the `TektonConfig` named `config` owns the `TektonPipeline` named `pipeline`, and the operator overwrites direct changes to the `TektonPipeline` `spec` within seconds. Configure it through `TektonConfig` (Option B). Option A applies only when `TektonPipeline` is not managed by `TektonConfig`.
 
 ```yaml
 apiVersion: operator.tekton.dev/v1alpha1
@@ -74,11 +77,11 @@ spec:
 Apply the configuration:
 
 ```bash
-$ kubectl patch tektonpipeline tektonpipeline \
+$ kubectl patch tektonpipeline pipeline \
   --type merge \
   -p '{"spec":{"set-security-context":true}}'
 
-tektonpipeline.operator.tekton.dev/tektonpipeline patched
+tektonpipeline.operator.tekton.dev/pipeline patched (no change)
 ```
 
 #### Option B: Configure via TektonConfig
@@ -100,14 +103,14 @@ $ kubectl patch tektonconfig config \
   --type merge \
   -p '{"spec":{"pipeline":{"set-security-context":true}}}'
 
-tektonconfig.operator.tekton.dev/config patched
+tektonconfig.operator.tekton.dev/config patched (no change)
 ```
 
 > **Note:** This configuration change takes effect immediately without requiring a restart of the `Tekton` controller. New `TaskRuns` and `PipelineRuns` created after this change will automatically have the required security context applied to init containers.
 
 ### 2. Add security context to custom Task definitions
 
-For custom `Tasks` (not the built-in `Tasks` provided by the platform), you need to explicitly add the security context to each step.
+For custom `Tasks` (not the built-in `Tasks` provided by the platform), you need to explicitly add the security context to each step and to each sidecar in `sidecars`. Steps and sidecars run as containers in the `TaskRun` Pod. `set-security-context` (step 1) adds the security context to the init containers that `Tekton` adds to the Pod, and to its results sidecar when it adds one, but not to the steps and sidecars of your `Task`. A sidecar without it makes the `restricted` standard reject the Pod, and the `TaskRun` fails with reason `PodAdmissionFailed`.
 
 Example `Task` with security context:
 
@@ -133,7 +136,9 @@ spec:
         echo "Building application..."
 ```
 
-> **Important:** This step applies to custom `Tasks`. Built-in `Tasks` provided by the platform (except `buildah`, see Troubleshooting section) are compatible with these security constraints, but their `Task` definitions do not include explicit `securityContext` configurations since they are designed to work in various security contexts, not just restricted mode.
+> **Note:** Replace the sample images on this page with images your cluster can pull, for example from an internal registry. The `registry.example.com/...` images stand for your own images.
+
+> **Important:** This step applies to custom `Tasks`. Built-in `Tasks` provided by the platform (except `buildah`, see [Built-in Tasks and the Restricted Standard](#built-in-tasks-and-the-restricted-standard)) already declare a `restricted`-compliant `securityContext` on their steps, so you do not need to add one.
 
 ### 3. Configure container images to use non-root users
 
@@ -154,29 +159,58 @@ USER 65532
 
 > **Note:** The `adduser` command syntax varies by base image. See the referenced documentation below for examples with other base images.
 
-Verify the image configuration:
+Verify the image configuration with `podman`, or with `docker`, which takes the same arguments. Replace `<image>` with the image you built. `--entrypoint id` runs the `id` command of the image instead of its ENTRYPOINT; without it, an image that sets an ENTRYPOINT would get `id` as an argument of that ENTRYPOINT:
 
 ```bash
 # Check that the image runs as non-root
-$ podman run -it --rm ${registry} id
+$ podman run -it --rm --entrypoint id <image>
 
 uid=65532(nonroot) gid=65532(nonroot) groups=65532(nonroot)
 ```
 
-For detailed guidance on adjusting catalog Task images, see <ExternalSiteLink name="artifacthub-shim" href="/catalog/task-image-compatibility.html" children="Task Image Compatibility" />.
+For detailed guidance on adjusting catalog Task images, see <ExternalSiteLink name="artifacthub-shim" href="/catalog/how_to/adjust_containerfile_for_task_compatible_image.html" children="Adjust Containerfile for Building Task-Compatible Custom Images" />.
 
 ## Operation Results
 
 After completing the above steps:
 
 1. **Init Containers**: `Tekton`-created init containers will automatically comply with the `restricted` standard
-2. **Custom Tasks**: Your custom `Task` steps will have the required security context
+2. **Custom Tasks**: The steps and sidecars of your custom `Tasks` will have the required security context
 3. **Container Images**: Images will run as non-root users with minimal privileges
 
-You can verify compliance by creating a `TaskRun` in a restricted namespace:
+You can verify compliance by creating a `TaskRun` in a restricted namespace. Use a new test namespace: the label applies to every Pod in the namespace, so do not add it to a namespace that other workloads use.
+
+Save the following `TaskRun` as `taskrun.yaml`. The `custom-build-task` `Task` from step 2 does not exist in the new namespace, so the `TaskRun` holds the same step as an inline `taskSpec`. The Tekton webhook rejects a `TaskRun` with an inline `taskSpec` when the cluster setting `disable-inline-spec` contains `taskrun` (see [Constrain Tekton Pipeline Execution with Kyverno](./constrain_pipeline_execution_with_kyverno.mdx)); on such a cluster, create the `Task` of step 2 in the new namespace and reference it with `taskRef` instead. Use an image that runs as a non-root user (step 3):
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: example-taskrun
+spec:
+  taskSpec:
+    steps:
+      - name: build
+        image: registry.example.com/builder:latest
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          capabilities:
+            drop:
+              - "ALL"
+          seccompProfile:
+            type: RuntimeDefault
+        script: |
+          #!/bin/sh
+          echo "Building application..."
+```
 
 ```bash
-# Label a namespace with the restricted standard
+# Create a test namespace and label it with the restricted standard
+$ kubectl create namespace test-ns
+
+namespace/test-ns created
+
 $ kubectl label namespace test-ns pod-security.kubernetes.io/enforce=restricted
 
 namespace/test-ns labeled
@@ -189,8 +223,13 @@ taskrun.tekton.dev/example-taskrun created
 # Verify the TaskRun succeeds
 $ kubectl -n test-ns get taskrun
 
-NAME               SUCCEEDED   REASON      STARTTIME   COMPLETIONTIME
-example-taskrun    True        Succeeded   2m ago      1m ago
+NAME              SUCCEEDED   REASON      STARTTIME   COMPLETIONTIME
+example-taskrun   True        Succeeded   2m          1m
+
+# Delete the test namespace when the check is done
+$ kubectl delete namespace test-ns
+
+namespace "test-ns" deleted
 ```
 
 A successful `TaskRun` shows `SUCCEEDED` as `True` and `REASON` as `Succeeded`, indicating that all containers ran successfully with the required security constraints.
@@ -226,25 +265,27 @@ securityContext:
   # allowPrivilegeEscalation: false  # Cannot be set to false - buildah needs to escalate privileges to use the SETFCAP capability for setting file capabilities during container image builds; forcing false also blocks newuidmap/newgidmap, causing rootless to fall back to single UID/GID mapping with warnings and potentially incorrect file ownership
   runAsNonRoot: true
   capabilities:
-    # drop: ["ALL"]  # Cannot drop ALL capabilities - buildah requires SETFCAP capability to set file capabilities (e.g., cap_net_bind_service) on files within container images during the build process
-    add: ["SETFCAP"]
+    # drop:  # Cannot drop ALL capabilities - buildah requires SETFCAP capability to set file capabilities (e.g., cap_net_bind_service) on files within container images during the build process
+    #   - "ALL"
+    add:
+      - "SETFCAP"
   # seccompProfile:
-  #   type: RuntimeDefault  # Cannot use RuntimeDefault - default seccomp blocks unshare/clone(CLONE_NEWUSER)/setns needed by buildah, leading to build failure; use Unconfined or a custom profile that allows these syscalls instead
+  #   type: RuntimeDefault  # Cannot use RuntimeDefault - default seccomp blocks unshare/clone(CLONE_NEWUSER)/setns needed by buildah, leading to build failure; the baseline standard rejects an explicit Unconfined, so use a Localhost profile that allows these syscalls instead
 ```
 
 **Solutions:**
 
 1. Use the `buildah` `Task` in a separate namespace with `baseline` mode instead of `restricted` mode.
 
-   To allow `buildah` workloads to run, changing `pod-security.kubernetes.io/enforce` to `baseline` is the required step. The `warn` and `audit` labels do not block admission.
+   To allow `buildah` workloads to run, changing `pod-security.kubernetes.io/enforce` to `baseline` is the required step. The `warn` and `audit` labels do not block admission. Read and save the current value of the label first, and restore it later, as described in [Recommended Settings](#recommended-settings).
 
    ```bash
    # Required: change enforce to baseline for buildah workloads
-   $ kubectl label namespace build-ns \
+   $ kubectl label namespace <build-namespace> \
      pod-security.kubernetes.io/enforce=baseline \
      --overwrite
 
-   namespace/build-ns labeled
+   namespace/<build-namespace> labeled
    ```
 
    After relabeling the namespace, create a new `TaskRun` or `PipelineRun` that uses the `buildah` `Task` in that namespace. When the registry credentials, `Containerfile`, and workspaces are configured correctly, the `buildah` `Task` can run normally under the `baseline` standard.
@@ -254,7 +295,7 @@ securityContext:
    Edit the `TektonConfig` resource to enable the policy:
 
    ```bash
-   $ kubectl edit tektonconfig config
+   kubectl edit tektonconfig config
    ```
 
    Add or update the following entry under `spec.pipeline.params`. If `params` already contains other entries, keep them and only add or update `enable-validating-admission-policy`.
@@ -283,25 +324,25 @@ securityContext:
    Verify that the policy resources are installed:
 
    ```bash
-   $ kubectl get validatingadmissionpolicy pipelines-restricted
-   $ kubectl get validatingadmissionpolicybinding pipelines-restricted
+   kubectl get validatingadmissionpolicy pipelines-restricted
+   kubectl get validatingadmissionpolicybinding pipelines-restricted
    ```
 
    Both commands should return a resource named `pipelines-restricted`.
 
    ```bash
    # Enable the guardrail for the build namespace.
-   $ kubectl label namespace build-ns \
+   $ kubectl label namespace <build-namespace> \
      buildah.alauda.io/enabled=true \
      --overwrite
 
-   namespace/build-ns labeled
+   namespace/<build-namespace> labeled
    ```
 
    Verify that the guardrail rejects workloads that request permissions beyond the `buildah` exception. The following server-side dry run does not create a `Pod`, but it still goes through admission. It should be denied because `NET_BIND_SERVICE` is allowed by the `baseline` standard but is not allowed by this guardrail:
 
    ```bash
-   $ kubectl -n build-ns create -f - --dry-run=server <<'EOF'
+   $ kubectl -n <build-namespace> create -f - --dry-run=server <<'EOF'
    apiVersion: v1
    kind: Pod
    metadata:
@@ -310,24 +351,24 @@ securityContext:
      restartPolicy: Never
      containers:
        - name: check
-         image: registry.example.com/pause:3.9
+         image: registry.k8s.io/pause:3.9
          securityContext:
            capabilities:
              add:
                - NET_BIND_SERVICE
    EOF
 
-   Error from server (Forbidden): ... ValidatingAdmissionPolicy 'pipelines-restricted' with binding 'pipelines-restricted' denied request: only SETFCAP capability may be added
+   The pods "vap-extra-capability-check" is invalid: : ValidatingAdmissionPolicy 'pipelines-restricted' with binding 'pipelines-restricted' denied request: only SETFCAP capability may be added
    ```
 
 2. Explore alternative container image build methods that may have different security requirements.
 
-### TaskRun fails with container user errors
+### TaskRun fails with container user errors \{#taskrun-fails-with-container-user-errors}
 
 You may encounter one of the following errors:
 
-- **"container has runAsNonRoot and image will run as root"** - The container image has no `USER` directive in the `Containerfile` (defaults to root) or explicitly sets `USER 0` or `USER root`
-- **"container has runAsNonRoot and image has non-numeric user"** - The container image uses a symbolic username (e.g., `USER appuser`) instead of a numeric UID
+- **"container has runAsNonRoot and image will run as root"** - The container image has no `USER` directive in the `Containerfile` (defaults to root) or explicitly sets `USER 0`
+- **"container has runAsNonRoot and image has non-numeric user"** - The container image uses a symbolic username (e.g., `USER appuser` or `USER root`) instead of a numeric UID
 
 **Solutions:**
 
@@ -373,29 +414,106 @@ You may encounter one of the following errors:
          runAsUser: 65532
          runAsNonRoot: true
          fsGroup: 65532
+         fsGroupChangePolicy: "OnRootMismatch"
    ```
 
-> **Note:** The `podTemplate.securityContext` sets Pod-level security context, which is inherited by all containers unless overridden at the container level.
+> **Note:** The `podTemplate.securityContext` sets Pod-level security context, which is inherited by all containers unless overridden at the container level. It replaces the `securityContext` of the default Pod template as a whole, so the sample repeats the shipped `fsGroupChangePolicy: "OnRootMismatch"`.
 
 Options 2 and 3 are useful when you cannot modify the container image.
 
-### TaskRun fails with "Forbidden: cannot set securityContext.capabilities"
+### TaskRun fails with `violates PodSecurity "restricted:latest": unrestricted capabilities`
 
-This error occurs when the security context tries to add capabilities while dropping all capabilities.
+The `TaskRun` fails with reason `PodAdmissionFailed` and a message such as `pods "<taskrun-name>-pod" is forbidden: violates PodSecurity "restricted:latest": unrestricted capabilities (container "step-<step-name>" must not include "SYS_ADMIN" in securityContext.capabilities.add)`. The `restricted` standard rejects any capability in `securityContext.capabilities.add` other than `NET_BIND_SERVICE`, even when the step also drops `ALL`.
 
-**Solution:** Ensure your `Task` does not add any capabilities. Only drop capabilities as shown in the examples.
+**Solution:** Remove that capability from `capabilities.add` and keep `ALL` in `capabilities.drop`. The only capability the `restricted` standard allows you to add back is `NET_BIND_SERVICE`.
 
-### Init containers fail with permission errors
+### TaskRun fails with `CreateContainerConfigError` after a Pod template sets `runAsUser: 0`
 
-If init containers fail with permission errors after setting `set-security-context: true`, verify that:
+If the TaskRun fails with `CreateContainerConfigError` and the Pod events show `Error: container's runAsUser breaks non-root policy (pod: "<pod-name>_<namespace>(<pod-uid>)", container: prepare)`, a Pod template sets `runAsUser: 0`. With `set-security-context: true`, Tekton starts its init containers, such as `prepare`, with `runAsNonRoot: true` and without `runAsUser`, so they inherit the Pod-level UID `0`. In a namespace that enforces `restricted`, the Pod is rejected at admission instead, and the TaskRun fails with `PodAdmissionFailed`.
 
-1. The namespace has appropriate security policies
-2. The container images used by `Tekton` are configured to run as non-root
-3. The `Tekton` installation is up to date
+**Solution:** Remove `runAsUser: 0` from the Pod template of the `TaskRun`, of the `PipelineRun`, or of the global default, and use a non-root UID as in option 3 of [TaskRun fails with container user errors](#taskrun-fails-with-container-user-errors).
+
+## Recommended Settings \{#recommended-settings}
+
+**When to enable.** Enable the `restricted` standard when several projects share a cluster and need a common minimum security level for their pipeline Pods.
+
+**Recommended values.** Label every pipeline workload namespace with `pod-security.kubernetes.io/enforce=restricted`. Among the built-in `Tasks`, only the `buildah` `Task` cannot run under `restricted` (see [Built-in Tasks and the Restricted Standard](#built-in-tasks-and-the-restricted-standard)); run image builds in a separate namespace labeled `pod-security.kubernetes.io/enforce=baseline`, as described in that section, which also documents the optional `ValidatingAdmissionPolicy` guardrail for such a namespace.
+
+Changing the label needs permission to patch the `Namespace` object, which is cluster-scoped, so this is usually done by a cluster administrator. Before you change the label of a namespace, read its current value and save the output. An empty output means that the label is not set:
+
+```bash
+kubectl get namespace <namespace> -o jsonpath='{.metadata.labels.pod-security\.kubernetes\.io/enforce}'
+```
+
+Then set the label. `--overwrite` is needed when the label already has a value; without it, `kubectl` stops with `error: 'pod-security.kubernetes.io/enforce' already has a value (<value>), and --overwrite is false`:
+
+```bash
+kubectl label namespace <namespace> pod-security.kubernetes.io/enforce=restricted --overwrite
+```
+
+To undo the change, set the saved value again:
+
+```bash
+kubectl label namespace <namespace> pod-security.kubernetes.io/enforce=<saved-value> --overwrite
+```
+
+If the saved output was empty, remove the label instead:
+
+```bash
+kubectl label namespace <namespace> pod-security.kubernetes.io/enforce-
+```
+
+In `TektonConfig`, keep `set-security-context` at its default `true` for init containers (step 1 in the Steps section), and set a non-root default Pod template once as described in [Method 4: Global Default Configuration (TektonConfig)](../../configure/pod_template_guide.mdx#method-4-global-default-configuration-tektonconfig):
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  pipeline:
+    set-security-context: true
+    default-pod-template: |
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        fsGroup: 65532
+        fsGroupChangePolicy: "OnRootMismatch"
+```
+
+The `default-pod-template` value replaces the current default Pod template as a whole, and the change applies to every new TaskRun on the cluster. Read the value in effect and the value set in `TektonConfig` first, save both outputs, and keep the default's fields in the sample; on a default installation the value in effect is the shipped template with `fsGroup: 65532` and `fsGroupChangePolicy: "OnRootMismatch"`, which the sample repeats:
+
+```bash
+kubectl get configmap -n tekton-pipelines config-defaults -o jsonpath='{.data.default-pod-template}'
+kubectl get tektonconfig config -o jsonpath='{.spec.pipeline.default-pod-template}'
+```
+
+`tekton-pipelines` is the default of `TektonConfig` `spec.targetNamespace`; replace it in the commands if your installation uses another namespace.
+
+Save the sample as `tektonconfig-security.yaml` and merge it into the existing `TektonConfig` in the same way as step 1:
+
+```bash
+kubectl patch tektonconfig config --type merge --patch-file tektonconfig-security.yaml
+```
+
+Do not use `kubectl apply -f` for this partial sample. It warns that `tektonconfigs/config` is missing the `kubectl.kubernetes.io/last-applied-configuration` annotation and then adds that annotation with the content of the file; a later `kubectl apply -f` of another partial `TektonConfig` file then deletes the fields that this file set and the later file leaves out, such as this `default-pod-template`.
+
+To undo the change: if the saved `TektonConfig` output was empty, remove the field from `TektonConfig`, which returns to the shipped default Pod template:
+
+```bash
+kubectl patch tektonconfig config --type json \
+  -p '[{"op":"remove","path":"/spec/pipeline/default-pod-template"}]'
+```
+
+Otherwise set the saved `TektonConfig` value again.
+
+Individual `TaskRuns` or `PipelineRuns` can still override the default Pod template where a custom image requires it; see the [Pod Template Configuration Guide](../../configure/pod_template_guide.mdx). An override replaces the whole `securityContext` of the default Pod template, so in a `restricted` namespace repeat `runAsNonRoot: true` in the override unless each step and each sidecar of the `Task` sets it.
+
+**Prerequisites.** Permission to modify `TektonConfig` and to patch the namespaces that you label; both are cluster-scoped objects, so this is usually a cluster administrator. Custom `Tasks` must declare the container security context on each step and each sidecar, and use images that run as a numeric non-root UID (the `runAsUser` of the default Pod template above also satisfies the check, but the image must then work as that UID), as described in steps 2 and 3 of the Steps section; build custom `Task` images as described in <ExternalSiteLink name="artifacthub-shim" href="/catalog/how_to/adjust_containerfile_for_task_compatible_image.html" children="Adjust Containerfile for Building Task-Compatible Custom Images" /> before moving a namespace to `restricted`.
 
 ## Learn More
 
 - [Kubernetes Pod Security Standards](https://kubernetes.io/docs/concepts/security/pod-security-standards/)
 - [Tekton Pipelines Additional Configuration Options](https://tekton.dev/vault/pipelines-main/additional-configs/)
-- <ExternalSiteLink name="artifacthub-shim" href="/catalog/task-image-compatibility.html" children="Task Image Compatibility" />
+- <ExternalSiteLink name="artifacthub-shim" href="/catalog/how_to/adjust_containerfile_for_task_compatible_image.html" children="Adjust Containerfile for Building Task-Compatible Custom Images" />
 - [Kyverno Policy Engine](https://kyverno.io/)

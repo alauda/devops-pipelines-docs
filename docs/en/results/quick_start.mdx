@@ -28,10 +28,10 @@ Tekton Results supports storing logs in various storage backends. **S3-compatibl
    If you have installed it into a different namespace, please replace `tekton-pipelines` with your namespace.
    :::
 
-2. Create a database root password.
+2. Store the database account.
 
-   Users must generate a database root password and store it in a
-   [Kubernetes Secret](https://kubernetes.io/docs/concepts/configuration/secret/) before installation. By default, Tekton Results expects this `Secret` to have the following attributes:
+   Tekton Results connects to PostgreSQL with the user name and password stored in a
+   [Kubernetes Secret](https://kubernetes.io/docs/concepts/configuration/secret/). Create the `Secret` before installation, with the database user that Tekton Results connects as, for example a dedicated `result` user. By default, Tekton Results expects this `Secret` to have the following attributes:
 
    - Namespace: `tekton-pipelines`
    - Name: `tekton-results-postgres`
@@ -39,10 +39,17 @@ Tekton Results supports storing logs in various storage backends. **S3-compatibl
      - `POSTGRES_USER=<your_username>`
      - `POSTGRES_PASSWORD=<your_password>`
 
-   You can quickly generate a `Secret` using the following command:
+   You can quickly generate a `Secret` using the following commands. Run the `read -rs` line on its own, type the database password and press Enter: `read -rs` does not show it, so it does not appear on the screen or in the shell history. In a shell without bracketed paste, such as bash before 5.1, `read` takes the next line of a pasted block as the password. Run the commands in bash or zsh: in a POSIX `sh` such as `dash`, `read -rs` fails and leaves the variable empty:
 
-   ```sh
-   kubectl create secret generic tekton-results-postgres --namespace="tekton-pipelines" --from-literal=POSTGRES_USER={POSTGRES} --from-literal=POSTGRES_PASSWORD={PASSWORD}
+   ```bash
+   read -rs DB_PASSWORD
+   ```
+
+   Then create the `Secret`. `unset` removes the password from the shell after the `Secret` is created:
+
+   ```bash
+   kubectl create secret generic tekton-results-postgres --namespace="tekton-pipelines" --from-literal=POSTGRES_USER=<your_username> --from-literal=POSTGRES_PASSWORD="$DB_PASSWORD"
+   unset DB_PASSWORD
    ```
 
 3. Generate a certificate/key pair. Note: Any certificate management software can be used for this purpose!
@@ -100,20 +107,19 @@ Tekton Results supports storing logs in various storage backends. **S3-compatibl
    ```
 
    - Please adjust the PVC size as needed.
+   - The sample sets no `storageClassName`, so the PVC uses the default StorageClass of the cluster, which `kubectl get storageclass` marks with `(default)`. If the cluster has none, add `storageClassName: <storage-class>` to `spec`; without a StorageClass the PVC can stay `Pending`.
    - Note: This is only required if using the legacy File storage type.
 
 ### Installing using operator CRD \{#installing-using-operator-crd}
 
+The operator already created the `TektonConfig` named `config`. Merge the following `spec.result` fields into it; `disabled: false` installs Tekton Results. The merge keeps the other `TektonConfig` fields, including `spec.targetNamespace`, the namespace where Tekton Results is deployed.
+
 ```sh
-$ cat <<EOF | kubectl create -f -
-apiVersion: operator.tekton.dev/v1alpha1
-kind: TektonConfig
-metadata:
-  name: config
+cat <<EOF > tekton-results-patch.yaml
 spec:
-  # Target namespace
-  targetNamespace: tekton-pipelines
   result:
+    # Install Tekton Results
+    disabled: false
     # Update with database address
     db_host: <database_host>
     db_port: 5432
@@ -124,7 +130,7 @@ spec:
     db_secret_name: tekton-results-postgres
     # Basic settings
     server_port: 8080
-    # Disable authentication
+    # Disable authentication (for testing only, see auth_disable below)
     auth_disable: true
     db_enable_auto_migration: true
     log_level: debug
@@ -138,20 +144,24 @@ spec:
     logs_buffer_size: 92160
     # S3 storage does not require PVC, unlike legacy File storage
 EOF
+kubectl patch tektonconfig config --type merge --patch-file tekton-results-patch.yaml
 ```
 
 :::details
-  All Tekton Results configuration fields are nested under `spec.result` in the TektonConfig resource.
+  The Tekton Results configuration fields below are nested under `spec.result` in the TektonConfig resource, except `targetNamespace`, which is `spec.targetNamespace`.
+  - `disabled`: Whether Tekton Results is disabled.
+    - `false`: Install Tekton Results.
   - `db_host`: The host of the database.
   - `db_port`: The port of the database.
   - `db_name`: The name of the database.
-  - `is_external_db`: Whether to use an external database.
+  - `is_external_db`: Must be `true`, because the built-in PostgreSQL database is not supported.
     - `true`: Use an external database.
   - `db_secret_name`: The name of the secret containing the database account information.
     - This is the secret created in the previous step.
   - `server_port`: The port of the server.
-  - `targetNamespace`: The namespace where the Results is deployed.
+  - `targetNamespace` (`spec.targetNamespace`, not changed by the patch): The namespace where the Results is deployed.
   - `auth_disable`: Whether to disable authentication.
+    - `true`: For testing only. The Results API skips its Kubernetes RBAC check and allows every request, so anyone who can reach the API can read, change and delete the results, records and logs of every namespace. This includes access through the Ingress `tektoncd-results-api` that the Tekton Results installation creates, which serves the API under the path `/results`. Turn authentication back on after the test as described in [Turn authentication back on](#turn-authentication-back-on).
   - `db_enable_auto_migration`: Whether to enable automatic database migration.
   - `log_level`: The level of the log.
   - `logs_api`: Whether to enable the logs API.
@@ -170,7 +180,7 @@ EOF
 About more database configuration, please refer to [PostgreSQL Configuration](./configure/database_configuration.mdx)
 :::
 
-After deployment, you can see that the status of `results-api` / `results-retention-policy-agent` / `results-watcher` is `Running`
+After deployment, you can see that the status of `results-api` / `results-retention-policy-agent` / `results-watcher` is `Running`. The namespace also holds the Pods of other Tekton components; the output below is shortened to the Tekton Results Pods:
 
 ```sh
 $ kubectl get pods -n tekton-pipelines
@@ -181,14 +191,14 @@ tekton-results-retention-policy-agent-c6ff5575b-prczg   1/1     Running   0     
 tekton-results-watcher-6d7c68f576-p2gbl                 1/1     Running   0          14s
 ```
 
-### Verify Functionality
+### Verify Functionality \{#verify-functionality}
 
 Functionality can be verified through a simple taskrun.
 
 #### 1. Create a `TaskRun` resource
 
 ```sh
-$ cat <<'EOF' | kubectl create -f -
+cat <<'EOF' | kubectl create -n default -f -
 apiVersion: tekton.dev/v1
 kind: TaskRun
 metadata:
@@ -198,12 +208,16 @@ spec:
     steps:
       - name: hello
         image: alpine
-        command: ["echo", "hello"]
+        command:
+          - "echo"
+          - "hello"
 EOF
 ```
 
 :::note
-For air-gapped environments change the `alpine` image address to another present in the network
+Replace the public `alpine` image with an image your cluster can pull, for example from an internal registry in an air-gapped environment.
+
+The Tekton webhook rejects a `TaskRun` with an inline `taskSpec` when the cluster setting `disable-inline-spec` contains `taskrun` (see [Constrain Tekton Pipeline Execution with Kyverno](../pipelines/how_to/constrain_pipeline_execution_with_kyverno.mdx)); on such a cluster, create a `Task` with the same step and reference it with `taskRef` instead.
 :::
 
 #### 2. Wait for the task execution to complete
@@ -211,17 +225,18 @@ For air-gapped environments change the `alpine` image address to another present
 ```sh
 $ kubectl get taskruns.tekton.dev -n default -w
 
+NAME                                         SUCCEEDED   REASON      STARTTIME   COMPLETIONTIME
 hello                                        Unknown     Pending     3s
 hello                                        True        Succeeded   11s         0s
 ```
 
 #### 3. Use tkn-results CLI to query results
 
-##### Preparing the CLI
+##### Preparing the CLI \{#preparing-the-cli}
 
 > [tkn](https://github.com/tektoncd/cli/releases) is a command-line tool for interacting with Tekton. You can download it from the [official page](https://github.com/tektoncd/cli/releases).
 >
-> You need to build [tkn-results](https://github.com/tektoncd/results/blob/main/cmd/tkn-results/main.go) using golang.
+> You need to build [tkn-results](https://github.com/tektoncd/results/blob/main/cmd/tkn-results/main.go) using golang. Use at least the Go version on the `go` line of `go.mod` in the branch that you check out: Results v0.19.0 has `go 1.25.8`, so it needs Go 1.25.8 or later.
 >
 > Do not always build from `main`. Use the release branch that matches the Tekton Results version deployed in your environment.
 > You can find the Results component version in [Release Notes](../overview/release_notes.mdx#compatibility-and-support-matrix) (the `Results` column), and then checkout the corresponding branch `release-v<version>.x`.
@@ -263,15 +278,23 @@ default/results/209dcb81-e3c0-47cd-b082-d910e15702ae/records/a750035d-0479-34a1-
 
 ##### Fallback when auto port-forward fails
 
-```sh
-$ kubectl port-forward -n <results-namespace> service/tekton-results-api-service 8080
+Start the port-forward in a separate terminal and keep it running while you run the `tkn results` commands; it runs in the foreground until you stop it with Ctrl+C:
 
-$ tkn results --insecure --addr localhost:8080 records list default/results/-
-$ tkn results --insecure --addr localhost:8080 records get -o textproto default/results/<result-uid>/records/<record-uid>
-$ tkn results --insecure --addr localhost:8080 logs list default/results/-
-$ tkn results --insecure --addr localhost:8080 logs get -o textproto default/results/<result-uid>/logs/<log-uid>
-# If logs get returns "unknown service tekton.results.v1alpha3.Logs", retry with:
-$ tkn results --insecure --addr localhost:8080 --v1alpha2 logs get -o textproto default/results/<result-uid>/logs/<log-uid>
+```sh
+kubectl port-forward -n <results-namespace> service/tekton-results-api-service 8080
+```
+
+Then, in your first terminal:
+
+```sh
+tkn results --insecure --addr localhost:8080 records list default/results/-
+tkn results --insecure --addr localhost:8080 records get -o textproto default/results/<result-uid>/records/<record-uid>
+tkn results --insecure --addr localhost:8080 logs list default/results/-
+# With logs_type File or S3, as set on this page, the Results API serves only the
+# v1alpha2 Logs API, so logs get needs --v1alpha2; without it, the command fails with
+# "unknown service tekton.results.v1alpha3.Logs". The flag works even where the CLI
+# marks it as deprecated:
+tkn results --insecure --addr localhost:8080 --v1alpha2 logs get -o textproto default/results/<result-uid>/logs/<log-uid>
 ```
 
 ##### Querying a single execution record
@@ -284,7 +307,7 @@ id: "0805bbd0-e390-40dc-a1ea-f65ae9401930"
 uid: "0805bbd0-e390-40dc-a1ea-f65ae9401930"
 data: {
   type: "tekton.dev/v1.TaskRun"
-  value: "{\"kind\": \"TaskRun\", \"spec\": {\"timeout\": \"1h0m0s\", \"taskSpec\": {\"steps\": [{\"name\": \"hello\", \"image\": \"152-231-registry.alauda.cn:60070/ops/ubuntu:latest\", \"command\": [\"echo\", \"hello\"], \"computeResources\": {}}]}, \"serviceAccountName\": \"default\"}, \"status\": {\"steps\": [{\"name\": \"hello\", \"imageID\": \"alpine\", \"container\": \"step-hello\", \"terminated\": {\"reason\": \"Completed\", \"exitCode\": 0, \"startedAt\": \"2025-02-19T08:17:20Z\", \"finishedAt\": \"2025-02-19T08:17:20Z\", \"containerID\": \"containerd://5e2cb72ca758fc976744b06b5ee97564bcc0958ca9cee2a54fdaab64323a1bf9\"}, \"terminationReason\": \"Completed\"}], \"podName\": \"hello-pod\", \"taskSpec\": {\"steps\": [{\"name\": \"hello\", \"image\": \"152-231-registry.alauda.cn:60070/ops/ubuntu:latest\", \"command\": [\"echo\", \"hello\"], \"computeResources\": {}}]}, \"startTime\": \"2025-02-19T08:17:10Z\", \"conditions\": [{\"type\": \"Succeeded\", \"reason\": \"Succeeded\", \"status\": \"True\", \"message\": \"All Steps have completed executing\", \"lastTransitionTime\": \"2025-02-19T08:17:21Z\"}], \"provenance\": {\"featureFlags\": {\"Coschedule\": \"workspaces\", \"MaxResultSize\": 4096, \"EnableAPIFields\": \"beta\", \"EnableArtifacts\": false, \"EnableParamEnum\": false, \"DisableCredsInit\": false, \"EnableStepActions\": true, \"SetSecurityContext\": false, \"AwaitSidecarReadiness\": true, \"EnableKeepPodOnCancel\": false, \"EnableTektonOCIBundles\": false, \"ResultExtractionMethod\": \"termination-message\", \"SendCloudEventsForRuns\": false, \"DisableAffinityAssistant\": false, \"EnableProvenanceInStatus\": true, \"EnforceNonfalsifiability\": \"none\", \"EnableCELInWhenExpression\": false, \"VerificationNoMatchPolicy\": \"ignore\", \"ScopeWhenExpressionsToTask\": false, \"RequireGitSSHSecretKnownHosts\": false, \"RunningInEnvWithInjectedSidecars\": true}}, \"completionTime\": \"2025-02-19T08:17:21Z\"}, \"metadata\": {\"uid\": \"209dcb81-e3c0-47cd-b082-d910e15702ae\", \"name\": \"hello\", \"labels\": {\"app.kubernetes.io/managed-by\": \"tekton-pipelines\"}, \"namespace\": \"default\", \"finalizers\": [\"results.tekton.dev/taskrun\", \"chains.tekton.dev\"], \"generation\": 1, \"annotations\": {\"results.tekton.dev/log\": \"default/results/209dcb81-e3c0-47cd-b082-d910e15702ae/logs/a750035d-0479-34a1-9db2-9a256b53243f\", \"chains.tekton.dev/signed\": \"true\", \"results.tekton.dev/record\": \"default/results/209dcb81-e3c0-47cd-b082-d910e15702ae/records/209dcb81-e3c0-47cd-b082-d910e15702ae\", \"results.tekton.dev/result\": \"default/results/209dcb81-e3c0-47cd-b082-d910e15702ae\", \"pipeline.tekton.dev/release\": \"8bfd3273cbe7776847884d7fa5004481e6be8f4a\"}, \"managedFields\": [{\"time\": \"2025-02-19T08:17:10Z\", \"manager\": \"kubectl-create\", \"fieldsV1\": {\"f:spec\": {\".\": {}, \"f:taskSpec\": {\".\": {}, \"f:steps\": {}}}}, \"operation\": \"Update\", \"apiVersion\": \"tekton.dev/v1\", \"fieldsType\": \"FieldsV1\"}, {\"time\": \"2025-02-19T08:17:21Z\", \"manager\": \"controller\", \"fieldsV1\": {\"f:metadata\": {\"f:finalizers\": {\"v:\\\"chains.tekton.dev\\\"\": {}}, \"f:annotations\": {\"f:chains.tekton.dev/signed\": {}, \"f:pipeline.tekton.dev/release\": {}}}}, \"operation\": \"Update\", \"apiVersion\": \"tekton.dev/v1\", \"fieldsType\": \"FieldsV1\"}, {\"time\": \"2025-02-19T08:17:21Z\", \"manager\": \"controller\", \"fieldsV1\": {\"f:status\": {\".\": {}, \"f:steps\": {}, \"f:podName\": {}, \"f:taskSpec\": {\".\": {}, \"f:steps\": {}}, \"f:artifacts\": {}, \"f:startTime\": {}, \"f:conditions\": {}, \"f:provenance\": {\".\": {}, \"f:featureFlags\": {\".\": {}, \"f:Coschedule\": {}, \"f:MaxResultSize\": {}, \"f:EnableAPIFields\": {}, \"f:EnableArtifacts\": {}, \"f:EnableParamEnum\": {}, \"f:DisableCredsInit\": {}, \"f:DisableInlineSpec\": {}, \"f:EnableStepActions\": {}, \"f:SetSecurityContext\": {}, \"f:AwaitSidecarReadiness\": {}, \"f:EnableKeepPodOnCancel\": {}, \"f:ResultExtractionMethod\": {}, \"f:SendCloudEventsForRuns\": {}, \"f:EnableKubernetesSidecar\": {}, \"f:DisableAffinityAssistant\": {}, \"f:EnableProvenanceInStatus\": {}, \"f:EnforceNonfalsifiability\": {}, \"f:EnableCELInWhenExpression\": {}, \"f:VerificationNoMatchPolicy\": {}, \"f:EnableConciseResolverSyntax\": {}, \"f:RequireGitSSHSecretKnownHosts\": {}, \"f:RunningInEnvWithInjectedSidecars\": {}}}, \"f:completionTime\": {}}}, \"operation\": \"Update\", \"apiVersion\": \"tekton.dev/v1\", \"fieldsType\": \"FieldsV1\", \"subresource\": \"status\"}, {\"time\": \"2025-02-19T08:17:21Z\", \"manager\": \"watcher\", \"fieldsV1\": {\"f:metadata\": {\"f:finalizers\": {\".\": {}, \"v:\\\"results.tekton.dev/taskrun\\\"\": {}}, \"f:annotations\": {\".\": {}, \"f:results.tekton.dev/log\": {}, \"f:results.tekton.dev/record\": {}, \"f:results.tekton.dev/result\": {}}}}, \"operation\": \"Update\", \"apiVersion\": \"tekton.dev/v1\", \"fieldsType\": \"FieldsV1\"}], \"resourceVersion\": \"1592422\", \"creationTimestamp\": \"2025-02-19T08:17:10Z\"}, \"apiVersion\": \"tekton.dev/v1\"}"
+  value: "{\"kind\": \"TaskRun\", \"spec\": {\"timeout\": \"1h0m0s\", \"taskSpec\": {\"steps\": [{\"name\": \"hello\", \"image\": \"alpine\", \"command\": [\"echo\", \"hello\"], \"computeResources\": {}}]}, \"serviceAccountName\": \"default\"}, \"status\": {\"steps\": [{\"name\": \"hello\", \"imageID\": \"alpine\", \"container\": \"step-hello\", \"terminated\": {\"reason\": \"Completed\", \"exitCode\": 0, \"startedAt\": \"2025-02-19T08:17:20Z\", \"finishedAt\": \"2025-02-19T08:17:20Z\", \"containerID\": \"containerd://5e2cb72ca758fc976744b06b5ee97564bcc0958ca9cee2a54fdaab64323a1bf9\"}, \"terminationReason\": \"Completed\"}], \"podName\": \"hello-pod\", \"taskSpec\": {\"steps\": [{\"name\": \"hello\", \"image\": \"alpine\", \"command\": [\"echo\", \"hello\"], \"computeResources\": {}}]}, \"startTime\": \"2025-02-19T08:17:10Z\", \"conditions\": [{\"type\": \"Succeeded\", \"reason\": \"Succeeded\", \"status\": \"True\", \"message\": \"All Steps have completed executing\", \"lastTransitionTime\": \"2025-02-19T08:17:21Z\"}], \"provenance\": {\"featureFlags\": {\"Coschedule\": \"workspaces\", \"MaxResultSize\": 4096, \"EnableAPIFields\": \"beta\", \"EnableArtifacts\": false, \"EnableParamEnum\": false, \"DisableCredsInit\": false, \"EnableStepActions\": true, \"SetSecurityContext\": false, \"AwaitSidecarReadiness\": true, \"EnableKeepPodOnCancel\": false, \"EnableTektonOCIBundles\": false, \"ResultExtractionMethod\": \"termination-message\", \"SendCloudEventsForRuns\": false, \"DisableAffinityAssistant\": false, \"EnableProvenanceInStatus\": true, \"EnforceNonfalsifiability\": \"none\", \"EnableCELInWhenExpression\": false, \"VerificationNoMatchPolicy\": \"ignore\", \"ScopeWhenExpressionsToTask\": false, \"RequireGitSSHSecretKnownHosts\": false, \"RunningInEnvWithInjectedSidecars\": true}}, \"completionTime\": \"2025-02-19T08:17:21Z\"}, \"metadata\": {\"uid\": \"209dcb81-e3c0-47cd-b082-d910e15702ae\", \"name\": \"hello\", \"labels\": {\"app.kubernetes.io/managed-by\": \"tekton-pipelines\"}, \"namespace\": \"default\", \"finalizers\": [\"results.tekton.dev/taskrun\", \"chains.tekton.dev\"], \"generation\": 1, \"annotations\": {\"results.tekton.dev/log\": \"default/results/209dcb81-e3c0-47cd-b082-d910e15702ae/logs/a750035d-0479-34a1-9db2-9a256b53243f\", \"chains.tekton.dev/signed\": \"true\", \"results.tekton.dev/record\": \"default/results/209dcb81-e3c0-47cd-b082-d910e15702ae/records/209dcb81-e3c0-47cd-b082-d910e15702ae\", \"results.tekton.dev/result\": \"default/results/209dcb81-e3c0-47cd-b082-d910e15702ae\", \"pipeline.tekton.dev/release\": \"8bfd3273cbe7776847884d7fa5004481e6be8f4a\"}, \"managedFields\": [{\"time\": \"2025-02-19T08:17:10Z\", \"manager\": \"kubectl-create\", \"fieldsV1\": {\"f:spec\": {\".\": {}, \"f:taskSpec\": {\".\": {}, \"f:steps\": {}}}}, \"operation\": \"Update\", \"apiVersion\": \"tekton.dev/v1\", \"fieldsType\": \"FieldsV1\"}, {\"time\": \"2025-02-19T08:17:21Z\", \"manager\": \"controller\", \"fieldsV1\": {\"f:metadata\": {\"f:finalizers\": {\"v:\\\"chains.tekton.dev\\\"\": {}}, \"f:annotations\": {\"f:chains.tekton.dev/signed\": {}, \"f:pipeline.tekton.dev/release\": {}}}}, \"operation\": \"Update\", \"apiVersion\": \"tekton.dev/v1\", \"fieldsType\": \"FieldsV1\"}, {\"time\": \"2025-02-19T08:17:21Z\", \"manager\": \"controller\", \"fieldsV1\": {\"f:status\": {\".\": {}, \"f:steps\": {}, \"f:podName\": {}, \"f:taskSpec\": {\".\": {}, \"f:steps\": {}}, \"f:artifacts\": {}, \"f:startTime\": {}, \"f:conditions\": {}, \"f:provenance\": {\".\": {}, \"f:featureFlags\": {\".\": {}, \"f:Coschedule\": {}, \"f:MaxResultSize\": {}, \"f:EnableAPIFields\": {}, \"f:EnableArtifacts\": {}, \"f:EnableParamEnum\": {}, \"f:DisableCredsInit\": {}, \"f:DisableInlineSpec\": {}, \"f:EnableStepActions\": {}, \"f:SetSecurityContext\": {}, \"f:AwaitSidecarReadiness\": {}, \"f:EnableKeepPodOnCancel\": {}, \"f:ResultExtractionMethod\": {}, \"f:SendCloudEventsForRuns\": {}, \"f:EnableKubernetesSidecar\": {}, \"f:DisableAffinityAssistant\": {}, \"f:EnableProvenanceInStatus\": {}, \"f:EnforceNonfalsifiability\": {}, \"f:EnableCELInWhenExpression\": {}, \"f:VerificationNoMatchPolicy\": {}, \"f:EnableConciseResolverSyntax\": {}, \"f:RequireGitSSHSecretKnownHosts\": {}, \"f:RunningInEnvWithInjectedSidecars\": {}}}, \"f:completionTime\": {}}}, \"operation\": \"Update\", \"apiVersion\": \"tekton.dev/v1\", \"fieldsType\": \"FieldsV1\", \"subresource\": \"status\"}, {\"time\": \"2025-02-19T08:17:21Z\", \"manager\": \"watcher\", \"fieldsV1\": {\"f:metadata\": {\"f:finalizers\": {\".\": {}, \"v:\\\"results.tekton.dev/taskrun\\\"\": {}}, \"f:annotations\": {\".\": {}, \"f:results.tekton.dev/log\": {}, \"f:results.tekton.dev/record\": {}, \"f:results.tekton.dev/result\": {}}}}, \"operation\": \"Update\", \"apiVersion\": \"tekton.dev/v1\", \"fieldsType\": \"FieldsV1\"}], \"resourceVersion\": \"1592422\", \"creationTimestamp\": \"2025-02-19T08:17:10Z\"}, \"apiVersion\": \"tekton.dev/v1\"}"
 }
 etag: "0805bbd0-e390-40dc-a1ea-f65ae9401930-1739953041309658421"
 created_time: {
@@ -305,6 +328,8 @@ update_time: {
 }
 ```
 
+The sample output comes from an earlier release. In its `metadata.finalizers`, `chains.tekton.dev` is the former name of the Chains finalizer of a `TaskRun`; Chains now names it `chains.tekton.dev/taskrun`.
+
 ##### Querying the log list
 
 ```sh
@@ -315,14 +340,40 @@ default/results/209dcb81-e3c0-47cd-b082-d910e15702ae/logs/a750035d-0479-34a1-9db
 
 ##### Querying a single log
 
-> The Logs API version may vary by deployment.
-> If you encounter `unknown service tekton.results.v1alpha3.Logs`, retry the command with the `--v1alpha2` flag.
+> With `logs_type` `File` or `S3`, the types that this page sets, the Results API serves only the v1alpha2 Logs API.
+> `logs get` therefore needs the `--v1alpha2` flag; without it, the command fails with `unknown service tekton.results.v1alpha3.Logs`.
+> `logs get` uses the flag to call the v1alpha2 Logs API, even where the CLI marks the flag as deprecated.
 
 ```sh
-$ tkn results --insecure logs get -o textproto default/results/209dcb81-e3c0-47cd-b082-d910e15702ae/logs/a750035d-0479-34a1-9db2-9a256b53243f
+$ tkn results --insecure --v1alpha2 logs get -o textproto default/results/209dcb81-e3c0-47cd-b082-d910e15702ae/logs/a750035d-0479-34a1-9db2-9a256b53243f
 
 content_type: "text/plain"
 data: "[prepare] 2025/02/19 08:17:12 Entrypoint initialization\n\n[hello] hello\n\n"
+```
+
+#### 4. Turn authentication back on \{#turn-authentication-back-on}
+
+The installation patch sets `auth_disable: true`, which is for testing only. After the test, save the following merge patch as `results-auth-patch.yaml`:
+
+```yaml
+spec:
+  result:
+    auth_disable: false
+```
+
+Merge it, then repeat the second command until it prints `AUTH_DISABLE=false`. If it keeps printing `AUTH_DISABLE=true`, read the `TektonConfig` conditions with the third command. The Operator applies the Pipelines, event-based Pruner, Triggers and Chains components before Tekton Results and stops at a component that it cannot apply; the `ComponentsReady` condition is then `False` with a message that starts with `Components not in ready state:` and names that component:
+
+```bash
+kubectl patch tektonconfig config --type merge --patch-file results-auth-patch.yaml
+kubectl get configmap tekton-results-api-config -n tekton-pipelines -o jsonpath='{.data.config}' | grep AUTH_DISABLE
+kubectl get tektonconfig config -o jsonpath='{range .status.conditions[*]}{.type} {.status} {.message}{"\n"}{end}'
+```
+
+The Results API reads this setting only when it starts. Delete its Pod so that the Deployment starts a new one with the setting, then check that the new Pod is `Running`:
+
+```bash
+kubectl delete pods -n tekton-pipelines -l app.kubernetes.io/name=tekton-results-api
+kubectl get pods -n tekton-pipelines -l app.kubernetes.io/name=tekton-results-api
 ```
 
 ## References

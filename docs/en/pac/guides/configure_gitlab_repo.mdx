@@ -30,11 +30,11 @@ PAC needs a token to read project metadata, post merge request comments, and upd
 
 This Repository-local token is used by PAC during normal pipeline processing. It does not need Maintainer/Owner access solely for webhook registration when a centralized webhook registration credential is configured.
 
-For automatic webhook registration, configure a matching centralized credential with the `api` scope. The token identity must be an instance administrator or have Maintainer/Owner access to the target project. See [Centralized webhook registration token](../how_to/create_git_secret.mdx#centralized-webhook-registration-token).
+For automatic webhook registration, configure a matching centralized credential with the `api` scope. The token identity must be an instance administrator or have Maintainer/Owner access to the target project. The credential is a Secret in the webhook registration controller namespace (`tekton-pipelines` in the default installation); creating it needs write access to Secrets there, usually a cluster administrator. See [Centralized webhook registration token](../how_to/create_git_secret.mdx#centralized-webhook-registration-token).
 
 ## Step 2: Create the Kubernetes Secret \{#step-2-create-the-kubernetes-secret}
 
-Create one Secret carrying the GitLab token and a webhook secret. Follow [Create a Git Secret for PAC](../how_to/create_git_secret.mdx).
+Create one Secret carrying the GitLab token and a webhook secret. Follow Step 2 and Step 3 of [Create a Git Secret for PAC](../how_to/create_git_secret.mdx#step-2-choose-a-webhook-secret), and create the Secret as `gitlab-webhook-config` in the namespace `project-pipelines`: use these names for `<secret-name>` and `<your-namespace>`, or for `metadata.name` and `metadata.namespace` in the manifest.
 
 In the rest of this guide the Secret is named `gitlab-webhook-config`.
 
@@ -52,13 +52,14 @@ The `Repository` references the Secret. For GitLab.com:
       url: https://gitlab.com/<group>/<project>
       git_provider:
         type: gitlab
+        url: https://gitlab.com
         secret:
           name: gitlab-webhook-config
         webhook_secret:
           name: gitlab-webhook-config
     ```
 
-For self-hosted GitLab, set `spec.url` to the project URL and add `git_provider.url` with the GitLab instance base URL:
+For self-hosted GitLab, set `spec.url` to the project URL and `git_provider.url` to the GitLab instance base URL:
 
     ```yaml
     spec:
@@ -73,10 +74,10 @@ For self-hosted GitLab, set `spec.url` to the project URL and add `git_provider.
     ```
 
 :::info
-For self-hosted GitLab, `git_provider.url` must be the GitLab instance base URL, not the project URL.
+For self-hosted GitLab, `git_provider.url` must be the GitLab instance base URL, not the project URL. Without `git_provider.url`, PAC can report the final status of a run to `https://gitlab.com` with the Repository's token.
 :::
 
-Apply it:
+Save the `Repository` manifest as `repository.yaml` and apply it:
 
     ```bash
     kubectl apply -f repository.yaml
@@ -90,7 +91,7 @@ Verify:
 
 Example output:
 
-    ```
+    ```text
     NAME      URL                                       SUCCEEDED   REASON   STARTTIME   COMPLETIONTIME
     my-repo   https://gitlab.com/group/project
     ```
@@ -128,6 +129,8 @@ To exclude one Repository from automatic webhook registration, add this label to
         pac.tekton.alauda.io/webhook-registration-disabled: "true"
     ```
 
+If the controller has already registered a webhook for this Repository, adding the label deletes that webhook from the GitLab project. After the controller has processed the label, the `pac.tekton.alauda.io/webhook-registration-status` annotation is `Skipped` and `pac.tekton.alauda.io/webhook-registration-reason` is `RepositoryOptOut`. Register it again by hand as described in [Manual fallback](#manual-fallback) if the project still needs to send events to PAC.
+
 ### Manual fallback \{#manual-fallback}
 
 If automatic registration is disabled or cannot be used, register the webhook manually:
@@ -145,11 +148,11 @@ If automatic registration is disabled or cannot be used, register the webhook ma
    - **Merge request events**
 5. Click **Add webhook**.
 
-GitLab offers a **Test → Push events** action under the webhook entry. A `200` response confirms the controller received and accepted the event.
+GitLab offers a **Test → Push events** action under the webhook entry. PAC answers with HTTP `202` and the body `{"status":202,"message":"accepted"}`. This only shows that the controller received the request: PAC checks the secret token and matches the `.tekton/` PipelineRuns after it replies, so a wrong secret token also gets `202`. Check the result with `kubectl get pipelineruns` and in the PAC controller log, as described in [Verification](#verification).
 
 ## Step 5: Add a PipelineRun and trigger it \{#step-5-add-a-pipelinerun-and-trigger-it}
 
-Add a PipelineRun manifest under `.tekton/` in the repository and push it. PAC reads the file from the branch the event was raised on, matches the annotations against the event, and creates a `PipelineRun` in the namespace.
+Add a PipelineRun manifest under `.tekton/` in the repository and push it. PAC reads the file from the branch the event was raised on, matches the annotations against the event, and creates a `PipelineRun` in the namespace. With `pipelinerun_provenance: default_branch` instead of the default `source`, PAC reads the file from the branch whose name is the repository's default branch (for example `main`), whichever branch a merge request comes from; see [Source Branch Configuration](../how_to/advanced_repository_config.mdx#2-source-branch-configuration).
 
 See [Define PipelineRuns in Git](../how_to/maintain_pipeline_code.mdx) for the file layout and annotation grammar, and [Trigger PAC Pipelines](../how_to/trigger_pipeline.mdx) for automatic and comment-based triggers.
 
@@ -162,10 +165,22 @@ After a Git event arrives, PAC creates a `PipelineRun` in the `Repository`'s nam
       -l pipelinesascode.tekton.dev/repository=my-repo
     ```
 
-The PAC controller logs show the event being processed:
+The PAC controller logs show the event being processed. Reading them needs read access to Pod logs in the PAC namespace, usually a cluster administrator. With `-l`, `kubectl logs` prints only the last 10 lines unless `--tail` is set, so the commands below read every line of the last 10 minutes; increase `--since` if the event is older:
 
     ```bash
-    kubectl logs -n <pac-namespace> -l app=pipelines-as-code-controller --tail=100
+    kubectl logs -n <pac-namespace> -l app=pipelines-as-code-controller --since=10m --tail=-1
+    ```
+
+If no PipelineRun appears, check the controller log for a webhook secret mismatch. PAC does not reject a request with a wrong secret token; it answers `202`, logs an error, and creates no PipelineRun. PAC records an event on the `Repository` for this error only when the `webhook.secret` value stored in the Kubernetes Secret contains a newline or a space: the event `RepositorySecretValidation`, with a hint about that character. For any other wrong token, the error is not recorded as an event on the `Repository`, so only someone who can read Pod logs in the PAC namespace sees it:
+
+    ```bash
+    kubectl logs -n <pac-namespace> -l app=pipelines-as-code-controller --since=10m --tail=-1 | grep "check your webhook secret"
+    ```
+
+Example output (only the message shown):
+
+    ```text
+    an error occurred: client setup failed: could not validate payload, check your webhook secret?: gitlab webhook validation failed: token does not match configured secret
     ```
 
 GitLab displays the commit status set by PAC on the relevant pipeline / merge request page.
@@ -174,12 +189,14 @@ GitLab displays the commit status set by PAC on the relevant pipeline / merge re
 
 | Symptom | First thing to check |
 |---|---|
-| Webhook test returns `Hook executed successfully` but no PipelineRun appears | A PipelineRun manifest exists under `.tekton/` and its annotations match the event. See [Define PipelineRuns in Git](../how_to/maintain_pipeline_code.mdx). |
+| Webhook test succeeds (HTTP `202`) but no PipelineRun appears | The controller log has no webhook secret error (see [Verification](#verification) and the secret token row below). Then: a PipelineRun manifest exists under `.tekton/` and its annotations match the event. See [Define PipelineRuns in Git](../how_to/maintain_pipeline_code.mdx). |
 | Webhook test fails with `connection refused` | The PAC webhook URL is reachable from GitLab. See [Get the PAC Webhook URL](../how_to/get_pac_webhook_url.mdx#verification). |
-| Webhook test fails with `401` or `403` | The `webhook.secret` configured in GitLab matches the one in the Kubernetes Secret. |
-| Repository annotation `webhook-registration-status=Failed` | Run `kubectl describe repository <name> -n <ns>` and check `pac.tekton.alauda.io/webhook-registration-reason`. Common causes are missing token, insufficient token permission, wrong `git_provider.url`, or untrusted certificates. |
-| Self-hosted GitLab events are not received | `git_provider.url` is set to the GitLab base URL, not to the project URL. |
-| Status checks are not posted back to GitLab | The token has the `api` scope and has not expired. |
+| Webhook test succeeds (HTTP `202`), no PipelineRun appears, and the controller log shows `could not validate payload, check your webhook secret?: gitlab webhook validation failed: token does not match configured secret` | The **Secret token** of the GitLab webhook matches the `webhook.secret` value in the Kubernetes Secret. PAC does not reject a wrong token with `401` or `403`: it accepts the request, logs this error, and creates no PipelineRun. |
+| Webhook test succeeds (HTTP `202`), no PipelineRun appears, and the controller log shows `could not validate payload, check your webhook secret?: no webhook secret configured: set webhook secret in repository CR or secret` | The `Repository` references the Kubernetes Secret that holds the webhook secret in `git_provider.webhook_secret`. Without a webhook secret, PAC drops every GitLab webhook event for the `Repository`; requests to the incoming webhook endpoint do not use the webhook secret. See [Create the Git Secret](../how_to/create_git_secret.mdx). |
+| Webhook test succeeds (HTTP `202`), no PipelineRun appears, and the controller log shows `could not validate payload, check your webhook secret?: no X-Gitlab-Token header detected: webhook validation requires a token for security` | The GitLab webhook sends no **Secret token**. First check that the `Repository` references the Kubernetes Secret that holds the webhook secret in `git_provider.webhook_secret`: with automatic registration, the controller then sets the webhook's **Secret token** from it. For a webhook added by hand, set its **Secret token** to the `webhook.secret` value in the Kubernetes Secret. |
+| Repository annotation `webhook-registration-status=Failed` | Run `kubectl describe repository <name> -n <ns>` and check `pac.tekton.alauda.io/webhook-registration-reason`. Common causes are a missing Secret or an empty key referenced by `git_provider.webhook_secret` (reason `MissingWebhookSecret`), missing token, insufficient token permission, wrong `git_provider.url` (reason `InvalidRepository` when it is the project URL), or untrusted certificates. A `ProviderAPIError` with status 404 or 405 on a hook URL means that the GitLab project was moved, renamed, or scheduled for deletion; point `spec.url` at the current project path. |
+| Self-hosted GitLab: the webhook test succeeds (HTTP `202`) but no PipelineRun appears, and the controller log shows `failed to list .tekton dir: Get \"https://<gitlab-host>/<group>/<project>/api/v4/...`; or the Repository has `pac.tekton.alauda.io/webhook-registration-reason=InvalidRepository` with the message `GitLab repository path is empty` | `git_provider.url` is the GitLab instance base URL (for example `https://gitlab.example.com`), not the project URL. PAC appends `/api/v4` to `git_provider.url`, so a project URL sends its GitLab API calls to a wrong path, and automatic webhook registration fails. |
+| Status checks are not posted back to GitLab | The token has the `api` scope and has not expired. The Repository events show the error; events are kept only for a limited time, so check soon after the event: `kubectl get events -n <ns> --field-selector involvedObject.kind=Repository` lists `FailedToSetCommitStatus` with `403 {error: insufficient_scope}` for a token without the `api` scope, or with `POST https://gitlab.com/api/v4/projects/<id>/statuses/<sha>` for a self-hosted GitLab when the Repository has no `git_provider.url`. |
 
 For the full troubleshooting matrix, see [Common Issues](../trouble_shooting/common_issues.mdx).
 

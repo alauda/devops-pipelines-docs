@@ -12,16 +12,22 @@ For the architecture, motivations, and design background of ScheduledTrigger, se
 
 ScheduledTrigger lets you execute a TriggerTemplate on a cron-style cadence without relying on inbound webhooks. Each tick of the schedule renders the template, injects any static or time-based parameters, and creates the Tekton resources (for example PipelineRuns) you defined. This how-to walks you through preparing the prerequisites, writing the manifest, and validating the automation end to end.
 
+### Typical Use Cases
+
+- Nightly regression tests or security scans that must run even when no Git activity occurs.
+- Scheduled reports, such as the weekly report in [Time-Zone-Aware Weekly Example](#time-zone-aware-weekly-example).
+
 ## Supported Resource Types
 
 ScheduledTrigger currently supports the following Tekton Pipelines resources in TriggerTemplate:
 
-> Recommendation: use `tekton.dev/v1` for the following resources; `tekton.dev/v1beta1` is still accepted but is deprecated and will be removed in a future release.
+> Recommendation: use `tekton.dev/v1` for `PipelineRun` and `TaskRun`; `tekton.dev/v1beta1` is still accepted for them but is deprecated and will be removed in a future release. `CustomRun` exists only as `tekton.dev/v1beta1`.
 
-| Resource Type | Description           |
-|---------------|-----------------------|
-| PipelineRun   | Pipeline run instance |
-| TaskRun       | Task run instance     |
+| Resource Type | Description                                                                                                                           |
+|---------------|---------------------------------------------------------------------------------------------------------------------------------------|
+| PipelineRun   | Pipeline run instance                                                                                                                 |
+| TaskRun       | Task run instance                                                                                                                     |
+| CustomRun     | Custom task run instance, for example an `ApprovalTask` (see [Manual Approval Gate](../../pipelines/how_to/manual_approval_gate.mdx)) |
 
 ## Typical Workflow
 
@@ -49,7 +55,7 @@ spec:
     ref: security-scan-template         # Reference an existing TriggerTemplate
 ```
 
-## Step-by-Step Configuration
+## Step-by-Step Configuration \{#step-by-step-configuration}
 
 ### 1. Choose the cadence and time zone
 
@@ -63,7 +69,7 @@ You can reference a reusable template via `spec.triggerTemplate.ref`, or embed a
 
 ### 3. Pass parameters
 
-- Use `spec.params` to feed static values into the template (`$(tt.params.<name>)`). Context placeholders (for example `$(context.date)` and `$(context.datetime)`) are only valid in this section.
+- Use `spec.params` to feed static values into the template (`$(tt.params.<name>)`). Context placeholders (for example `$(context.date)` and `$(context.datetime)`) are replaced only in this section; anywhere else they stay as literal text.
 - Combine those placeholders with your own params to generate deterministic run names, tags, or report partitions, then reference them inside the template as `$(tt.params.<name>)`.
 - Because Tekton Trigger parameters are strings, serialize complex objects (for example JSON) before passing them.
 
@@ -86,15 +92,17 @@ kubectl get scheduledtrigger <scheduled-trigger-name> -n <namespace>
 
 # Replace with your ScheduledTrigger name and namespace
 kubectl describe scheduledtrigger <scheduled-trigger-name> -n <namespace>
+# Right after creation, there is no Last Schedule Time and no event yet.
+# After the first run at 02:00 Asia/Shanghai (18:00 UTC), the output includes:
 # Status:
-#   Last Schedule Time:  2025-11-25T07:42:00Z
+#   Last Schedule Time:  2025-11-25T18:00:00Z
 # Events:
-#   Type    Reason     Age      From               Message
-#   ----    ------     ----     ----               -------
-#   Normal  Scheduled  5s       scheduled-trigger  Scheduled security-scan-template for 2025-11-25T07:42:00Z
+#   Type    Reason     Age   From               Message
+#   ----    ------     ----  ----               -------
+#   Normal  Scheduled  5s    scheduled-trigger  Scheduled security-scan-template for 2025-11-25T18:00:00Z
 ```
 
-Check the `LAST SCHEDULETIME` column (or the `.status.lastScheduleTime` field) to confirm the controller is firing. Kubernetes events surfaced by `kubectl describe` will indicate successful runs or scheduling errors (for example invalid cron expressions or missing templates).
+Check the `.status.lastScheduleTime` field (shown as `Last Schedule Time` by `kubectl describe`) to confirm the controller is firing. The `Scheduled` event message names the TriggerTemplate of `spec.triggerTemplate.ref`; with an inline template (`spec.triggerTemplate.spec`) the name is empty, so the message reads `Scheduled  for <time>`, with two spaces. The time in the `Scheduled` event message is in the time zone of the controller, not in the `spec.timeZone` of the ScheduledTrigger: UTC by default, as in the sample, or the zone of the controller `TZ` variable described in [Set the controller default time zone cluster-wide](#set-the-controller-default-time-zone-cluster-wide), for example `2025-11-26T02:00:00+08:00` with `Asia/Shanghai`. Kubernetes events surfaced by `kubectl describe` indicate successful runs and scheduling errors such as a missing template. Events are kept only for a limited time, so the `Scheduled` event of an older run can be gone; `Last Schedule Time` stays. An invalid cron expression is rejected when the `ScheduledTrigger` is created or updated, so it does not appear as an event.
 
 If executions still do not start as expected, review the [ScheduledTrigger troubleshooting guide](../trouble_shooting/scheduledtrigger_not_triggered) for detailed investigation steps.
 
@@ -108,7 +116,7 @@ The `$(context.date)` and `$(context.datetime)` placeholders are rendered using 
 
 For example, with no `spec.timeZone` and the default controller zone, `$(context.datetime)` resolves to a UTC timestamp such as `2025-11-25T07:42:00Z`.
 
-### Set the controller default time zone cluster-wide
+### Set the controller default time zone cluster-wide \{#set-the-controller-default-time-zone-cluster-wide}
 
 Out of the box the ScheduledTrigger controller runs in **UTC**. To change the default for every ScheduledTrigger that does not set its own `spec.timeZone`, inject a `TZ` environment variable into the controller through `TektonConfig` options. The operator applies this additively and does not revert it on reconcile:
 
@@ -132,17 +140,25 @@ spec:
                         value: Asia/Shanghai
 ```
 
-After you apply the change, the operator rolls out the controller. Subsequent runs render the context placeholders in the configured zone — for example `$(context.datetime)` becomes `2025-11-25T15:42:00+08:00` for `Asia/Shanghai`.
+Save the sample as `tektonconfig-tz.yaml` and merge it into the existing `TektonConfig`:
+
+```bash
+kubectl patch tektonconfig config --type merge --patch-file tektonconfig-tz.yaml
+```
+
+A merge patch replaces lists as a whole: if `TektonConfig` already sets `containers` for this Deployment, copy those entries into the file. Do not use `kubectl apply -f` for a file that holds only part of `TektonConfig`: `kubectl apply` stores the file in the `kubectl.kubernetes.io/last-applied-configuration` annotation, and a later `kubectl apply -f` of another partial file deletes the fields that the earlier file set and the later file leaves out, such as this `TZ` setting or the trigger export rules.
+
+After the change, the operator rolls out the controller. Subsequent runs render the context placeholders in the configured zone — for example `$(context.datetime)` becomes `2025-11-25T15:42:00+08:00` for `Asia/Shanghai`.
 
 :::note
 - Editing the controller Deployment directly (for example with `kubectl set env`) is reverted by the operator within minutes. Always configure `TZ` through `TektonConfig` so the change is persistent.
 - A per-trigger `spec.timeZone` always overrides this cluster-wide default. Prefer `spec.timeZone` for individual schedules and reserve the controller `TZ` for setting an organization-wide default.
-- `TZ` accepts IANA/Olson time zone names (for example `UTC`, `Asia/Shanghai`, `Asia/Kolkata`). An invalid name leaves the controller on its previous zone.
+- `TZ` accepts IANA/Olson time zone names (for example `UTC`, `Asia/Shanghai`, `Asia/Kolkata`). With an invalid name, the controller process falls back to UTC (Go `time.Local` is UTC when `TZ` cannot be loaded), so every ScheduledTrigger without `spec.timeZone` fires and renders its placeholders in UTC.
 :::
 
 ## Managing ScheduledTrigger Over Time
 
-- **Update cadence**: Edit the resource (`kubectl edit` or apply a new manifest) to change `spec.schedule` or `spec.timeZone`. The next tick recalculates automatically.
+- **Update cadence**: Edit the resource (`kubectl edit` or apply a new manifest) to change `spec.schedule` or `spec.timeZone`. The controller computes the next time from `status.lastScheduleTime` (the creation time if the ScheduledTrigger has not run yet) with the new schedule and time zone. If one or more times of the new schedule lie between the last run and the edit, it can create one run at once for the most recent of those times; it then follows the new schedule. For example, a ScheduledTrigger with `0 2 * * *` that last ran at 02:00 and is changed to `0 9 * * *` at 10:00 starts one run at once for the missed 09:00 time.
 - **Rotate parameters**: Modify `spec.params` to update static values such as environment names, feature flags, or recipients.
 - **Switch templates**: Point `spec.triggerTemplate.ref` to a new template, or update the inline spec. Subsequent executions use the new logic immediately.
 - **Pause or remove**: Delete the ScheduledTrigger to stop future runs. Recreate it later with the same name if you need to resume the cadence.
@@ -181,7 +197,7 @@ spec:
                 value: "$(tt.params.run_timestamp)"
 ```
 
-## Time-Zone-Aware Weekly Example
+## Time-Zone-Aware Weekly Example \{#time-zone-aware-weekly-example}
 
 ```yaml
 apiVersion: tekton.alaudadevops.io/v1alpha1
@@ -197,6 +213,33 @@ spec:
   triggerTemplate:
     ref: weekly-report-template
 ```
+
+## Recommended Settings
+
+**When to enable.** Use ScheduledTrigger when work must run on a calendar rather than in response to an event, such as scans and reports. Set the time zone once at the cluster level so that every ScheduledTrigger without its own `spec.timeZone` fires on the same clock.
+
+**Recommended values.** Set the organization-wide default time zone once through the controller `TZ` variable in `TektonConfig`, as described in [Set the controller default time zone cluster-wide](#set-the-controller-default-time-zone-cluster-wide), and set `spec.timeZone` only on schedules that must follow a different zone. To undo the default, remove the `TZ` entry from the `env` list of the `manager` container in `TektonConfig`, for example with `kubectl edit tektonconfig config`, and keep the other options of `tektoncd-enhancement-controller`; the operator then removes `TZ` from the controller and rolls it back. Create one ScheduledTrigger per job in the namespace where its TriggerTemplate lives, with a cadence chosen for that job. Pass every value the template needs explicitly in `spec.params`, including a `$(context.date)` or `$(context.datetime)` placeholder so each run can be identified:
+
+```yaml
+apiVersion: tekton.alaudadevops.io/v1alpha1
+kind: ScheduledTrigger
+metadata:
+  name: nightly-security-scan
+  namespace: <namespace>
+spec:
+  schedule: "0 2 * * *"
+  params:
+    - name: scan_date
+      value: "$(context.date)"
+    - name: severity
+      value: "high"
+  triggerTemplate:
+    ref: security-scan-template
+```
+
+After applying, confirm that `Last Schedule Time` (`.status.lastScheduleTime`) advances at each tick and that the `Scheduled` events appear, as shown in step 5, "Validate the resource", under [Step-by-Step Configuration](#step-by-step-configuration).
+
+**Prerequisites.** Setting the controller `TZ` changes `TektonConfig` and needs cluster administrator rights. The ScheduledTrigger controller (`tektoncd-enhancement-controller`) must be running, and the referenced TriggerTemplate must exist in the namespace of the ScheduledTrigger. The Pipeline or Task it runs must exist in the namespace where the run is created: the namespace of the ScheduledTrigger, unless the resource template sets its own `metadata.namespace`. Kubernetes RBAC must allow the controller to resolve and execute that template. If an admission policy in the namespace where the run is created denies `TaskRun` create requests that do not come from the Tekton Pipelines controller, such as the `deny-standalone-taskrun` rule in [Constrain Tekton Pipeline Execution with Kyverno](../../pipelines/how_to/constrain_pipeline_execution_with_kyverno.mdx), a template that creates a `TaskRun` is denied unless the policy excludes the ServiceAccount of the ScheduledTrigger controller (`tektoncd-enhancement-controller` in the namespace set by `TektonConfig` `spec.targetNamespace`, `tekton-pipelines` by default). Time zone names must be valid IANA time zone names; the controller binary carries its own copy of the IANA time zone database. Cron expressions must use the standard five-field form; see [ScheduledTrigger Concepts](../concepts/scheduledtrigger_concept.mdx).
 
 ## Reference Links
 

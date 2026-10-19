@@ -20,25 +20,27 @@ This guide explains advanced configuration options for Repository Custom Resourc
 
 - PAC component deployed and running
 - A Repository CR created (see [Guides](../guides/index.mdx))
+- For the Repository samples that reference the Secret `my-repo-auth`: that Secret, with the keys `provider.token` and `webhook.secret`, in the namespace of the Repository (`project-pipelines`, and `production` and `staging` in [Example: Environment-Specific Configuration](#example-environment-specific-configuration)), created in [Create a Git Secret for PAC, Step 3](./create_git_secret.mdx#step-3-create-the-kubernetes-secret); because it uses the default keys, these samples omit `key`. The global Repository sample uses its own Secret, and the `my-app-repo` sample inherits the Secret of the global Repository
+- The Repository samples use GitLab.com (`https://gitlab.com`). For a self-hosted GitLab, set `spec.url` to the project URL and `git_provider.url` to the GitLab base URL; without `git_provider.url`, PAC can report the final status of a run to `https://gitlab.com` with the Repository's token
 - Cluster administrator or namespace-level permissions
 
 ## Creating a Global Repository CR \{#creating-a-global-repository-cr}
 
 :::info Tech Preview Feature
-The global Repository CR feature is a **Technology Preview** feature that provides automatic configuration inheritance for all Repository CRs.
+The global Repository CR feature is a **Technology Preview** feature that lets Repository CRs inherit shared configuration from one global Repository CR.
 :::
 
-Alternatively, you can create a **global Repository CR** in the namespace where PAC is installed (typically `tekton-pipelines` or configured via `targetNamespace` in the `TektonConfig` CR). If you create a Repository CR named `pipelines-as-code` in this namespace, the settings you specify in it will be **automatically applied** to all Repository CRs you create.
+Alternatively, you can create a **global Repository CR** in the namespace where PAC is installed (typically `tekton-pipelines` or configured via `targetNamespace` in the `TektonConfig` CR). If you create a Repository CR named `pipelines-as-code` in this namespace, other Repository CRs inherit the fields of it that they leave unset, under the conditions listed under **Behavior** below.
 
 **Key Points**:
 - **Name**: Must be exactly `pipelines-as-code`
 - **Namespace**: Must be in the PAC installation namespace (e.g., `tekton-pipelines`)
-- **Auto-apply**: Settings automatically apply to all Repository CRs
+- **Inheritance**: A Repository inherits only the fields it leaves unset; `git_provider` fields and some `settings` fields are inherited only when the Repository has its own `git_provider` or `settings` block, and `incoming` is not inherited (see **Behavior** below)
 - **Tech Preview**: This is a Technology Preview feature
 
 ### Example: Global Repository CR \{#example-global-repository-cr}
 
-Create a global Repository CR in the PAC namespace — the one in `TektonConfig.spec.targetNamespace`, which the example below assumes is the default `tekton-pipelines`. Replace it if your cluster uses a different one: PAC only reads the global Repository from its own namespace, so one created elsewhere is accepted without error and inherited by nothing.
+Create a global Repository CR in the PAC namespace — the one in `TektonConfig.spec.targetNamespace`, which the example below assumes is the default `tekton-pipelines`. Replace it if your cluster uses a different one: PAC only reads the global Repository from its own namespace. In any other namespace, the PAC admission webhook rejects the example below because it has no `spec.url`: `admission webhook "validation.pipelinesascode.tekton.dev" denied the request: URL must be set`. Creating the global Repository and its Secret needs write access to Repositories and Secrets in the PAC namespace, usually a cluster administrator.
 
     ```yaml
     apiVersion: pipelinesascode.tekton.dev/v1alpha1
@@ -49,6 +51,7 @@ Create a global Repository CR in the PAC namespace — the one in `TektonConfig.
     spec:
       git_provider:
         type: gitlab
+        url: "https://gitlab.com"
         secret:
           name: gitlab-webhook-config
           key: provider.token
@@ -57,16 +60,22 @@ Create a global Repository CR in the PAC namespace — the one in `TektonConfig.
           key: webhook.secret
     ```
 
-Apply the CR:
+Create the Secret `gitlab-webhook-config` in the same namespace as the global Repository. A Repository that leaves `git_provider.url` unset inherits this `url` (see **Behavior** below); for a self-hosted GitLab, set it to the GitLab base URL.
+
+Save the CR as `global-repository.yaml` and apply it:
 
     ```bash
     kubectl apply -f global-repository.yaml
     ```
 
 **Behavior**:
-- All Repository CRs you create will inherit these `git_provider` settings
-- Individual Repository CRs can override these settings if needed
-- You still need to specify `url` and other repository-specific settings in each Repository CR
+- `git_provider`: a Repository inherits the global `git_provider` fields (`url`, `user`, `type`, `secret`, `webhook_secret`) that it leaves unset, only when it has its own `git_provider` block whose `type` is empty or the same as the global one. A Repository without a `git_provider` block, or with a different `type`, inherits none of these fields
+- `settings`: a Repository inherits only these global `settings` fields, when it leaves them unset and only when it has its own `settings` block: `pipelinerun_provenance`, `policy`, `github_app_token_scope_repos`, `forgejo`, `ai` and `gitops_command_prefix`. Provider settings such as `settings.gitlab` and `settings.github`, which hold `comment_strategy`, are not inherited; set them in each Repository
+- `concurrency_limit` and `params`: a Repository takes the global value when it leaves the field unset
+- `incoming`: not inherited. PAC handles an incoming-webhook request only when the Repository named in the request has its own `incoming` rules. Otherwise PAC drops the request: the caller gets HTTP `200` with an empty body, no `PipelineRun` is created, and the PAC controller log shows `error processing incoming webhook: you need to have incoming webhooks rules in your repo spec, repo: <name>`. Define `incoming` in each Repository that receives incoming webhooks
+- `secret` and `webhook_secret`: set them the same way. Either set both in the Repository, referencing a Secret in the Repository's own namespace, or leave both unset in a Repository that inherits `git_provider` fields (see the first item), so that it inherits both; PAC then reads the token and the webhook secret from the namespace of the global Repository
+- A field that a Repository CR sets itself keeps its own value; the global value does not override it
+- You still need to specify `spec.url` and other repository-specific settings in each Repository CR
 
 ### Example: Using Global Settings \{#example-using-global-settings}
 
@@ -79,10 +88,31 @@ With the global CR above, you can create individual Repository CRs with minimal 
       name: my-app-repo
       namespace: my-project
     spec:
-      url: "https://gitlab.com/user/my-app"
-      # git_provider settings are inherited from the global CR
+      url: "https://gitlab.com/<group>/<project>"
+      # url, secret and webhook_secret are inherited from the global CR;
+      # inheritance needs this git_provider block (type empty or gitlab)
       git_provider:
         type: gitlab
+    ```
+
+### Stop Using the Global Repository CR \{#stop-using-the-global-repository-cr}
+
+PAC reads the global Repository CR again for every webhook request, so deleting it takes effect at the next event: from then on, each Repository has only the fields that it sets itself. To stop using it, update the inheriting Repositories first, then delete it:
+
+1. In each Repository that inherits from the global Repository CR, set the fields that it inherits. Under the conditions listed under **Behavior** above, these are the `git_provider` fields (`url`, `user`, `type`, `secret`, `webhook_secret`), `concurrency_limit`, `params` and the listed `settings` fields that the Repository leaves unset; `kubectl get repository <name> -n <namespace> -o yaml` shows the fields that it sets itself. For the token and the webhook secret, create a Secret in the Repository's own namespace, as described in [Create the Git Secret](./create_git_secret.mdx), and reference it from both `secret` and `webhook_secret`: with both set in the Repository, PAC reads both from the Repository's namespace (see **Behavior** above). As `webhook.secret`, store the value that the Git provider webhook sends today; while the Repository's events pass, it equals the webhook secret that PAC reads for the Repository now (for a Repository that inherits both `secret` and `webhook_secret`, such as the `my-app-repo` example, the key `webhook.secret` of the Secret `gitlab-webhook-config` in the PAC namespace). Reading a Secret in the PAC namespace needs read access to Secrets there, usually a cluster administrator. If the new Secret holds a different value, PAC drops the Git provider events of the Repository from the moment the Repository references it until the webhook sends the new value; on GitLab, the controller log then shows `could not validate payload, check your webhook secret?: gitlab webhook validation failed: token does not match configured secret`.
+2. Delete the global Repository CR, and its Secret if nothing else uses it. This needs delete access to Repositories and Secrets in the PAC namespace, usually a cluster administrator. The commands in this section use `tekton-pipelines`, the default of `TektonConfig` `spec.targetNamespace`; replace it in the commands if your installation uses another namespace:
+
+    ```bash
+    kubectl delete repository pipelines-as-code -n tekton-pipelines
+    kubectl delete secret gitlab-webhook-config -n tekton-pipelines
+    ```
+
+If you delete the global Repository CR first, a Repository that inherited `secret` or `webhook_secret` has no token or webhook secret at its next event, and PAC drops its events: no `PipelineRun` is created. For a Repository that inherited `secret`, the controller logs a line that ends with `cannot get secret from repository: failed to find secret in git_provider section in repository spec: <namespace>/<name>`; for one that inherited only `webhook_secret`, it logs one of the webhook secret errors in [Troubleshooting](../guides/configure_gitlab_repo.mdx#troubleshooting) in Configure GitLab Repository.
+
+To see whether PAC reads a global Repository CR, check the PAC controller log; this needs read access to Pod logs in the PAC namespace, usually a cluster administrator. While a global Repository CR exists, PAC logs `detected global repository settings named pipelines-as-code in namespace <pac-namespace>` for every webhook request; after the deletion, new requests no longer log this line. The line does not name the Repository of the event. With `-l`, `kubectl logs` prints only the last 10 lines unless `--tail` is set, so the command reads every line of the last 10 minutes; increase `--since` if the event is older:
+
+    ```bash
+    kubectl logs -n tekton-pipelines -l app=pipelines-as-code-controller --since=10m --tail=-1 | grep 'detected global repository settings named'
     ```
 
 ## Setting Concurrency Limits \{#setting-concurrency-limits}
@@ -100,22 +130,20 @@ Edit your Repository CR to add the `concurrency_limit` field:
       name: my-repo
       namespace: project-pipelines
     spec:
-      url: "https://gitlab.com/user/repo"
+      url: "https://gitlab.com/<group>/<project>"
       concurrency_limit: 5
       git_provider:
         type: gitlab
         url: "https://gitlab.com"
         secret:
-          name: gitlab-secret
-          key: token
+          name: my-repo-auth
         webhook_secret:
-          name: webhook-secret
-          key: secret
+          name: my-repo-auth
     ```
 
 **Important**: 
 - The minimum value is `1`
-- If not specified, there is no limit on concurrent PipelineRuns
+- If neither the Repository nor a [global Repository](#creating-a-global-repository-cr) sets it, there is no limit on concurrent PipelineRuns. A Repository cannot remove a limit that it inherits from the global Repository: `0` is rejected (`spec.concurrency_limit in body should be greater than or equal to 1`); it can only set its own value
 - When the limit is reached, new events will queue until a PipelineRun completes
 
 ### Example Use Cases \{#example-use-cases}
@@ -134,7 +162,7 @@ Edit your Repository CR to add the `concurrency_limit` field:
       concurrency_limit: 2
     ```
 
-**No limit** (default): Allow unlimited concurrent runs:
+**No limit** (default, when no global Repository sets `concurrency_limit`): Allow unlimited concurrent runs:
 
     ```yaml
     spec:
@@ -158,7 +186,7 @@ Example output (abbreviated):
       name: my-repo
       namespace: project-pipelines
     spec:
-      concurrency_limit: 2
+      concurrency_limit: 5
     ```
 
 Monitor running PipelineRuns:
@@ -169,10 +197,9 @@ Monitor running PipelineRuns:
 
 Example output:
 
-    ```
-    NAME                    STARTED        DURATION   STATUS
-    simple-pipeline-xxxxx   2 minutes ago  30s        Running
-    test-pipeline-yyyyy     1 minute ago   45s        Running
+    ```text
+    simple-pipeline-xxxxx   Unknown     Running     2m
+    test-pipeline-yyyyy     Unknown     Running     1m
     ```
 
 ## Changing the Source Branch for Pipeline Definition \{#changing-the-source-branch-for-pipeline-definition}
@@ -190,13 +217,14 @@ metadata:
   name: my-repo
   namespace: project-pipelines
 spec:
-  url: "https://gitlab.com/user/repo"
+  url: "https://gitlab.com/<group>/<project>"
   git_provider:
     type: gitlab
     url: "https://gitlab.com"
     secret:
-      name: gitlab-secret
-      key: token
+      name: my-repo-auth
+    webhook_secret:
+      name: my-repo-auth
   settings:
     pipelinerun_provenance: "default_branch"
 ```
@@ -204,24 +232,24 @@ spec:
 **Supported values for `pipelinerun_provenance`**:
 
 - `source`: The default behavior. The PipelineRun definition is fetched from the branch where the event has been triggered.
-- `default_branch`: The PipelineRun definition is fetched from the repository default branch as configured on the Git provider (for example `main`, `master`, or `trunk`).
+- `default_branch`: The PipelineRun definition is fetched from the branch whose name is the repository default branch as configured on the Git provider (for example `main`, `master`, or `trunk`).
 
-### Security Benefits \{#security-benefits}
+### What the Setting Does \{#security-benefits}
 
-Letting the user specify the provenance of the PipelineRun definition to the default branch is another layer of security. It ensures that only the user who has the right to merge commits to the default branch can change the PipelineRun definition and gain access to the infrastructure.
+With `default_branch`, PAC reads the `.tekton/` definitions from the branch whose name is the repository's default branch (for example `main`), whichever branch a pull request or merge request comes from. `pipelinerun_provenance` only selects the branch that PAC reads the definition from. It is not an access control: it does not restrict who can push to the default branch, and it does not require a review.
 
-- **Prevents malicious pipeline changes**: Pipeline definitions must be merged to the default branch before they can be executed.
-- **Enforces review process**: All pipeline changes go through the standard merge/review process.
-- **Consistent pipeline behavior**: All runs use the same pipeline definitions from the default branch.
+- **Review comes from the Git provider**: Protect the default branch and require merge request or pull request approval on the Git provider, so that every pipeline change is reviewed before it reaches the default branch.
+
+To check that the setting took effect, open a test merge request or pull request that changes a value in a `.tekton/` file, for example the text that a step prints, and read the `PipelineRun` that PAC creates for it (`kubectl get pipelinerun <name> -n <namespace> -o yaml`). With `default_branch`, the `PipelineRun` still has the value from the default branch; with `source`, it has the changed value. A Repository inherits `pipelinerun_provenance` from the global Repository only when it has its own `settings` block (see **Behavior** under [Creating a Global Repository CR](#creating-a-global-repository-cr)). Readers who can read Pod logs in the PAC namespace can also find `Using PipelineRun definition from default_branch: <branch>` in the PAC controller log.
 
 ### Configuration comparison \{#configuration-comparison}
 
-| Configuration                                      | Branch Source          | Security Level | Use Case                     |
-|---------------------------------------------------|------------------------|----------------|------------------------------|
-| `settings.pipelinerun_provenance: "source"`       | Triggering branch      | Standard       | Development, testing         |
-| `settings.pipelinerun_provenance: "default_branch"` | Repository default branch | High         | Production, security-focused |
+| Configuration                                      | Branch Source          | Use Case                     |
+|---------------------------------------------------|------------------------|------------------------------|
+| `settings.pipelinerun_provenance: "source"`       | Triggering branch      | Development, testing         |
+| `settings.pipelinerun_provenance: "default_branch"` | Branch named like the repository default branch | Production |
 
-**Note**: Use `default_branch` when pipeline definitions must pass the repository's merge review process before they can affect future runs.
+**Note**: When you use `default_branch`, also protect the default branch and require reviews on the Git provider.
 
 ## Custom Parameter Expansion \{#custom-parameter-expansion}
 
@@ -238,7 +266,7 @@ Add parameters to the Repository CR `spec.params` field:
       name: my-repo
       namespace: project-pipelines
     spec:
-      url: "https://gitlab.com/user/repo"
+      url: "https://gitlab.com/<group>/<project>"
       params:
       - name: environment
         value: "production"
@@ -250,8 +278,9 @@ Add parameters to the Repository CR `spec.params` field:
         type: gitlab
         url: "https://gitlab.com"
         secret:
-          name: gitlab-secret
-          key: token
+          name: my-repo-auth
+        webhook_secret:
+          name: my-repo-auth
     ```
 
 ### Use Custom Parameters in Pipelines \{#use-custom-parameters-in-pipelines}
@@ -290,7 +319,7 @@ Reference Repository CR parameters in your PipelineRun definitions using PAC var
           taskSpec:
             steps:
             - name: deploy
-              image: deploy-tool:latest
+              image: alpine:latest
               script: |
                 echo "Deploying to $(params.environment)"  # Tekton parameter syntax in script
                 echo "Cluster: $(params.cluster-name)"
@@ -298,10 +327,12 @@ Reference Repository CR parameters in your PipelineRun definitions using PAC var
                 echo "Commit: $(params.revision)"
     ```
 
+**Note**: Replace the sample image `alpine:latest` with an image your cluster can pull, for example from an internal registry. The sample defines the pipeline inline with `pipelineSpec`; see the note in [Define the Pipeline Inline with `pipelineSpec`](./maintain_pipeline_code.mdx#basic-structure) for the cluster setting that this needs.
+
 **How it works**:
 1. **Before PipelineRun creation**: PAC replaces all `{{ variable }}` syntax with actual values from Repository CR params and built-in variables
 2. **PipelineRun creation**: PAC creates the PipelineRun with all variables already replaced
-3. **During execution**: Tekton resolves `$(params.xxx)` syntax by reading from the PipelineRun's `spec.params`
+3. **During execution**: Tekton resolves `$(params.<name>)` syntax by reading from the PipelineRun's `spec.params`
 
 **Example transformation**:
 - In your Git repo: `value: "{{ environment }}"` 
@@ -314,12 +345,13 @@ Reference Repository CR parameters in your PipelineRun definitions using PAC var
 Parameters are expanded in the following order (highest to lowest precedence):
 
 1. **PipelineRun params**: Parameters explicitly defined in the PipelineRun
-2. **Repository params**: Parameters defined in the Repository CR
-3. **Dynamic variables**: PAC dynamic variables (e.g., `{{ revision }}`, `{{ repo_url }}`)
+2. **Command and incoming-webhook params**: `key=value` arguments of a GitOps command such as `/test`, which override only parameters already defined for the `Repository` or recognized by PAC (see [Passing Parameters in Commands](./trigger_pipeline.mdx#passing-parameters-in-commands)), and the params of an incoming-webhook request. PAC accepts an incoming-webhook param only when its name is listed in the `params` of the Repository's `incoming` rule that matches the request. Otherwise PAC drops the whole request: the caller still gets HTTP `200` with an empty body, and no `PipelineRun` is created. An accepted request is answered with HTTP `202` and the body `{"status":202,"message":"accepted"}`. To check, list the `PipelineRun`s in the Repository's namespace (`kubectl get pipelineruns -n <namespace>`) after the request. The reason, `error processing incoming webhook: param <name> is not allowed in incoming webhook CR`, appears only in the PAC controller log; reading it needs read access to Pod logs in the PAC namespace, usually a cluster administrator
+3. **Repository params**: Parameters defined in the Repository CR
+4. **Dynamic variables**: PAC dynamic variables (e.g., `{{ revision }}`, `{{ repo_url }}`)
 
 ### Example: Environment-Specific Configuration \{#example-environment-specific-configuration}
 
-Configure different environments using Repository params:
+Configure different environments using Repository params. Each Repository references the Secret `my-repo-auth` in its own namespace, as listed in [Prerequisites](#prerequisites):
 
 **Production Repository**:
 
@@ -330,7 +362,7 @@ Configure different environments using Repository params:
       name: prod-repo
       namespace: production
     spec:
-      url: "https://gitlab.com/user/prod-repo"
+      url: "https://gitlab.com/<group>/<prod-project>"
       params:
       - name: environment
         value: "production"
@@ -338,6 +370,13 @@ Configure different environments using Repository params:
         value: "https://api.production.example.com"
       - name: registry
         value: "registry.production.example.com"
+      git_provider:
+        type: gitlab
+        url: "https://gitlab.com"
+        secret:
+          name: my-repo-auth
+        webhook_secret:
+          name: my-repo-auth
     ```
 
 **Staging Repository**:
@@ -349,7 +388,7 @@ Configure different environments using Repository params:
       name: staging-repo
       namespace: staging
     spec:
-      url: "https://gitlab.com/user/staging-repo"
+      url: "https://gitlab.com/<group>/<staging-project>"
       params:
       - name: environment
         value: "staging"
@@ -357,6 +396,13 @@ Configure different environments using Repository params:
         value: "https://api.staging.example.com"
       - name: registry
         value: "registry.staging.example.com"
+      git_provider:
+        type: gitlab
+        url: "https://gitlab.com"
+        secret:
+          name: my-repo-auth
+        webhook_secret:
+          name: my-repo-auth
     ```
 
 Both repositories can use the same pipeline definition, with parameters automatically filled from the Repository CR.
@@ -372,7 +418,7 @@ You can combine all advanced features in a single Repository CR:
       name: advanced-repo
       namespace: project-pipelines
     spec:
-      url: "https://gitlab.com/user/repo"
+      url: "https://gitlab.com/<group>/<project>"
       concurrency_limit: 5
       params:
       - name: environment
@@ -383,25 +429,22 @@ You can combine all advanced features in a single Repository CR:
         type: gitlab
         url: "https://gitlab.com"
         secret:
-          name: gitlab-secret
-          key: token
+          name: my-repo-auth
         webhook_secret:
-          name: webhook-secret
-          key: secret
+          name: my-repo-auth
     ```
 
 ## Best Practices \{#best-practices}
 
 ### 1. Concurrency Limits \{#1-concurrency-limits}
 
-- **Set appropriate limits**: Consider your cluster resources and pipeline resource requirements
-- **Monitor usage**: Watch for queued events when limits are too low
-- **Adjust dynamically**: Increase limits for high-traffic periods, decrease for resource conservation
+- **Set a limit per Repository**: Base `concurrency_limit` on the cluster resources and on the resources that each `PipelineRun` of the Repository requests; the [Example Use Cases](#example-use-cases) use `3` for a high-traffic repository and `2` for resource-intensive pipelines. Do not set a limit for a Repository whose `PipelineRun`s use `cancel-in-progress`: while the Repository has a limit, set on it or inherited from a global Repository, a new run does not cancel the older runs, and PAC records the event `error cancelling in progress pipelineRuns: cancel in progress is not supported with concurrency limit` on the `Repository` (see [Cancellation in Progress](./maintain_pipeline_code.mdx#cancellation-in-progress))
+- **Watch for queued PipelineRuns**: When the limit is reached, new `PipelineRun`s wait with the state label `queued`; list them with the `pipelinesascode.tekton.dev/state` column as shown in [Concurrency Limit Not Working](#concurrency-limit-not-working)
 
 ### 2. Source Branch Configuration \{#2-source-branch-configuration}
 
-- **Use stable branches**: Fetch pipeline definitions from stable branches (e.g., `main`)
-- **Test pipeline changes**: Test pipeline changes in feature branches before merging to the source branch
+- **Choose one of the two sources**: `pipelinerun_provenance` accepts only `source` (the triggering branch, the default) or `default_branch` (the branch whose name is the repository default branch); it cannot name another branch
+- **Test pipeline changes**: With `default_branch`, PAC reads the `.tekton/` definitions from the branch whose name is the repository's default branch (for example `main`), whichever branch a pull request or merge request comes from. Test changes to `.tekton/` before the merge in a Git repository whose Repository uses `source`, for example a non-production one; PAC accepts only one Repository per Git repository URL
 - **Document changes**: Clearly document which branch contains pipeline definitions
 
 ### 3. Custom Parameters \{#3-custom-parameters}
@@ -409,7 +452,7 @@ You can combine all advanced features in a single Repository CR:
 - **Use meaningful names**: Choose clear, descriptive parameter names
 - **Keep values simple**: Use simple string values for parameters
 - **Document parameters**: Document what each parameter does and when it's used
-- **Avoid secrets**: Don't store secrets in Repository params; use Kubernetes Secrets instead
+- **Avoid secrets**: Do not pass credentials through Repository params. PAC writes a param value in clear text wherever `{{ name }}` appears in the generated `PipelineRun`, also when the value comes from a Secret through `secret_ref` (`name` and `key`) instead of `value`: `secret_ref` keeps the value out of the Repository CR only. Mount credentials in the Task from a Kubernetes Secret instead, for example with `env.valueFrom.secretKeyRef` or a Secret workspace. Use `secret_ref` for values that must stay out of the Repository CR but may appear in the `PipelineRun`. PAC reads the `secret_ref` Secret from the Repository namespace; if it is not there, PAC records the Repository event `ParamsError` (`error processing repository CR custom params: secrets "<secret-name>" not found`), still creates the `PipelineRun`, and leaves `{{ name }}` unreplaced
 
 ## Troubleshooting \{#troubleshooting}
 
@@ -421,26 +464,49 @@ You can combine all advanced features in a single Repository CR:
     kubectl get repository my-repo -n project-pipelines -o jsonpath='{.spec.concurrency_limit}'
     ```
 
-Example output:
+Example output for a Repository with a concurrency limit of `1`, the limit used in the examples of steps 2 and 3:
 
+    ```text
+    1
     ```
-    2 # This is the concurrency limit
-    ```
 
-2. **Check for queued events**: Look for events that are waiting for PipelineRuns to complete
+An empty output means that the Repository does not set `concurrency_limit` itself. A limit that it takes from the [global Repository](#creating-a-global-repository-cr) applies without being written to the Repository, so also read `spec.concurrency_limit` of the global Repository `pipelines-as-code` in the PAC namespace; this needs read access to Repositories there, usually a cluster administrator.
 
-3. **Verify PAC controller logs**:
+2. **Check for queued PipelineRuns**: When the limit is reached, PAC still creates a `PipelineRun` for each new event, but keeps it pending (`spec.status: PipelineRunPending`) with the state label `queued`. When a running `PipelineRun` of the same Repository finishes, the PAC watcher starts the next queued one, in creation order:
 
     ```bash
-    kubectl logs -n <pac-namespace> -l app=pipelines-as-code-controller --tail=100 | grep concurrency  # Replace <pac-namespace> with your actual namespace (default: tekton-pipelines)
+    kubectl get pipelineruns -n project-pipelines \
+      -l pipelinesascode.tekton.dev/repository=my-repo \
+      -L pipelinesascode.tekton.dev/state
     ```
 
 Example output:
 
+    ```text
+    NAME          SUCCEEDED   REASON               STARTTIME   COMPLETIONTIME   STATE
+    build-abcde   Unknown     Running              6s                           started
+    build-fghij   Unknown     PipelineRunPending                                queued
     ```
-    {"level":"info","ts":"2024-01-01T12:00:00Z","logger":"controller","msg":"Concurrency limit reached","repository":"my-repo","limit":2,"running":2}
-    {"level":"info","ts":"2024-01-01T12:00:01Z","logger":"controller","msg":"PipelineRun queued","repository":"my-repo","reason":"concurrency_limit"}
+
+The `Repository` status lists finished PipelineRuns only; a queued `PipelineRun` does not appear in it.
+
+3. **Verify PAC watcher logs**: The queue is handled by the PAC watcher, not by the controller. Its log lines do not contain the word `concurrency`, and PAC does not record them as events on the `Repository`. Reading the log needs read access to Pod logs in the PAC namespace, usually a cluster administrator. With `-l`, `kubectl logs` prints only the last 10 lines unless `--tail` is set, so the command reads every line of the last 10 minutes; increase `--since` if the runs started earlier. Replace `<pac-namespace>` with your PAC namespace (default: `tekton-pipelines`):
+
+    ```bash
+    kubectl logs -n <pac-namespace> -l app=pipelines-as-code-watcher --since=10m --tail=-1 | grep -E 'queue|acquired|moved \(|removed \('
     ```
+
+Example output (only the message shown):
+
+    ```text
+    added pipelineRun (project-pipelines/build-fghij) to running queue for repository (project-pipelines/my-repo)
+    no new PipelineRun acquired for repo my-repo
+    removed (project-pipelines/build-abcde) for repository (project-pipelines/my-repo)
+    moved (project-pipelines/build-fghij) to running for repository (project-pipelines/my-repo)
+    updating pipelineRun project-pipelines/build-fghij state from queued to started
+    ```
+
+The watcher also writes `added pipelineRun (...) to running queue` for a `PipelineRun` that has to wait; the next line `no new PipelineRun acquired` shows that it did not start.
 
 ### Parameters Not Expanding \{#parameters-not-expanding}
 
@@ -449,6 +515,8 @@ Example output:
     ```bash
     kubectl get repository my-repo -n project-pipelines -o jsonpath='{.spec.params}'
     ```
+
+    An empty output means that the Repository does not set `params` itself. If the global Repository sets `params`, the Repository takes them (see **Behavior** under [Creating a Global Repository CR](#creating-a-global-repository-cr)), so also read `spec.params` of the global Repository.
 
 2. **Check parameter syntax**: Ensure you're using `{{ param }}` syntax to reference Repository CR parameters, not `$(params.param)`
 
@@ -464,5 +532,5 @@ Example output:
 
 - [Guides](../guides/index.mdx) - Basic repository setup walkthroughs
 - [Define PipelineRuns in Git](./maintain_pipeline_code.mdx) - PipelineRun files and trigger annotations
-- [Manage PipelineRuns](./incoming_webhooks.mdx) - PipelineRun management
+- [Incoming Webhooks](./incoming_webhooks.mdx) - Direct HTTP triggers for external systems
 - [Common Issues](../trouble_shooting/common_issues.mdx) - Troubleshooting guide

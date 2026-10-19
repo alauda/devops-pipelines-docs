@@ -6,7 +6,9 @@ weight: 500
 
 Apply different pruning policies to different sets of PipelineRuns/TaskRuns using selectors.
 
-**IMPORTANT:** Selectors only work in **namespace-level ConfigMaps** (`tekton-pruner-namespace-spec`). Selectors in global ConfigMaps are ignored by the pruner.
+**IMPORTANT:** Selectors only work in **namespace-level ConfigMaps** (`tekton-pruner-namespace-spec`). In the global config, a selector under `namespaces.<namespace>` is rejected; see [ConfigMap Validation](../configure/configmap_validation).
+
+**Namespace level required:** A namespace ConfigMap, and so every selector group on this page, takes effect only when the `enforcedConfigLevel` that applies to its namespace is `namespace`: the value in the `spec.tektonpruner.global-config.namespaces.<namespace>` entry of `TektonConfig` if that entry sets one, else `spec.tektonpruner.global-config.enforcedConfigLevel` (see [Namespace Configuration](./namespace_configuration#configuration-hierarchy)). `global` is the Operator default (a `global-config` that has no `enforcedConfigLevel` falls back to `resource`): at every level other than `namespace`, the webhook still accepts a namespace ConfigMap, but the Pruner ignores it.
 
 :::warning
 
@@ -17,9 +19,13 @@ Namespace-level ConfigMaps are outside the TektonConfig lifecycle. If you need t
 ## How It Works
 
 - **Match by labels or annotations** on PipelineRuns/TaskRuns
-- **First match wins**: Groups evaluated in order
-- **Fallback**: Unmatched resources use namespace or global defaults
+- **First match wins**: Groups evaluated in order; the first group whose selector matches a run decides that run's values. A `name` entry for the run's Pipeline or Task, if the ConfigMap has one, is checked before the groups
+- **Fallback**: Unmatched resources, and the fields that the matching group does not set, use namespace or global defaults
+- **Shared counts**: A group's history limit counts every run that matches the group's selector, including runs that an earlier group matched first. A namespace-wide history limit, applied when a run completes that no group matches or whose group does not set that history limit, counts the runs of all groups and deletes the older ones whatever their group's limit (see [History-based Pruning](./history_based_pruning#pipeline-specific-limits))
+- **History limits of groups**: For each kind (`pipelineRuns`, `taskRuns`), the webhook bounds the sum of the groups' `successfulHistoryLimit` values by the top-level `successfulHistoryLimit` of the namespace ConfigMap, else its top-level `historyLimit`, else the inline `namespaces.<namespace>` entry of the global config, else the global value, else 100; `failedHistoryLimit` works the same way (see [Pipeline-specific Limits](./history_based_pruning#pipeline-specific-limits)). The top-level values are themselves checked against the global values, but a top-level `historyLimit` is checked only against the global `historyLimit` (100 when it is not set). So the global `successfulHistoryLimit` (or `failedHistoryLimit`) caps the sum only when the global `historyLimit` is not higher, as in [Recommended Settings](./namespace_configuration#recommended-settings); otherwise a top-level `historyLimit` can raise the bound up to the global `historyLimit`
 - **Location**: Must be in namespace ConfigMap, not global ConfigMap
+
+The samples below that set history limits need sums of up to 55 successful runs (Multi-tier Application: 10 + 15 + 30). The webhook accepts them only when the bound is at least the sum, for example under the Operator default global config (`historyLimit: 100`, no `successfulHistoryLimit`). Under the global values of [Recommended Settings](./namespace_configuration#recommended-settings) (`successfulHistoryLimit: 5`, `historyLimit: 5`), it rejects each of them with a message that contains `sum of selector successfulHistoryLimit (<sum>) cannot exceed upper bound (5)`. Raise the global values to at least the sums you need, or lower the group values.
 
 ## Selector Types
 
@@ -37,9 +43,9 @@ data:
   ns-config: |
     pipelineRuns:
       - selector:
-          matchLabels:
-            environment: production
-            tier: frontend
+          - matchLabels:
+              environment: production
+              tier: frontend
         ttlSecondsAfterFinished: 604800
         successfulHistoryLimit: 10
 ```
@@ -50,8 +56,8 @@ data:
   ns-config: |
     pipelineRuns:
       - selector:
-          matchAnnotations:
-            tekton.dev/release: "true"
+          - matchAnnotations:
+              tekton.dev/release: "true"
         ttlSecondsAfterFinished: 2592000
 ```
 
@@ -61,10 +67,10 @@ data:
   ns-config: |
     pipelineRuns:
       - selector:
-          matchLabels:
-            app: myapp
-          matchAnnotations:
-            critical: "true"
+          - matchLabels:
+              app: myapp
+            matchAnnotations:
+              critical: "true"
         successfulHistoryLimit: 50
 ```
 
@@ -85,16 +91,16 @@ data:
     ttlSecondsAfterFinished: 3600
     pipelineRuns:
       - selector:
-          matchLabels:
-            pipeline-type: build
+          - matchLabels:
+              pipeline-type: build
         ttlSecondsAfterFinished: 300
       - selector:
-          matchLabels:
-            pipeline-type: test
+          - matchLabels:
+              pipeline-type: test
         ttlSecondsAfterFinished: 3600
       - selector:
-          matchLabels:
-            pipeline-type: release
+          - matchLabels:
+              pipeline-type: release
         ttlSecondsAfterFinished: 604800
         successfulHistoryLimit: 20
 ```
@@ -105,16 +111,16 @@ data:
   ns-config: |
     pipelineRuns:
       - selector:
-          matchLabels:
-            env: dev
+          - matchLabels:
+              env: dev
         ttlSecondsAfterFinished: 300
       - selector:
-          matchLabels:
-            env: staging
+          - matchLabels:
+              env: staging
         ttlSecondsAfterFinished: 86400
       - selector:
-          matchLabels:
-            env: prod
+          - matchLabels:
+              env: prod
         ttlSecondsAfterFinished: 604800
 ```
 
@@ -124,13 +130,13 @@ data:
   ns-config: |
     pipelineRuns:
       - selector:
-          matchLabels:
-            critical: "true"
+          - matchLabels:
+              critical: "true"
         ttlSecondsAfterFinished: 2592000
         successfulHistoryLimit: 50
       - selector:
-          matchLabels:
-            critical: "false"
+          - matchLabels:
+              critical: "false"
         ttlSecondsAfterFinished: 3600
         successfulHistoryLimit: 3
 ```
@@ -144,17 +150,17 @@ data:
   ns-config: |
     pipelineRuns:
       - selector:
-          matchLabels:
-            env: prod
-            critical: "true"
+          - matchLabels:
+              env: prod
+              critical: "true"
         ttlSecondsAfterFinished: 2592000
       - selector:
-          matchLabels:
-            env: prod
+          - matchLabels:
+              env: prod
         ttlSecondsAfterFinished: 604800
       - selector:
-          matchLabels:
-            app: myapp
+          - matchLabels:
+              app: myapp
         ttlSecondsAfterFinished: 3600
 ```
 
@@ -162,9 +168,8 @@ data:
 
 1. **Use namespace ConfigMaps** for selector-based groups
 2. **Order selectors** from most to least specific (first match wins)
-3. **Use consistent labels**: `app`, `component`, `env`, `tier`
-4. **Document groups** with comments above selectors
-5. **Test** with sample runs before production
+3. **Use separate label values** for groups that need their own history limit (for example `tier: frontend` and `tier: backend`): a group counts every run that matches its selector, also the runs that an earlier group matched
+4. **Test** with a sample run before production: once the run has completed, its `pruner.tekton.dev/ttlSecondsAfterFinished` annotation shows the TTL that the Pruner chose for it (command and the causes of an unexpected value in [Pipeline-specific TTLs](./time_based_pruning#pipeline-specific-ttls)). A group's history limit leaves no such value on the run (see [Pipeline-specific Limits](./history_based_pruning#pipeline-specific-limits))
 
 ## Advanced Configurations
 
@@ -175,18 +180,18 @@ data:
   ns-config: |
     pipelineRuns:
       - selector:
-          matchLabels:
-            tier: frontend
+          - matchLabels:
+              tier: frontend
         ttlSecondsAfterFinished: 604800
         successfulHistoryLimit: 10
       - selector:
-          matchLabels:
-            tier: backend
+          - matchLabels:
+              tier: backend
         ttlSecondsAfterFinished: 1209600
         successfulHistoryLimit: 15
       - selector:
-          matchLabels:
-            tier: database
+          - matchLabels:
+              tier: database
         ttlSecondsAfterFinished: 2592000
         successfulHistoryLimit: 30
 ```
@@ -198,18 +203,20 @@ data:
   ns-config: |
     pipelineRuns:
       - selector:
-          matchLabels:
-            release-type: feature
+          - matchLabels:
+              release-type: feature
         ttlSecondsAfterFinished: 604800
       - selector:
-          matchLabels:
-            release-type: hotfix
+          - matchLabels:
+              release-type: hotfix
         ttlSecondsAfterFinished: 2592000
       - selector:
-          matchLabels:
-            release-type: major
+          - matchLabels:
+              release-type: major
         ttlSecondsAfterFinished: 7776000
 ```
+
+If Tekton Results stores these runs, keep its retention period longer than the longest TTL here (see [Relationship with In-Cluster Pruning](../../results/configure/retention_policy_configuration.mdx#relationship-with-in-cluster-pruning)).
 
 ## Labeling Your Pipelines
 

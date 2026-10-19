@@ -12,19 +12,19 @@ In the Tekton pipeline, using images provided by the product works correctly, bu
 
 1. TaskRun execution fails with a status of `False`, and the reason is `CreateContainerConfigError`:
    ```bash
-   $ kubectl get taskruns -n ${namespace} ${taskrun_name}
+   $ kubectl get taskruns -n <namespace> <taskrun-name>
    NAME                     SUCCEEDED   REASON                       STARTTIME   COMPLETIONTIME
    hello-c7pnj-run-script   False       CreateContainerConfigError   9m43s
    ```
 
 2. The TaskRun event displays an error message:
-   ```
+   ```text
    Failed: Failed to create pod due to config error
    ```
 
-3. Relevant pod events show an error message:
-   ```
-   Failed: Error: container's runAsUser breaks non-root policy
+3. Relevant pod events show an error message that contains:
+   ```text
+   container has runAsNonRoot and image will run as root
    ```
 
 ## Root Cause Analysis
@@ -38,10 +38,22 @@ Such issues are typically caused by the following two reasons:
 
 If this issue only appears when using custom images, it is recommended to follow these steps for troubleshooting:
 
-1. Verify if the image itself has issues:
+1. Verify if the image itself has issues. Run it with a container CLI such as `podman`, or `docker`, which takes the same arguments, on a workstation that can pull the image. A step's `command` replaces the ENTRYPOINT of the image, so the check passes the step's command with `--entrypoint`. Replace `<image>` with the image and `<command>` with the first element of the step's `command`. Add the other elements of `command` and the step's `args` after `<image>`:
    ```bash
-   $ podman run -it --rm ${registry} ${cmd}
+   podman run -it --rm --entrypoint <command> <image>
    ```
+
+   Do not try to reproduce a step with `script` this way: Tekton runs the script file with the step's `args`. For such a step, check only that the image has the interpreter of the script's first line, given with its full path. Tekton adds a `#!/bin/sh` line to a script that has no `#!` line. For `/bin/sh`, the command below exits with status `0` when the image has `/bin/sh`; otherwise the container does not start, and the container CLI prints an error and exits with a non-zero status. `-c true` is an option of `/bin/sh`; other interpreters may not accept it:
+   ```bash
+   podman run --rm --entrypoint /bin/sh <image> -c true
+   ```
+
+   For a first line `#!/usr/bin/env <name>`, `/usr/bin/env` looks up `<name>` in the `PATH` of the step container (the image's `PATH` unless an `env` setting overrides it). If the interpreter accepts `--version`, check it with:
+   ```bash
+   podman run --rm --entrypoint /usr/bin/env <image> <name> --version
+   ```
+
+   For a step without `command` or `script`, leave out `--entrypoint <command>` and add the step's `args` after `<image>`. When the image has an ENTRYPOINT, this runs what the step runs: the ENTRYPOINT with the step's `args`, or with the CMD of the image when the step has no `args`.
 
 2. Check the compatibility of the Task configuration with the image:
    - Check if the Task is configured with `runAsNonRoot: true`.
@@ -57,6 +69,7 @@ metadata:
 spec:
   steps:
     - name: bar
+      image: <image>
       securityContext:
         runAsNonRoot: true
 ```
@@ -64,7 +77,7 @@ spec:
 Example Containerfile configuration:
 
 ```text
-USER root
+USER 0
 ```
 
 ## Solution
@@ -77,7 +90,7 @@ USER root
 
 #### Steps
 
-Refer to <ExternalSiteLink name="artifacthub-shim" href="/catalog/task-image-compatibility.html" children="Task Image Compatibility" /> to modify the Containerfile configuration for catalog Task usage.
+Refer to <ExternalSiteLink name="artifacthub-shim" href="/catalog/how_to/adjust_containerfile_for_task_compatible_image.html" children="Adjust Containerfile for Building Task-Compatible Custom Images" /> to modify the Containerfile configuration for catalog Task usage.
 
 ### Option 2: Modify TaskRun or PipelineRun Execution Configuration
 
@@ -86,6 +99,8 @@ Refer to <ExternalSiteLink name="artifacthub-shim" href="/catalog/task-image-com
 - Permissions to modify TaskRun or PipelineRun.
 
 #### Steps
+
+A Pod-template `securityContext` replaces the `securityContext` of the default Pod template as a whole; the fields are not merged. The samples therefore repeat the shipped `fsGroup: 65532` and `fsGroupChangePolicy: "OnRootMismatch"` next to `runAsUser`; repeat every other field you still need (see the **Priority Rule** in [Configuration Methods Comparison](../../configure/pod_template_guide.mdx#configuration-methods-comparison)). The default Pod template is the `default-pod-template` key of the `config-defaults` ConfigMap in `tekton-pipelines`. The roles shipped with Tekton Pipelines let every authenticated user read only the `pipelines-info` ConfigMap in that namespace, so if you cannot read `config-defaults`, ask your cluster administrator for the `securityContext` of the default Pod template. `tekton-pipelines` is the default of `TektonConfig` `spec.targetNamespace`; replace it in the commands if your installation uses another namespace.
 
 1. Add configuration when executing TaskRun separately:
    ```yaml
@@ -99,11 +114,14 @@ Refer to <ExternalSiteLink name="artifacthub-shim" href="/catalog/task-image-com
      podTemplate:
        securityContext:
          runAsUser: 65532
+         fsGroup: 65532
+         fsGroupChangePolicy: "OnRootMismatch"
    ```
 
-2. Add configuration when executing PipelineRun:
+2. Add configuration when executing PipelineRun. Use one of the two methods below.
+
+   Method 1: Add configuration for all Tasks:
    ```yaml
-   # Method 1: Add configuration for all Tasks
    apiVersion: tekton.dev/v1
    kind: PipelineRun
    spec:
@@ -111,8 +129,12 @@ Refer to <ExternalSiteLink name="artifacthub-shim" href="/catalog/task-image-com
        podTemplate:
          securityContext:
            runAsUser: 65532
+           fsGroup: 65532
+           fsGroupChangePolicy: "OnRootMismatch"
+   ```
 
-   # Method 2: Add configuration for specific Tasks
+   Method 2: Add configuration for specific Tasks:
+   ```yaml
    apiVersion: tekton.dev/v1
    kind: PipelineRun
    spec:
@@ -122,6 +144,7 @@ Refer to <ExternalSiteLink name="artifacthub-shim" href="/catalog/task-image-com
            securityContext:
              runAsUser: 65532
              fsGroup: 65532
+             fsGroupChangePolicy: "OnRootMismatch"
    ```
 
 ### Option 3: Modify Global Tekton Configuration
@@ -135,9 +158,15 @@ Refer to <ExternalSiteLink name="artifacthub-shim" href="/catalog/task-image-com
 #### Steps
 
 1. Modify the TektonConfig resource:
-   Increase the following `spec.pipeline.default-pod-template` configuration:
+   Set the following `spec.pipeline.default-pod-template` configuration. The value replaces the current default Pod template as a whole. Read the value in effect and the value set in `TektonConfig` first, save both outputs, and keep the default's fields in the sample:
+   ```bash
+   kubectl get configmap -n tekton-pipelines config-defaults -o jsonpath='{.data.default-pod-template}'
+   kubectl get tektonconfig config -o jsonpath='{.spec.pipeline.default-pod-template}'
+   ```
+
+   On a default installation it is the shipped template (`fsGroup: 65532`, `fsGroupChangePolicy: "OnRootMismatch"`), so the sample keeps those two fields next to `runAsUser`. It changes the default Pod template of every new TaskRun and PipelineRun on the cluster.
    ```yaml
-   apiVersion: config.tekton.dev/v1beta1
+   apiVersion: operator.tekton.dev/v1alpha1
    kind: TektonConfig
    metadata:
      name: config
@@ -146,16 +175,30 @@ Refer to <ExternalSiteLink name="artifacthub-shim" href="/catalog/task-image-com
        default-pod-template: |
          securityContext:
            runAsUser: 65532
+           fsGroup: 65532
+           fsGroupChangePolicy: "OnRootMismatch"
    ```
 
-2. Verify whether the configuration takes effect:
+   Save the sample as `tektonconfig-pod-template.yaml` and merge it into the existing `TektonConfig`:
    ```bash
-   $ kubectl get configmap -n tekton-pipelines config-defaults -o yaml | grep 'default-pod-template: |' -A2
+   kubectl patch tektonconfig config --type merge --patch-file tektonconfig-pod-template.yaml
+   ```
+
+   To undo the change later: if the saved `TektonConfig` output was empty, remove the field from `TektonConfig`; otherwise set the saved `TektonConfig` value again:
+   ```bash
+   kubectl patch tektonconfig config --type json \
+     -p '[{"op":"remove","path":"/spec/pipeline/default-pod-template"}]'
+   ```
+
+2. Verify whether the configuration takes effect. The command prints the whole default Pod template, which must be the template of the sample, including any fields of the default that you kept:
+   ```bash
+   $ kubectl get configmap -n tekton-pipelines config-defaults -o jsonpath='{.data.default-pod-template}'
 
    # Expected output
-   default-pod-template: |
-     securityContext:
-       runAsUser: 65532
+   securityContext:
+     runAsUser: 65532
+     fsGroup: 65532
+     fsGroupChangePolicy: "OnRootMismatch"
    ```
 
 ### Option 4: Modify Task Definition
@@ -167,7 +210,7 @@ Refer to <ExternalSiteLink name="artifacthub-shim" href="/catalog/task-image-com
 
 #### Steps
 
-1. Method 1: Remove runAsNonRoot configuration:
+1. Method 1: Remove runAsNonRoot configuration. The step then runs as the image user, which is root for an image with `USER root`, unless a Pod template sets `runAsUser`. A namespace that enforces the `restricted` Pod Security Standard rejects a Pod in which neither the Pod nor the step sets `runAsNonRoot: true` (`PodAdmissionFailed`, `runAsNonRoot != true`). Prefer Method 2, an image with a non-root `USER` (Option 1), or Option 3:
    ```yaml
    apiVersion: tekton.dev/v1
    kind: Task
@@ -176,6 +219,7 @@ Refer to <ExternalSiteLink name="artifacthub-shim" href="/catalog/task-image-com
    spec:
      steps:
        - name: bar
+         image: <image>
          securityContext:
            # runAsNonRoot: true
    ```
@@ -189,6 +233,7 @@ Refer to <ExternalSiteLink name="artifacthub-shim" href="/catalog/task-image-com
    spec:
      steps:
        - name: bar
+         image: <image>
          securityContext:
            runAsNonRoot: true
            runAsUser: 65532
@@ -212,6 +257,6 @@ Refer to <ExternalSiteLink name="artifacthub-shim" href="/catalog/task-image-com
 
 ## Related Content
 
-- <ExternalSiteLink name="artifacthub-shim" href="/catalog/task-image-compatibility.html" children="Task Image Compatibility" />
+- <ExternalSiteLink name="artifacthub-shim" href="/catalog/how_to/adjust_containerfile_for_task_compatible_image.html" children="Adjust Containerfile for Building Task-Compatible Custom Images" />
 - [Official Containerfile Documentation](https://docs.docker.com/get-started/docker-concepts/building-images/writing-a-dockerfile/)
 - [Containerfile Best Practices](https://docs.docker.com/build/building/best-practices/)

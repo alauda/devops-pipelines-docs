@@ -59,7 +59,7 @@ metadata:
     app.kubernetes.io/part-of: tekton-pruner
     operator.tekton.dev/operand-name: pruner
     pruner.tekton.dev/config-type: global
-    pruner.tekton.dev/release: v0.3.4
+    pruner.tekton.dev/release: v0.4.1
   name: tekton-pruner-default-spec
 ```
 
@@ -80,6 +80,10 @@ The `enforcedConfigLevel` determines the configuration hierarchy:
 
 ### Configuration in TektonConfig
 
+:::warning
+**Enabling the Pruner deletes runs at once**, in every namespace it covers. Before you enable it, read the warning in [Recommended Settings](../how_to/namespace_configuration.mdx#recommended-settings) of Namespace Configuration and follow the steps there.
+:::
+
 At the `TektonConfig` resource, the configuration of Pruner is roughly as follows:
 
 ```yaml
@@ -95,7 +99,7 @@ spec:
     global-config:
       enforcedConfigLevel: global  # Options: global, namespace
       ttlSecondsAfterFinished: 86400  # Delete runs older than 24 hours (optional)
-      historyLimit: 100              # Keep only 100 runs total (optional)
+      historyLimit: 100              # Used for a status whose own limit is not set (optional)
       successfulHistoryLimit: 50     # Keep only 50 successful runs (optional)
       failedHistoryLimit: 20         # Keep only 20 failed runs (optional)
       namespaces:

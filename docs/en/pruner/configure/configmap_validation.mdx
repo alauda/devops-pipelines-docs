@@ -11,18 +11,18 @@ Tekton Pruner uses a ValidatingWebhook to ensure ConfigMaps meet required specif
 The pruner webhook validates ConfigMaps to:
 - Enforce required labels and naming conventions
 - Prevent invalid configurations from being applied
-- Protect against accidental deletion of critical configs
-- Ensure namespace-level configs respect global boundaries
+- Block deleting a global config that namespace configs depend on, unless the Tekton Operator manages it (see Deletion Protection)
+- Check namespace-level configs against the global limits when they are created or updated (see Global Config Enforcement)
 
 ## How Validation Works
 
-The validation webhook is automatically installed with pruner and intercepts ConfigMap CREATE, UPDATE, and DELETE operations. It only validates ConfigMaps with the label `app.kubernetes.io/part-of: tekton-pruner`, ensuring regular ConfigMaps in your cluster are unaffected.
+The validation webhook is automatically installed with pruner and intercepts ConfigMap CREATE, UPDATE, and DELETE operations. It only validates ConfigMaps that carry both labels `app.kubernetes.io/part-of: tekton-pruner` and `pruner.tekton.dev/config-type` (`global` or `namespace`), ensuring regular ConfigMaps in your cluster are unaffected.
 
 ## Validation Rules
 
-### 1. Required Labels
+### 1. Required Labels \{#required-labels}
 
-**All pruner ConfigMaps MUST have these labels:**
+**Set these labels on every pruner ConfigMap.** The webhook validates only ConfigMaps that carry them; an unlabeled namespace ConfigMap is still applied by the Pruner, but without any validation:
 
 ```yaml
 metadata:
@@ -31,13 +31,13 @@ metadata:
     pruner.tekton.dev/config-type: <global|namespace>
 ```
 
-**Validation checks:**
+**Validation checks** (they can deny only an update of a ConfigMap that the webhook validates, because a ConfigMap created without both labels is not sent to the webhook):
 - Both labels must be present
 - `app.kubernetes.io/part-of` must equal `tekton-pruner`
 - `pruner.tekton.dev/config-type` must be either `global` or `namespace`
 
 **Error example:**
-```
+```text
 Invalid pruner ConfigMap labels: ConfigMap must have label app.kubernetes.io/part-of=tekton-pruner
 ```
 
@@ -88,16 +88,9 @@ data:
 ```
 
 **Error example:**
+```text
+Invalid pruner configuration: global-config.namespaces.dev.pipelineRuns[0]: selectors are NOT supported in global ConfigMap. Use namespace-level ConfigMap (tekton-pruner-namespace-spec) instead
 ```
-Invalid pruner configuration: global-config.namespaces.dev.pipelineRuns[0]: 
-selectors are NOT supported in global ConfigMap. 
-Use namespace-level ConfigMap (tekton-pruner-namespace-spec) instead
-```
-
-**Why this restriction?**
-- Selector-based resource matching requires access to the resource's labels/annotations at runtime
-- Global ConfigMaps are designed for cluster-wide defaults, not resource-specific matching
-- Namespace ConfigMaps provide the correct scope for dynamic resource selection
 
 **See also:** [Resource Groups](../how_to/resource_groups) for selector usage examples
 
@@ -105,58 +98,68 @@ Use namespace-level ConfigMap (tekton-pruner-namespace-spec) instead
 
 **Global Config:**
 - **Name:** Must be `tekton-pruner-default-spec` (fixed)
-- **Namespace:** Must be `tekton-pipelines` (or system namespace)
+- **Namespace:** Must be the namespace set by `TektonConfig` `spec.targetNamespace` (`tekton-pipelines` by default)
 - **Label:** `pruner.tekton.dev/config-type: global`
 
 **Namespace Config:**
 - **Name:** Must be `tekton-pruner-namespace-spec` (fixed)
-- **Namespace:** Must be in a user namespace (NOT in system or tekton namespaces)
+- **Namespace:** Must be a user namespace; see [Namespace Restrictions](#namespace-restrictions) for the namespaces that the webhook rejects
 - **Label:** `pruner.tekton.dev/config-type: namespace`
 
 **Error examples:**
-```
+```text
 Global config must be named 'tekton-pruner-default-spec', got: my-custom-name
 ```
-```
+```text
 Namespace config must be named 'tekton-pruner-namespace-spec', got: pruner-config
 ```
 
-### 3. Namespace Restrictions
+### 4. Namespace Restrictions \{#namespace-restrictions}
 
-**Forbidden namespaces for namespace-level configs:**
-- System namespaces: `kube-*`
-- Tekton namespaces: `tekton-pipelines`, `tekton-*`
-
-Attempting to create a namespace-level config in these locations will be rejected.
+**Namespaces where namespace-level configs are rejected:** `tekton-pipelines`, `tekton-operator` and every namespace whose name starts with `kube-` or `openshift-`. The webhook is not called for `kube-system`, `kube-public` and `kube-node-lease`, and it does not check other `tekton-*` namespaces, so keep namespace-level configs out of those yourself.
 
 **Error example:**
-```
-Invalid pruner ConfigMap configuration: wrong config-type label or namespace combination
+```text
+admission webhook "validation.webhook.pruner.tekton.dev.namespace" denied the request: Invalid namespace for namespace-level config: namespace-level config cannot be created in tekton-operator namespace
 ```
 
-### 4. Configuration Content Validation
+### 5. Configuration Content Validation \{#5-configuration-content-validation}
 
 The webhook validates configuration data including:
 
-- **Time values**: ttlSecondsAfterFinished must be non-negative
-- **History limits**: historyLimit, successfulHistoryLimit, and failedHistoryLimit must be non-negative and cannot exceed global maximums if enforced
-- **Selectors** (namespace ConfigMaps only): Label and annotation selectors must have valid key-value pairs; name selectors must be valid resource names
+- **Time values**: the namespace-wide `ttlSecondsAfterFinished` must be non-negative. A `ttlSecondsAfterFinished` inside a `pipelineRuns` / `taskRuns` entry is not checked, so a negative value there is accepted.
+- **History limits**: the namespace-wide `historyLimit`, `successfulHistoryLimit` and `failedHistoryLimit` must be non-negative and are checked against the global values (see [Global Config Enforcement](#7-global-config-enforcement)). Inside `pipelineRuns` / `taskRuns` entries each value must be non-negative; only the sums of the selector entries' values are bounded (see [Pipeline-specific Limits](../how_to/history_based_pruning#pipeline-specific-limits)), and the history limits of a `name` entry are not bounded.
+- **Selectors and names** (namespace ConfigMaps only): not validated. The webhook accepts any `matchLabels` / `matchAnnotations` key and any `name` in a `pipelineRuns` / `taskRuns` entry, so check them yourself.
+- **Unknown keys**: not reported. The webhook and the Pruner ignore keys they do not know, so a misspelled key such as `successfulHistoryLimt` is accepted and logged as `ConfigMap validation successful`, and the field it was meant to set stays unset, with the same effect as leaving it out.
+- **A `global-config` key in a namespace ConfigMap**: the webhook then checks only that key, as a global config, and not `ns-config`, while the Pruner reads only `ns-config` from a namespace ConfigMap. Do not add a `global-config` key to a namespace ConfigMap.
 
-**Note:** Selectors (pipelineRuns, taskRuns arrays with matchLabels/matchAnnotations) are only processed in namespace-level ConfigMaps. They are ignored in global ConfigMaps.
+So an accepted dry run or a `ConfigMap validation successful` line does not show that every key was recognized.
 
-### 5. Deletion Protection
+**Note:** Selectors (`pipelineRuns` / `taskRuns` entries with `matchLabels` / `matchAnnotations`) work only in namespace-level ConfigMaps. In the global config, a selector under `namespaces.<namespace>` is rejected: the pruner webhook denies the ConfigMap, and the Tekton Operator webhook denies the same entry in `TektonConfig` `spec.tektonpruner.global-config`.
 
-The webhook prevents deletion of the global config if namespace-level configs still exist. You must delete all namespace configs before deleting the global config. Namespace configs can be deleted without restrictions.
+### 6. Deletion Protection
 
-### 6. Global Config Enforcement
+The webhook prevents deletion of the global config while namespace-level configs still exist, unless the global config is owned by a `TektonInstallerSet`, that is, managed by the Tekton Operator: the webhook always allows deleting that ConfigMap. It allows deleting a namespace config named `tekton-pruner-namespace-spec` in a namespace where [Namespace Restrictions](#namespace-restrictions) allows namespace configs.
 
-When creating or updating namespace-level configs, the webhook fetches the global config and validates that namespace values do not exceed the corresponding global values if defined (`ttlSecondsAfterFinished`, `historyLimit`, `successfulHistoryLimit`, `failedHistoryLimit`). If the global config does not set a value, `successfulHistoryLimit` and `failedHistoryLimit` fall back to the global `historyLimit`, and then to the system maximum (30 days for `ttlSecondsAfterFinished`, 100 for the history limits). These maximums are built-in constants, not configurable keys.
+The label, name and namespace checks above also run on a DELETE request, before these rules. So, while the event-based Pruner is enabled, the webhook denies deleting a ConfigMap that carries both required labels with `pruner.tekton.dev/config-type: namespace` when it has another name or is in `tekton-pipelines`, `tekton-operator` or a namespace whose name starts with `kube-` or `openshift-` (other than `kube-system`, `kube-public` and `kube-node-lease`, for which the webhook is not called). It also denies deleting a ConfigMap in `tekton-pipelines` that carries both required labels with `pruner.tekton.dev/config-type: global` and another name than `tekton-pruner-default-spec`, and removing the labels of such ConfigMaps (see [Changing a Pruner ConfigMap](#changing-a-pruner-configmap)). Such ConfigMaps can exist, for example when they were created while the event-based Pruner was disabled.
+
+### 7. Global Config Enforcement \{#7-global-config-enforcement}
+
+When a namespace-level config is created or updated, the webhook fetches the global config and checks the namespace-wide values against its root values (the inline `namespaces.<namespace>` entry is used only for the bounds of the selector sums):
+
+- `ttlSecondsAfterFinished` against the global `ttlSecondsAfterFinished`, else against the system maximum of 30 days.
+- `successfulHistoryLimit` against the global `successfulHistoryLimit`, else the global `historyLimit`, else the system maximum of 100. `failedHistoryLimit` is checked the same way with the failed fields.
+- `historyLimit` only against the global `historyLimit`, else 100. A global `successfulHistoryLimit` or `failedHistoryLimit` does not bound it, although a namespace `historyLimit` applies to both statuses when the namespace config does not set the specific limits.
+
+These maximums are built-in constants, not configurable keys.
 
 ## Common Validation Errors
 
+The two label errors below appear only when you change the labels of a ConfigMap that the webhook validates. A ConfigMap created without both labels, or with another `pruner.tekton.dev/config-type` value, is not sent to the webhook and is stored without a check (see [Changing a Pruner ConfigMap](#changing-a-pruner-configmap)).
+
 ### Missing Labels Error
-```
-ConfigMap must have labels
+```text
+Invalid pruner ConfigMap labels: ConfigMap must have labels
 ```
 **Solution:** Add the required labels to your ConfigMap:
 ```yaml
@@ -166,13 +169,13 @@ labels:
 ```
 
 ### Wrong Config Type Error
-```
-label pruner.tekton.dev/config-type must be 'global' or 'namespace', got: local
+```text
+Invalid pruner ConfigMap labels: label pruner.tekton.dev/config-type must be 'global' or 'namespace', got: local
 ```
 **Solution:** Use only `global` or `namespace` as config-type values.
 
 ### Wrong Name Error
-```
+```text
 Global config must be named 'tekton-pruner-default-spec', got: tekton-pruner-config
 ```
 **Solution:** Use the exact required name:
@@ -180,16 +183,20 @@ Global config must be named 'tekton-pruner-default-spec', got: tekton-pruner-con
 - Namespace: `tekton-pruner-namespace-spec`
 
 ### Exceeds Global Limit Error
-```
+```text
 Invalid pruner configuration: ns-config: ttlSecondsAfterFinished (172800) cannot exceed global limit (86400)
 ```
 **Solution:** Reduce the namespace value to be within global limits, or request admin to increase global maximum.
 
 ### Deletion Blocked Error
+
+This error does not occur when the Tekton Operator manages the Pruner: the operator owns the global config (owner kind `TektonInstallerSet`), and the webhook always allows deleting it. To change the global values, use `TektonConfig` instead of deleting the ConfigMap (see [Changing a Pruner ConfigMap](#changing-a-pruner-configmap)).
+
+A global config without that owner cannot be deleted while namespace configs exist:
+```text
+Cannot delete global config: 2 namespace config(s) still exist that depend on it in namespaces: [dev staging]. Delete namespace configs first.
 ```
-Cannot delete global config: 2 namespace config(s) still exist
-```
-**Solution:** Delete all namespace configs first:
+**Solution:** Delete the namespace configs listed in the message first. They belong to the teams of those namespaces, so agree with those teams first:
 ```bash
 kubectl delete cm tekton-pruner-namespace-spec -n dev
 kubectl delete cm tekton-pruner-namespace-spec -n staging
@@ -199,65 +206,89 @@ kubectl delete cm tekton-pruner-default-spec -n tekton-pipelines
 
 ## Troubleshooting
 
-### Verify Webhook Status
+### Verify Webhook Status \{#verify-webhook-status}
+
+These commands need read access to cluster-scoped webhook configurations and to Pods and their logs in `tekton-pipelines`, usually a cluster administrator. `tekton-pipelines` is the default of `TektonConfig` `spec.targetNamespace`; replace it in the commands on this page if your installation uses another namespace.
 
 ```bash
 # Check webhook configuration
-kubectl get validatingwebhookconfigurations tekton-pruner-validating-webhook
+kubectl get validatingwebhookconfigurations validation.webhook.pruner.tekton.dev
 
 # Check webhook pod and service
-kubectl get pods,svc -n tekton-pipelines -l app.kubernetes.io/component=webhook
+kubectl get pods,svc -n tekton-pipelines -l app.kubernetes.io/part-of=tekton-pruner,app.kubernetes.io/component=webhook
 
-# View webhook logs
-kubectl logs -n tekton-pipelines -l app.kubernetes.io/component=webhook
+# View all webhook log lines (with -l and without --tail, kubectl prints only the last 10 lines)
+kubectl logs -n tekton-pipelines -l app.kubernetes.io/part-of=tekton-pruner,app.kubernetes.io/component=webhook --tail=-1
 ```
 
 ### Test Validation
 
-Create an invalid ConfigMap to verify webhook is functioning:
+Send an invalid namespace-level ConfigMap to the API server with `--dry-run=server`, in a new test namespace. The ConfigMap carries both required labels, so the webhook validates it, and the dry run stores nothing. The namespace name gets a unique suffix, and the remaining commands run only if `kubectl create namespace` succeeds, so an existing namespace is never deleted. Creating and deleting a namespace needs permission on the cluster-scoped `namespaces` resource, usually a cluster administrator; a namespace owner can run the same dry run in their own namespace instead (practice 3 under Best Practices):
 
 ```bash
-cat <<EOF | kubectl apply -f -
+NS="pruner-validation-test-$(date +%s)"
+if kubectl create namespace "$NS"; then
+cat <<EOF | kubectl create --dry-run=server -f -
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: tekton-pruner-default-spec
-  namespace: tekton-pipelines
+  name: tekton-pruner-namespace-spec
+  namespace: ${NS}
+  labels:
+    app.kubernetes.io/part-of: tekton-pruner
+    pruner.tekton.dev/config-type: namespace
 data:
-  global-config: |
-    ttlSecondsAfterFinished: 300
+  ns-config: |
+    ttlSecondsAfterFinished: -1
 EOF
+kubectl delete namespace "$NS"
+fi
 ```
 
-Expected error: `admission webhook denied the request: Invalid pruner ConfigMap labels`
+Expected result: the request is denied by the pruner validation webhook because `ttlSecondsAfterFinished` is negative. `kubectl` prints the webhook message after its own prefix:
 
-## Bypassing Validation (Not Recommended)
+```text
+The request is invalid: error when creating "STDIN": admission webhook "validation.webhook.pruner.tekton.dev.namespace" denied the request: Invalid pruner configuration: ns-config: ttlSecondsAfterFinished cannot be negative, got -1
+```
 
-**Warning:** Bypassing validation can lead to misconfigured pruner behavior and should only be done in emergency situations.
+If the dry run reports the ConfigMap as created, the webhook is not validating. The most likely cause is that the event-based Pruner is disabled, which is the Operator default (`spec.tektonpruner.disabled: true` in `TektonConfig`): the webhook configuration exists only while it is enabled, so the first command of [Verify Webhook Status](#verify-webhook-status) reports `NotFound`. Enabling the Pruner deletes runs at once: before you enable it, read the warning in [Recommended Settings](../how_to/namespace_configuration.mdx#recommended-settings) of Namespace Configuration and follow the steps there. The steps that enable the Pruner are in [Tekton Pruner Is Not Deployed](../trouble_shooting/tekton-pruner-not-deployed.mdx).
 
-To temporarily bypass validation:
+## Changing a Pruner ConfigMap \{#changing-a-pruner-configmap}
 
-1. Remove the identifying label:
-   ```bash
-   kubectl label cm tekton-pruner-default-spec -n tekton-pipelines \
-     app.kubernetes.io/part-of-
-   ```
+The webhook also validates updates, so it denies removing the `app.kubernetes.io/part-of` label from a ConfigMap that it validates:
 
-2. Make necessary changes
+```text
+Invalid pruner ConfigMap labels: ConfigMap must have label app.kubernetes.io/part-of=tekton-pruner
+```
 
-3. Re-add the label:
-   ```bash
-   kubectl label cm tekton-pruner-default-spec -n tekton-pipelines \
-     app.kubernetes.io/part-of=tekton-pruner
-   ```
+It does not check a namespace ConfigMap that is created without the two labels, even one that replaces a deleted ConfigMap that it validated. The Pruner still applies such a ConfigMap (see [Required Labels](#required-labels)).
 
-**Note:** The pruner controller will not process ConfigMaps without proper labels.
+When the Tekton Operator manages the Pruner, change the global values in `TektonConfig` under `spec.tektonpruner.global-config`. The operator updates `tekton-pruner-default-spec`, and the webhook checks the namespace configs that are created or updated afterwards against the new values. It does not re-check existing namespace configs: a namespace config with a value above a lowered global value keeps that value, and the Pruner applies it as it is. List the namespace configs and their `ns-config` values with `kubectl get configmaps -A --field-selector metadata.name=tekton-pruner-namespace-spec -o yaml` and lower such values yourself. The new global values apply at once to the completed runs that use them, in every namespace except `tekton-pipelines`, `tekton-operator` and those whose names start with `kube-` or `openshift-`, and a lower limit deletes runs right away. Read the current values first:
+
+```bash
+kubectl get tektonconfig config -o jsonpath='{.spec.tektonpruner.global-config}'
+```
+
+For example, to set the global `historyLimit`:
+
+```bash
+kubectl patch tektonconfig config --type merge \
+  -p '{"spec":{"tektonpruner":{"global-config":{"historyLimit":200}}}}'
+```
+
+Then confirm that the operator wrote the new value into the Pruner's global ConfigMap; the output must contain `historyLimit: 200`:
+
+```bash
+kubectl get configmap tekton-pruner-default-spec -n tekton-pipelines -o jsonpath='{.data.global-config}'
+```
+
+These steps need permission to patch the cluster-scoped `TektonConfig` and to read ConfigMaps in `tekton-pipelines`, usually a cluster administrator.
 
 ## Best Practices
 
 1. **Always include required labels** from the start
 2. **Use exact naming conventions** for global and namespace configs
-3. **Test configurations** in a non-production namespace first
-4. **Check validation errors** carefully - they indicate what needs to be fixed
-5. **Monitor webhook logs** when rolling out new configurations
-6. **Delete namespace configs** before attempting to delete global config
+3. **Test a ConfigMap with a server dry run** first, as in Test Validation above. A dry run that reports the ConfigMap as created shows only that nothing denied it. To see that the webhook checks ConfigMaps in a namespace, send a copy in which the top-level `ttlSecondsAfterFinished` of `ns-config` is set to `-1`, replacing any existing value, to that namespace the same way: it must be denied as in Test Validation; if it is reported as created, the webhook did not check it. A namespace owner can do this in their own namespace before creating the ConfigMap there. A cluster administrator can also look for the log lines of practice 5
+4. **Fix one error at a time**: the webhook reports only the first violation, so run the dry run again after each fix until it passes
+5. **Check the webhook log** when rolling out new configurations (commands and the permissions they need in Verify Webhook Status): when the webhook checks the content of a ConfigMap, it logs `Validating pruner ConfigMap`, then `ConfigMap validation successful` or `ConfigMap validation failed`, with the name and namespace of the ConfigMap. Each checked request writes several lines, so use the log command with `--tail=-1`. If these lines are missing for a ConfigMap in log output that covers the time of the change, its content was not checked; the output covers only the time since the webhook container started. A `ConfigMap validation successful` line does not show that every key was recognized (see [Configuration Content Validation](#5-configuration-content-validation))
+6. **Change global values through `TektonConfig`** when the Tekton Operator manages the Pruner, instead of deleting `tekton-pruner-default-spec`

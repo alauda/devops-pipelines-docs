@@ -4,7 +4,7 @@ weight: 53
 
 # Retention Policy Configuration
 
-Tekton Results retention policy provides automated cleanup for both database records and archived logs in S3-compatible storage systems. The retention agent periodically removes expired results according to configurable time-based policies and deletes their associated log payloads on a best-effort basis (see [Retention Value Limits](#retention-value-limits)).
+Tekton Results retention policy provides automated cleanup for both database records and archived logs in S3-compatible storage systems. The retention agent periodically removes expired results according to configurable time-based policies and deletes their associated log payloads on a best-effort basis (see [Retention Value Limits](#retention-value-limits)). With the `File` log backend (`logs_type: File`), only the database records are deleted; the log files stay on the PVC.
 
 ## Configuration \{#configuration}
 
@@ -31,32 +31,34 @@ spec:
         tekton-results-config-results-retention-policy:
           data:
             defaultRetention: "30"  # Days to retain results (30 days)
-            runAt: "0 2 * * *"      # Cron schedule: daily at 2 AM
+            runAt: "0 2 * * *"      # Cron schedule: daily at 02:00 in the agent time zone (see runAt below)
 ```
+
+This sample shows the retention keys together with the database and log settings. Do not merge it into a working installation: its placeholder values would replace your database and log settings. To change only the retention settings, follow [Apply Configuration](#apply-configuration). Installing Tekton Results is described in [Quick Start](../quick_start.mdx#installing-using-operator-crd), which sets `disabled: false`.
 
 ### Configuration Parameters
 
 | Field | Description | Default | Required |
 |-------|-------------|---------|----------|
 | `defaultRetention` | Retention period before deletion | `"30"` (30 days) | No |
-| `runAt` | Cron schedule for running the retention agent | `"5 5 * * 0"` (weekly, Sundays at 05:05) | Yes |
+| `runAt` | Cron schedule for running the retention agent, in the time zone of the retention agent container | `"5 5 * * 0"` (at 05:05 every Sunday) | Yes |
 
 The defaults above are the values in the `tekton-results-config-results-retention-policy` ConfigMap installed with Tekton Results. If `defaultRetention` is removed from the ConfigMap, the retention agent falls back to a built-in value of 30 days instead of failing. There is no usable fallback for `runAt`: keep it set to a valid five-field cron expression. Its built-in value, `7 7 * * 7`, is rejected by the cron parser the retention agent uses, which only accepts day-of-week values from 0 to 6, so the retention agent fails to start when `runAt` is removed or is not a valid cron expression.
 
 `defaultRetention` accepts three equivalent formats: a plain integer is a number of days (`"30"`), a `d` suffix also means days (`"30d"`), and any other value is parsed as a Go duration (`"720h"`).
 
-- **`defaultRetention`**: Specifies how long to retain results before automatic deletion. After this period elapses, the database records are deleted and the retention agent also tries to delete the associated log payloads in S3 storage; log deletion is best effort, see [Retention Value Limits](#retention-value-limits).
+- **`defaultRetention`**: Specifies how long to retain results before automatic deletion. After this period elapses, the database records are deleted and the retention agent also tries to delete the associated log payloads in S3 storage; log deletion is best effort, see [Retention Value Limits](#retention-value-limits). With `logs_type: File`, the log files stay on the PVC.
 
-- **`runAt`**: Cron expression defining when the retention agent runs.
-  - `"0 2 * * *"` - Daily at 2:00 AM
-  - `"0 2 * * 0"` - Weekly on Sundays at 2:00 AM
-  - `"0 2 1 * *"` - Monthly on the 1st at 2:00 AM
+- **`runAt`**: Cron expression defining when the retention agent runs. `runAt` uses the time zone of the retention agent container (UTC+8 in the shipped image), not UTC. To use another zone, prefix the expression, for example `runAt: "CRON_TZ=UTC 0 2 * * *"`.
+  - `"0 2 * * *"` - Daily at 02:00
+  - `"0 2 * * 0"` - Weekly on Sundays at 02:00
+  - `"0 2 1 * *"` - Monthly on the 1st at 02:00
 
 ### Retention Value Limits \{#retention-value-limits}
 
-- **No upper bound or sign check**: `defaultRetention` and each policy `retention` value are only checked for a parsable format. Tekton Results does not cap the retention period; choose it according to your own audit or compliance requirements. A value in days (a plain integer or the `d` suffix) is converted to a Go `time.Duration` without an overflow check, so a value above 106751 days (about 292 years) wraps around to an unrelated duration, which can be negative or close to zero, and the next run then deletes results as described in the next item. Do not use a very large number to mean "keep forever". A Go duration string above the same limit, such as `"2562048h"`, fails to parse instead.
+- **No upper bound or sign check**: `defaultRetention` and each policy `retention` value are only checked for a parsable format; a policy `retention` value is checked only when a job runs (see [Apply Configuration](#apply-configuration)). Tekton Results does not cap the retention period; choose it according to your own audit or compliance requirements. A value in days (a plain integer or the `d` suffix) is converted to a Go `time.Duration` without an overflow check, so a value above 106751 days (about 292 years) wraps around to an unrelated duration, which can be negative or close to zero, and the next run then deletes results as described in the next item. Do not use a very large number to mean "keep forever". A Go duration string above the same limit, such as `"2562048h"`, fails to parse instead.
 - **`"0"` and negative values delete every result they cover**: A result expires when its record was last updated before `now - retention`. With `"0"` the cutoff is the time the job runs, and with a negative value the cutoff is in the future. The retention that applies to a result is the one of its first matching policy, or `defaultRetention` when no policy matches (see [Per-Namespace or Per-Label Retention](#per-namespace-or-per-label-retention)). So a policy `retention` of `"0"` or less makes the next run delete every result whose first matching policy it is, and a `defaultRetention` of `"0"` or less makes it delete every result that matches no policy. Their logs are deleted on a best-effort basis, as described in the next item.
-- **Log deletion is best effort**: Deleting log payloads from external storage can be turned off by a feature gate, and a deletion that still fails after its retries is ignored so that the database cleanup proceeds. Log payloads can therefore remain in storage after their result records are gone. If log expiry is a requirement, also configure a lifecycle rule on the storage bucket, or monitor the bucket for log payloads older than the retention period.
+- **Log deletion is best effort**: Deleting log payloads from external storage can be turned off by a feature gate, and a deletion that still fails after its retries is ignored so that the database cleanup proceeds. Log payloads can therefore remain in storage after their result records are gone. If log expiry is a requirement, also configure a lifecycle rule on the storage bucket, or monitor the bucket for log payloads older than the retention period. With `logs_type: File`, the retention agent deletes only the database records; the log files stay on the PVC, and the agent reports no error. Remove old files from the PVC yourself, or use S3 storage.
 - **A leftover `maxRetention` overrides `defaultRetention`**: The deprecated `maxRetention` key is still read. When it is present, its value is used as the default retention and `defaultRetention` is ignored; the retention agent only logs a deprecation warning. Before you rely on `defaultRetention`, remove `maxRetention` from the ConfigMap, moving its value to `defaultRetention` if you want to keep it.
 
 ### Relationship with In-Cluster Pruning \{#relationship-with-in-cluster-pruning}
@@ -65,12 +67,19 @@ The upstream Tekton Results documentation recommends using the retention policy 
 
 ### Per-Namespace or Per-Label Retention \{#per-namespace-or-per-label-retention}
 
-Use the `policies` key to give selected results their own retention period, for example a longer period for namespaces that hold audit-relevant pipelines. `policies` is a YAML string containing a list of policies, each with a `name`, a `selector`, and a `retention` value (same formats as `defaultRetention`):
+Use the `policies` key to give selected results their own retention period, for example a longer period for namespaces that hold audit-relevant pipelines. `policies` is a YAML string containing a list of policies, each with a `name`, a `selector`, and a `retention` value (same formats as `defaultRetention`; a value with another unit, such as `"1y"` or `"2w"`, does not parse and makes each retention job stop before it deletes anything, see [Apply Configuration](#apply-configuration)):
 
 - Policies are evaluated in order, and the **first matching policy** applies. Results that match no policy use `defaultRetention`.
-- A `selector` can combine `matchNamespaces`, `matchLabels`, `matchAnnotations`, and `matchStatuses`. All specified fields must match; within one field, any listed value matches. `matchLabels` and `matchAnnotations` map a key to a list of accepted values and are evaluated against the PipelineRun or TaskRun metadata. `matchStatuses` is evaluated against the `reason` of the first status condition, such as `Succeeded` or `Failed`.
+- A `selector` can combine `matchNamespaces`, `matchLabels`, `matchAnnotations`, and `matchStatuses`. All specified fields must match; within one field, any listed value matches. `matchLabels` and `matchAnnotations` map a key to a list of accepted values and are evaluated against the metadata of the evaluated PipelineRun or TaskRun. `matchStatuses` is evaluated against the `reason` of its first status condition. The end reasons differ by kind, for example `Succeeded`, `Completed` (succeeded with skipped tasks), `Failed`, `Cancelled`, and `PipelineRunTimeout` for a PipelineRun, and `Succeeded`, `Failed`, `TaskRunCancelled`, and `TaskRunTimeout` for a TaskRun; other failure reasons exist. A policy meant for all unsuccessful runs must list the failure, timeout, and cancel reasons of the kind, not only `Failed`.
+- Only PipelineRun records and standalone TaskRun records are evaluated. A TaskRun that runs as part of a PipelineRun is stored in the PipelineRun's result and is deleted together with it, under the policy that matches the PipelineRun (or `defaultRetention`). A selector on a label, annotation, or status that only the TaskRun has therefore does not change when it is deleted; for these TaskRuns the PipelineRun's `reason` counts. To keep such TaskRuns longer, select on the PipelineRun: its namespace, or a label set on the PipelineRun, which Tekton copies to its TaskRuns.
 
-The following example keeps results from one namespace and from runs with one label for different periods. It shows only the retention keys: merge them into `spec.result.options` of the existing `TektonConfig` (for example with `kubectl edit tektonconfig config`) and keep its other `spec.result` fields, such as the database and log settings shown in [Configuration](#configuration):
+The following example keeps results from one namespace and from runs with one label for different periods. It shows only the `policies` key: merge it into `spec.result.options` of the existing `TektonConfig` with `kubectl patch tektonconfig config --type merge --patch-file <file>`, as described in [Apply Configuration](#apply-configuration). The merge patch keeps the other `spec.result` fields, such as the database and log settings shown in [Configuration](#configuration), and the other retention keys, such as `defaultRetention` and `runAt`. It replaces the whole `policies` value, so read the current value first and copy the existing policies that you keep into the file, in their order. The following command prints the `policies` value as YAML; an empty output means that no policies are set. The commands on this page use the namespace `tekton-pipelines`, the default of `spec.targetNamespace` in `TektonConfig`; replace it in the commands if your installation uses another namespace:
+
+```bash
+kubectl get configmap tekton-results-config-results-retention-policy -n tekton-pipelines -o jsonpath='{.data.policies}'
+```
+
+The example:
 
 ```yaml
 apiVersion: operator.tekton.dev/v1alpha1
@@ -83,8 +92,6 @@ spec:
       configMaps:
         tekton-results-config-results-retention-policy:
           data:
-            defaultRetention: "30"
-            runAt: "5 5 * * 0"
             policies: |
               - name: audit-namespaces
                 selector:
@@ -99,45 +106,87 @@ spec:
                 retention: "7"    # Example value
 ```
 
-## Apply Configuration
-
-Apply the TektonConfig configuration. The file must contain the complete `spec.result` you want, including the existing database and log settings; to change only the retention keys, edit the existing `TektonConfig` instead of applying a file that holds only those keys:
+A selector that matches nothing is not reported: the results that it was meant to cover fall back to `defaultRetention` without any message, and the job log gives only totals per record type. A namespace typo, a label that only the child TaskRuns carry, or a `reason` that is not listed has this effect. Before you rely on a new policy, check its selector against the stored records. `policies` is one cluster-wide key, so a test value replaces every existing policy: before you test a policy on the cluster, follow the precautions in step 3 of [Verification](#verification) and the warning after the steps. To check a selector, start the port-forward and, when authentication is enabled, read the token as in step 2 of [Verification](#verification). Then list the PipelineRun records that carry the label of a `matchLabels` entry, for example `team: ci`, and add `--authtoken "$RESULTS_TOKEN"` when authentication is enabled. The `tkn results` commands on this page need the `tkn` CLI and the `tkn-results` binary, installed as described in [Preparing the CLI](../quick_start.mdx#preparing-the-cli) in the Quick Start:
 
 ```bash
-kubectl apply -f tekton-config-retention-config.yaml
+tkn results --insecure --addr localhost:8080 records list <namespace>/results/- --limit 1000 \
+  --filter 'data_type == "tekton.dev/v1.PipelineRun" && data.metadata.labels["team"] == "ci"'
+```
+
+`<namespace>` is a namespace of `matchNamespaces`, or a namespace whose runs the label should select. For `matchStatuses`, filter on the reason instead, for example `data.status.conditions[0].reason == "Failed"`. One call returns one page of records: 50 without `--limit`, and at most the `--limit` value (5 to 10000) with it. If the output has fewer records than the limit and lists no record of the runs that the policy should keep, the selector does not match them either. If it has as many records as the limit, more records can match than it shows, so a run that is missing from the output can still match; narrow the filter or raise `--limit`.
+
+## Apply Configuration \{#apply-configuration}
+
+Save only the retention keys in a file, for example `tekton-config-retention-config.yaml`:
+
+```yaml
+spec:
+  result:
+    options:
+      configMaps:
+        tekton-results-config-results-retention-policy:
+          data:
+            defaultRetention: "30"
+            runAt: "0 2 * * *"
+```
+
+Merge the file into the existing `TektonConfig`. A merge patch changes only the keys in the file and keeps the other `spec.result` fields, such as the database and log settings:
+
+```bash
+kubectl patch tektonconfig config --type merge --patch-file tekton-config-retention-config.yaml
 ```
 
 **Example Output:**
-```
-tektonconfig.operator.tekton.dev/config configured
+```text
+tektonconfig.operator.tekton.dev/config patched
 ```
 
-Wait for the retention agent to restart:
+Do not use `kubectl apply -f` for a file that holds only part of `TektonConfig`. `kubectl apply` stores the file in the `kubectl.kubernetes.io/last-applied-configuration` annotation, and a later `kubectl apply -f` of another partial file deletes the fields that the earlier file set and the later file leaves out, such as these retention keys or the whole `spec.result`.
+
+The retention agent reloads the ConfigMap without a restart. Check that the ConfigMap holds the new values:
 
 ```bash
-kubectl rollout status -n tekton-pipelines deployment/tekton-results-retention-policy-agent
+kubectl get configmap tekton-results-config-results-retention-policy -n tekton-pipelines -o jsonpath='{.data}'
 ```
 
 **Example Output:**
-```
-deployment "tekton-results-retention-policy-agent" successfully rolled out
+```json
+{"defaultRetention":"30","runAt":"0 2 * * *"}
 ```
 
-Verify the configuration is active:
+If the ConfigMap still holds the previous values, the Operator has not applied the change. Read the `TektonConfig` conditions with the second command of [Check That a Change Reached Chains](../../chains/configure/chains_configuration.mdx#check-that-a-change-reached-chains): the Operator applies the Pipelines, event-based Pruner, Triggers and Chains components before Tekton Results and stops at a component that it cannot apply. The `ComponentsReady` condition is then `False`, and its message starts with `Components not in ready state:`. Correct the setting that the message names, then check the ConfigMap again.
+
+The ConfigMap shows the new values even when the agent cannot use them: the agent applies a new configuration only when `defaultRetention` (or `maxRetention`) and the `policies` YAML parse, and otherwise keeps running with the previous one. After each change, check the agent log for an update error:
+
+```bash
+kubectl logs -n tekton-pipelines deployment/tekton-results-retention-policy-agent --since=10m | grep 'Error updating'
+```
+
+The command must print nothing. A line whose message is `Error updating results config "tekton-results-config-results-retention-policy": "<error>"` means that the agent kept the previous policy; correct the value and apply it again.
+
+This check does not cover the `retention` value of each policy, which the agent parses only when a job runs. A policy `retention` value that does not parse, for example `"1y"`, passes the check above. At each `runAt` time the job then logs its start line and an error whose message starts with `failed to build case statement:`, and stops before it deletes anything: neither the policies nor `defaultRetention` delete records until you correct the value. After the first `runAt` time that follows a change to `policies`, check the agent log for this error, with a `--since` period that includes that run:
+
+```bash
+kubectl logs -n tekton-pipelines deployment/tekton-results-retention-policy-agent --since=24h | grep 'failed to build case statement'
+```
+
+The command must print nothing.
+
+Check that the retention agent is running. A `runAt` value that does not parse as a cron schedule passes the `Error updating` check above, but the agent then exits with a log message that starts with `failed to add function for cronjob`, so a Pod that is not `Running` after a change points to `runAt`:
 
 ```bash
 kubectl get pods -n tekton-pipelines -l app.kubernetes.io/name=tekton-results-retention-policy-agent
 ```
 
 **Example Output:**
-```
-NAME                                                   READY   STATUS    RESTARTS   AGE
-tekton-results-retention-policy-agent-5c9g2            1/1     Running   0          5m
+```text
+NAME                                                    READY   STATUS    RESTARTS   AGE
+tekton-results-retention-policy-agent-c6ff5575b-prczg   1/1     Running   0          5m
 ```
 
-## Important Note
+## Important Note \{#important-note}
 
-> **Important**: The unified cleanup functionality (deleting database records and, on a best-effort basis, their S3 log payloads; see [Retention Value Limits](#retention-value-limits)) is a **enhancement** (patch-based) and is not currently available in community Tekton Results. The community version only removes database records but leaves log payloads in S3 storage, which can lead to unbounded storage growth.
+> **Important**: The unified cleanup functionality (deleting database records and, on a best-effort basis, their S3 log payloads; see [Retention Value Limits](#retention-value-limits)) is an **enhancement** (patch-based) and is not currently available in community Tekton Results. The community version only removes database records but leaves log payloads in S3 storage, which can lead to unbounded storage growth. With `logs_type: File`, neither version removes the log files from the PVC.
 
 Check TektonConfig retention configuration:
 
@@ -146,7 +195,7 @@ kubectl get tektonconfig config -o yaml
 ```
 
 **Example Output (abbreviated):**
-```
+```text
 apiVersion: operator.tekton.dev/v1alpha1
 kind: TektonConfig
 metadata:
@@ -172,72 +221,139 @@ Check retention agent logs:
 kubectl logs -n tekton-pipelines deployment/tekton-results-retention-policy-agent
 ```
 
-**Example Output:**
-```
-{"level":"info","ts":"2023-05-15T10:30:45.123Z","caller":"retention/main.go:89","msg":"Starting Tekton Results retention policy agent"}
-{"level":"info","ts":"2023-05-15T10:30:45.124Z","caller":"retention/agent.go:45","msg":"Retention policy configured: 30 days, schedule: 0 2 * * *"}
-{"level":"info","ts":"2023-05-15T10:30:45.125Z","caller":"retention/scheduler.go:123","msg":"Next execution scheduled for: 2023-05-16T02:00:00Z"}
+After its start-up line, the agent logs nothing until a job runs, except warnings such as the `maxRetention` deprecation warning and the `Error updating` line of a configuration that it could not use (see [Apply Configuration](#apply-configuration)). At each `runAt` time it logs the start of the job with the policy in effect, the records it deletes per record type, and the end of the job. When a policy `retention` value does not parse, the start line is followed by the `failed to build case statement:` error instead, and the job ends without deleting anything and without an end line (see [Apply Configuration](#apply-configuration)). The time in the start and end lines is the agent container time.
+
+**Example Output (one run; the policy list is shortened):**
+```text
+2026/10/05 00:35:35 maxprocs: Updating GOMAXPROCS=1: determined from CPU quota
+{"level":"info","ts":1791133320.0093474,"logger":"fallback","caller":"retention/job.go:51","msg":"retention job started at: 2026-10-05 01:02:00.008167365 +0800 CST m=+1584.914711662, retention policy: {RunAt:2 1 * * * DefaultRetention:2m0s Policies:[...]}"}
+{"level":"info","ts":1791133320.0486042,"logger":"fallback","caller":"retention/job.go:195","msg":"found 22 log records to cleanup for record type tekton.dev/v1.PipelineRun"}
+{"level":"info","ts":1791133320.0487177,"logger":"fallback","caller":"log/clean.go:40","msg":"deleting 22 log records from external storage"}
+{"level":"info","ts":1791133320.056826,"logger":"fallback","caller":"retention/job.go:195","msg":"found 4 log records to cleanup for record type tekton.dev/v1.TaskRun"}
+{"level":"info","ts":1791133320.056965,"logger":"fallback","caller":"log/clean.go:40","msg":"deleting 4 log records from external storage"}
+{"level":"info","ts":1791133320.0640714,"logger":"fallback","caller":"retention/job.go:104","msg":"successfully deleted 13 results for record type tekton.dev/v1.PipelineRun"}
+{"level":"info","ts":1791133320.0687199,"logger":"fallback","caller":"retention/job.go:104","msg":"successfully deleted 4 results for record type tekton.dev/v1.TaskRun"}
+{"level":"info","ts":1791133320.0689163,"logger":"fallback","caller":"retention/job.go:69","msg":"retention job finished at: 2026-10-05 01:02:00.068895724 +0800 CST m=+1584.975440038"}
 ```
 
-## Verification
+## Verification \{#verification}
 
 To quickly verify that the retention policy is functioning as expected, follow these steps:
 
-1. **Create test results/logs**: Generate some Tekton PipelineRuns or TaskRuns that will produce results and logs in your Tekton Results database.
-
-   ```bash
-   # Create a sample PipelineRun to generate test data
-   kubectl apply -f sample-pipelinerun.yaml
-   ```
+1. **Create test results/logs**: Run a `TaskRun` or `PipelineRun` in the namespace that you use for the test, for example the `hello` `TaskRun` from [Verify Functionality](../quick_start.mdx#verify-functionality) in the Quick Start, created with `-n <namespace>` (the note there covers clusters that reject an inline `taskSpec`). Wait until it has finished so that its result and log are stored in your Tekton Results database.
 
 2. **Verify initial state**: Check that the results and logs are present in the database and S3 storage (if applicable).
 
    ```bash
-   # Check Tekton Results
-   tkn results list
-   
-   # Or query directly from the database if accessible
-   kubectl exec -it -n tekton-pipelines deployment/tekton-results-read-api -- grpcurl -plaintext -d '{}' localhost:8080 api.v1alpha2.Results.ListResults
+   # Forward the Results API port (keep it running in a separate terminal)
+   kubectl port-forward -n tekton-pipelines service/tekton-results-api-service 8080
+
+   # List the stored records of a namespace
+   tkn results --insecure --addr localhost:8080 records list <namespace>/results/-
    ```
 
-3. **Modify retention policy for testing**: Temporarily set a very short retention period and a specific cron schedule for testing purposes (e.g., execute once at current time + 10 minutes).
-
-   ```yaml
-   options:
-     configMaps:
-       tekton-results-config-results-retention-policy:
-         data:
-           defaultRetention: "0"  # Retain for 0 days (immediate cleanup)
-           # Execute once at a specific time (current time + 10 minutes)
-           # Example: If current time is 14:30, set to "40 14 * * *" for 14:40
-           # Modify the minute value to current minute + 10 (with day/hour adjusted if needed)
-           runAt: "40 14 * * *"  # Example: run at 14:40 (current time + 10 mins approx)
-   ```
-
-4. **Apply modified configuration**: Apply the temporary test configuration and wait for the retention agent to restart.
+   The command sends no token, so it works only when authentication is disabled with `auth_disable: true`, as in the [Quick Start](../quick_start.mdx). With authentication enabled, read the bearer token into a variable without showing it, then pass the variable with `--authtoken`. Run the `read -rs` line on its own, paste the token and press Enter. In a shell without bracketed paste, such as bash before 5.1, `read` takes the next line of a pasted block as the token. Run the commands in bash or zsh: in a POSIX `sh` such as `dash`, `read -rs` fails and leaves the variable empty:
 
    ```bash
-   kubectl apply -f tekton-config-test-config.yaml
-   kubectl rollout restart -n tekton-pipelines deployment/tekton-results-retention-policy-agent
+   read -rs RESULTS_TOKEN
    ```
 
-5. **Monitor retention agent logs**: Watch the retention agent logs to confirm cleanup operations are occurring.
+   Then run:
+
+   ```bash
+   tkn results --insecure --addr localhost:8080 --authtoken "$RESULTS_TOKEN" records list <namespace>/results/-
+   unset RESULTS_TOKEN
+   ```
+
+   `read -rs` keeps the token off the screen and out of the shell history, but the value is still part of the `tkn` command line, so other users of the machine can see it in the process list while the command runs.
+
+3. **Modify retention policy for testing**: Temporarily set a very short retention period and a specific cron schedule for testing purposes (e.g., execute once at current time + 10 minutes). Compute the time in the time zone of the retention agent container, or prefix the expression with `CRON_TZ=` (see `runAt` above). `defaultRetention` applies to every namespace that no policy matches, so set it to `"0"` only on a dedicated test cluster. On a shared cluster, leave `defaultRetention` out of the patch, so that it keeps its value, and keep the existing policies: `policies` is a single key, so the test value replaces all of them. Put first a policy in the format shown in [Per-Namespace or Per-Label Retention](#per-namespace-or-per-label-retention) that matches only the namespace of the step 1 run, with `retention: "0"`, then copy every existing policy, unchanged and in the same order. The job applies to each record the first policy that matches it, so the test policy deletes every result of that namespace, and the other namespaces keep their current retention. Use a namespace whose results may all be deleted. Before you change anything, save the current values of the retention ConfigMap, which step 7 restores:
+
+   ```bash
+   kubectl get configmap tekton-results-config-results-retention-policy -n tekton-pipelines -o jsonpath='{.data}' > retention-orig.json
+   ```
+
+   Save the following merge patch as `retention-test-patch.yaml`:
+
+   ```yaml
+   spec:
+     result:
+       options:
+         configMaps:
+           tekton-results-config-results-retention-policy:
+             data:
+               defaultRetention: "0"  # Dedicated test cluster only; leave out on a shared cluster
+               # Execute once at a specific time (current time + 10 minutes)
+               # Example: If current time is 14:30, set to "40 14 * * *" for 14:40
+               # Modify the minute value to current minute + 10 (with day/hour adjusted if needed)
+               runAt: "40 14 * * *"  # Example: run at 14:40 (current time + 10 mins approx)
+               # The test policy first; on a shared cluster, then every existing policy,
+               # unchanged and in the same order
+               policies: |
+                 - name: retention-test
+                   selector:
+                     matchNamespaces:
+                       - <namespace>  # The namespace of the step 1 run
+                   retention: "0"
+                 # Copy the existing policies here, unchanged and in the same order
+   ```
+
+4. **Apply modified configuration**: Merge the patch into the existing `TektonConfig`. A merge patch changes only the keys in the file and keeps the other `spec.result` fields. The retention agent reloads the ConfigMap without a restart; check the ConfigMap and the agent log for `Error updating` as shown in [Apply Configuration](#apply-configuration) above.
+
+   ```bash
+   kubectl patch tektonconfig config --type merge --patch-file retention-test-patch.yaml
+   ```
+
+5. **Monitor retention agent logs**: Watch the retention agent logs to confirm cleanup operations are occurring. If the start line of the job is followed by an error whose message starts with `failed to build case statement:`, a policy `retention` value does not parse and the job deleted nothing; correct the value as described in [Apply Configuration](#apply-configuration).
 
    ```bash
    kubectl logs -n tekton-pipelines deployment/tekton-results-retention-policy-agent -f
    ```
 
-6. **Verify cleanup occurred**: After the retention schedule executes, verify that the older results and logs have been removed.
+6. **Verify cleanup occurred**: After the retention schedule executes, verify that the older results and logs have been removed. Changing the retention keys in step 4 replaces the Results API pod, which ends the port-forward from step 2. Start it again with the same `kubectl port-forward` command, then list the records.
 
    ```bash
-   # Check if results have been cleaned up
-   tkn results list
-   
-   # Also check S3 storage to verify log files have been cleaned up
-   # Use your S3 client to list objects in the bucket
-   aws s3 ls s3://your-bucket-name/path/to/tekton-logs/ --recursive
+   # Check if results have been cleaned up (after restarting the port-forward from step 2)
+   tkn results --insecure --addr localhost:8080 records list <namespace>/results/-
+
+   # Without auth_disable: true, read the token with read -rs RESULTS_TOKEN
+   # and add --authtoken "$RESULTS_TOKEN" as in step 2
+
+   # Also check S3 storage to verify log files have been cleaned up, for example
+   # with the AWS CLI (aws) as below; for S3-compatible storage such as MinIO
+   # or Ceph, pass the storage endpoint with --endpoint-url. Replace <bucket>
+   # and <path> with the bucket and the path of the Tekton logs in it
+   aws s3 ls s3://<bucket>/<path>/ --recursive --endpoint-url <s3-endpoint-url>
    ```
 
-7. **Revert to production settings**: Once verified, revert the retention policy to your intended production values.
+7. **Revert to production settings**: Once verified, merge the values that you saved in `retention-orig.json` in step 3 back with a patch file, for example `retention-revert-patch.yaml`. A merge patch keeps the keys that the file leaves out, so remove the test `policies` key explicitly with `null`. If the cluster had `policies` before the test, set that value again instead of `null`:
 
-> **Warning**: Be careful when setting very short retention periods as this will delete results immediately. Ensure you are using a test environment for verification.
+   ```yaml
+   spec:
+     result:
+       options:
+         configMaps:
+           tekton-results-config-results-retention-policy:
+             data:
+               defaultRetention: "30"  # Your production value
+               runAt: "0 2 * * *"      # Your production schedule
+               policies: null          # Removes the test policies
+   ```
+
+   ```bash
+   kubectl patch tektonconfig config --type merge --patch-file retention-revert-patch.yaml
+   ```
+
+   Check the ConfigMap and the agent log for `Error updating` as shown in [Apply Configuration](#apply-configuration). If the ConfigMap keeps the test values, read the `TektonConfig` conditions as described there. If the agent did not take the revert, the test values stay in force, and with `defaultRetention: "0"` each run of the test schedule deletes every result that no policy matches.
+
+   Then delete the run that you created in step 1, for example `kubectl delete taskrun hello -n <namespace>`. The Watcher stores the run in Results once more while it is deleted, so its record comes back and is kept for the restored retention period.
+
+> **Warning**: Be careful when setting very short retention periods as this will delete results immediately. The retention settings are cluster-wide: use a dedicated test cluster for verification. On a shared cluster, keep `defaultRetention` unchanged and put a policy for the test namespace only before the existing policies, as shown in step 3; with `defaultRetention: "0"`, a namespace that no policy matches loses its results.
+
+## Recommended Settings
+
+**When to enable.** Configure the retention policy when completed runs are removed from the cluster, for example by [Tekton Pruner](../../pruner/intro.mdx), but must remain available for audit and troubleshooting. Once a PipelineRun or TaskRun is stored in Results, the cluster object can be deleted, so Results becomes the copy of run history that audits query. The retention period that applies to every result not covered by a more specific policy is set through the `defaultRetention` key in `TektonConfig` (`spec.result.options`).
+
+**Recommended values.** Set `defaultRetention` to the number of days that your audit or compliance policy requires run history to be kept; the `"30"` shown in [Configuration](#configuration) is an example, not a compliance value. If the retention ConfigMap still carries the deprecated `maxRetention` key, remove it, moving its value to `defaultRetention` if you want to keep it: when present, it overrides `defaultRetention`. Run the retention agent daily outside peak hours, for example `runAt: "0 2 * * *"`; the schedule uses the time zone of the retention agent container (UTC+8 in the shipped image), or the zone given with a `CRON_TZ=` prefix. Merge the values into `TektonConfig` and check them, including the agent log check for `Error updating` and, when you set `policies`, the check for `failed to build case statement` after the first job run, as described in [Apply Configuration](#apply-configuration).
+
+**Prerequisites.** Tekton Results must be installed with an external PostgreSQL database (`is_external_db: true`), because the built-in PostgreSQL database is not supported (see the [Quick Start](../quick_start.mdx)); see [Database Configuration](./database_configuration.mdx) for the external database. For archived logs, configure S3-compatible object storage (`logs_type: S3`) as described in [S3 Storage Configuration](./s3_storage_configuration.mdx), which replaces less efficient mechanisms such as PVC-based storage. Size the database and the bucket for the longest retention period that applies to your results (`defaultRetention`, or a longer per-namespace or per-label policy if you configure one). Deleting archived logs is best effort, so log payloads can remain in the bucket after their records are deleted; if log expiry is a requirement, also configure a lifecycle rule on the bucket.

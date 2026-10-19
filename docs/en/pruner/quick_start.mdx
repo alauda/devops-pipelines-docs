@@ -28,6 +28,12 @@ If you want to use `job-based` pruner, please refer to [Regular Cleanup of TaskR
 
 :::
 
+:::warning
+
+**Enabling the Pruner deletes runs at once**, in every namespace it covers. Before you enable it, read the warning in [Recommended Settings](./how_to/namespace_configuration.mdx#recommended-settings) of Namespace Configuration and follow the steps there.
+
+:::
+
 Configure Tekton Pruner to delete completed resources after 5 minutes and keep the last 3 runs by applying the following configuration:
 
 ```bash

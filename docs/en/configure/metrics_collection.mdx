@@ -28,11 +28,14 @@ It also covers:
 ## Prerequisites \{#prerequisites}
 
 - Tekton control-plane components are installed and running (at minimum, the components you plan to scrape: Pipelines, Triggers, Results, and/or Chains).
-- `kubectl` is configured against the target cluster, and your account can create `ServiceMonitor` resources in the monitoring namespace.
+- `kubectl` is configured against the target cluster, and your account can create `ServiceMonitor` resources in the namespace where you create them (the samples on this page use `tekton-pipelines`).
 - A monitoring stack is deployed (Prometheus or compatible VictoriaMetrics) and can discover/scrape `ServiceMonitor` resources (or equivalent scrape-discovery objects used by your platform).
-- Your Prometheus/VictoriaMetrics instance is configured to discover the `ServiceMonitor` objects you create (namespace and label selectors must match).
+- Your Prometheus/VictoriaMetrics instance is configured to discover the `ServiceMonitor` objects in that namespace (namespace and label selectors must match).
 - Network policies and firewalls allow scraper pods to reach Tekton metrics ports (`9090` for most control-plane services, `9000` for Triggers controller and EventListener sink).
 - If you want EventListener sink metrics, EventListeners must exist in their target namespaces and expose the `http-metrics` port.
+- The `curl` CLI for the endpoint checks in [Check Metrics Endpoints Directly](#check-metrics-endpoints-directly), and the `jq` CLI for the restore step of the `runs_not_stored_count` reproduction. On an air-gapped workstation, install them from an operating system package repository that the workstation can reach, or copy the binaries from a connected machine.
+- To deploy the dashboards in [MonitorDashboard Examples](#monitordashboard-examples), your account can create `MonitorDashboard` resources (`ait.alauda.io/v1alpha2`) in the `cpaas-system` namespace.
+- Changing `config-observability` needs the right to update the cluster-scoped `TektonConfig`. Reading the ConfigMaps and restarting Pods in `tekton-pipelines`, and the `kubectl port-forward` checks there, need the matching rights in that namespace (`pods/portforward` for the port-forward). These steps are usually done by a cluster administrator. The EventListener sink check in [Check Metrics Endpoints Directly](#check-metrics-endpoints-directly) port-forwards in the EventListener's namespace and needs `pods/portforward` there as well.
 
 ## Tekton Pipelines
 
@@ -74,12 +77,13 @@ The `running_pipelineruns` metric labels are controlled by `metrics.running-pipe
 
 For PipelineRun metrics:
 - `success` - PipelineRun completed successfully
-- `failed` - PipelineRun failed
-- `cancelled` - PipelineRun was cancelled
+- `failed` - PipelineRun failed with a reason other than `Cancelled`, including a run cancelled or stopped with `CancelledRunFinally` or `StoppedRunFinally` in which a task failed
+- `cancelled` - PipelineRun ended with reason `Cancelled`
 
 For TaskRun metrics:
 - `success` - TaskRun completed successfully
-- `failed` - TaskRun failed
+- `failed` - TaskRun failed with a reason other than `TaskRunCancelled`
+- `cancelled` - TaskRun ended with reason `TaskRunCancelled`
 
 ### TaskRun Metrics
 
@@ -90,15 +94,24 @@ For TaskRun metrics:
 | `taskrun_total` | Counter | Total number of completed TaskRuns | `status` |
 | `running_taskruns` | LastValue (Gauge) | Number of currently running TaskRuns | - |
 | `running_taskruns_waiting_on_task_resolution_count` | LastValue (Gauge) | TaskRuns waiting on Task reference resolution | - |
-| `running_taskruns_throttled_by_quota` | LastValue (Gauge) | TaskRuns throttled by ResourceQuota | `namespace`\* |
-| `running_taskruns_throttled_by_node` | LastValue (Gauge) | TaskRuns throttled by node-level resource constraints | `namespace`\* |
-| `taskruns_pod_latency_milliseconds` | LastValue | Pod scheduling latency for TaskRuns in milliseconds | `namespace`, `pod`, `task`\*, `taskrun`\* |
+| `running_taskruns_throttled_by_quota` | LastValue (Gauge) | TaskRuns throttled by ResourceQuota. Absent from the metrics output while no TaskRun is throttled | `namespace`\* |
+| `running_taskruns_throttled_by_node` | LastValue (Gauge) | TaskRuns throttled by node-level resource constraints. Absent from the metrics output while no TaskRun is throttled | `namespace`\* |
+| `taskruns_pod_latency_milliseconds` | Histogram | Pod scheduling latency for TaskRuns in milliseconds | `namespace`, `task`\*, `taskrun`\* |
 
-### config-observability Configuration
+### config-observability Configuration \{#config-observability-configuration}
 
-The `config-observability` ConfigMap in the `tekton-pipelines` namespace controls metrics behavior for the Pipeline controller. This ConfigMap is managed by the Tekton Operator and should be configured via the `TektonConfig` resource's `spec.pipeline.options.configMaps` field. See [Adjusting Optional Configuration Items for Subcomponents](./customize_options.mdx) for details.
+The `config-observability` ConfigMap in the `tekton-pipelines` namespace controls metrics behavior for the Pipeline controller. This ConfigMap is managed by the Tekton Operator and should be configured via the `TektonConfig` resource's `spec.pipeline.options.configMaps` field. See [Adjusting Optional Configuration Items for Subcomponents](./customize_options.mdx) for details. A direct edit of the ConfigMap also takes effect in the controller and is not reverted at once, which makes such an edit easy to miss; keep the values in `TektonConfig`, which the operator applies to the ConfigMap. `TektonConfig` also has fields for some of these keys directly under `spec.pipeline`, each named with the full key (a flat key, not a nested path), such as the key `metrics.pipelinerun.level` under `spec.pipeline`; while `options.configMaps.config-observability` sets the same key, the ConfigMap gets the `options.configMaps` value.
 
-> **Hot reload behavior**: `config-observability` is watched at runtime. Most key changes (for example `metrics.*`) take effect without restarting Pods. Allow one or two scrape intervals for dashboard/query changes to appear. A restart is only needed when Pod spec settings change (for example changing `CONFIG_OBSERVABILITY_NAME` in the Deployment).
+> **Reload behavior**: The Pipeline controller watches `config-observability` at runtime. Changes to the level keys (`metrics.pipelinerun.level`, `metrics.taskrun.level`, and `metrics.running-pipelinerun.level`) and to the label switches `metrics.count.enable-reason` and `metrics.taskrun.throttle.enable-namespace` take effect without a restart. A change to `metrics.pipelinerun.level` or `metrics.taskrun.level` shows in the metrics of runs that complete after the change. Allow one or two scrape intervals for dashboard/query changes to appear. A change to `metrics.pipelinerun.duration-type` or `metrics.taskrun.duration-type` needs a restart of the `tekton-pipelines-controller` Pod. Restart the Pod right after the change. Without the restart, the running controller keeps the instrument of the old type, and after the next run completes, the metrics endpoint answers HTTP `500` (body `An error has occurred while serving metrics:` and `invalid metric`); restart the Pod to get the metrics back. The exporter keys `metrics-protocol`, `metrics-endpoint`, and `metrics-export-interval` are read only when the controller starts, so a change to them also takes effect only after the Pod restarts; the restart briefly pauses the reconciliation of PipelineRuns and TaskRuns. A restart is also needed when Pod spec settings change (for example changing `CONFIG_OBSERVABILITY_NAME` in the Deployment).
+
+A cluster administrator restarts the controller by deleting its Pod; the Deployment creates a new one. Then list the Pod:
+
+```bash
+kubectl delete pods -n tekton-pipelines -l app=tekton-pipelines-controller
+kubectl get pods -n tekton-pipelines -l app=tekton-pipelines-controller
+```
+
+The new Pod must be `Running`, with an `AGE` shorter than the time since the restart. With `metrics-protocol: prometheus`, then check the metrics as described in [Check Metrics Endpoints Directly](#check-metrics-endpoints-directly).
 
 Example configuration via `TektonConfig`:
 
@@ -114,7 +127,7 @@ spec:
       configMaps:
         config-observability:
           data:
-            metrics.backend-destination: prometheus
+            metrics-protocol: prometheus
 
             # PipelineRun metrics aggregation level.
             # Values: "pipelinerun" | "pipeline" (default) | "namespace"
@@ -155,19 +168,35 @@ spec:
             metrics.taskrun.throttle.enable-namespace: "false"
 ```
 
+Save the sample in a file such as `tektonconfig-observability.yaml`. To change only some keys, keep only those keys in the file, still nested under `spec.pipeline.options.configMaps.config-observability.data` as in the sample. Merge the file into the existing `TektonConfig`. A merge patch changes only the keys in the file and keeps the other fields of `TektonConfig`:
+
+```bash
+kubectl patch tektonconfig config --type merge --patch-file tektonconfig-observability.yaml
+```
+
+Do not use `kubectl apply -f` for a file that holds only part of `TektonConfig`: a later `kubectl apply -f` of another partial file deletes the fields that this file set and the later file leaves out.
+
+After you merge the change, check that the values reached the ConfigMap:
+
+```bash
+kubectl get configmap config-observability -n tekton-pipelines -o yaml
+```
+
+The keys under `data`, outside the commented `_example` block, must show the values that you set.
+
 #### Histogram Buckets
 
 When the duration type is `histogram`, the following bucket boundaries (in seconds) are used:
 
-```
+```text
 10, 30, 60, 300, 900, 1800, 3600, 5400, 10800, 21600, 43200, 86400
 ```
 
 This corresponds to: 10s, 30s, 1m, 5m, 15m, 30m, 1h, 1.5h, 3h, 6h, 12h, 24h.
 
-#### Recommended Production Configuration
+#### Recommended Production Configuration \{#recommended-production-configuration}
 
-For production environments, use aggregated levels to control label cardinality:
+For production environments, use aggregated levels to control label cardinality. Set the keys below, and those of the debugging example after them, under `spec.pipeline.options.configMaps.config-observability.data` of the sample above:
 
 ```yaml
 metrics.pipelinerun.level: "pipeline"
@@ -184,7 +213,7 @@ metrics.pipelinerun.level: "pipelinerun"
 metrics.taskrun.level: "taskrun"
 ```
 
-Note that this will significantly increase the number of time series.
+Note that this will significantly increase the number of time series. Switching back to `pipeline` and `task` does not remove the per-run series that were already created; they stay in the controller's metrics output until the `tekton-pipelines-controller` Pod restarts, because the controller process holds them in memory. Use these levels on a test cluster or for a short debugging window.
 
 ---
 
@@ -217,14 +246,14 @@ Each EventListener pod exposes additional HTTP and event processing metrics. The
 | Metric Name (Prometheus) | Type | Description | Labels |
 |--------------------------|------|-------------|--------|
 | `eventlistener_http_duration_seconds` | Histogram | EventListener HTTP request duration | - |
-| `eventlistener_event_received_count` | Counter | Total events received by the sink | `status` |
-| `eventlistener_triggered_resources` | Counter | Total resources created by triggers | `kind` |
+| `eventlistener_event_received_total` | Counter | Total events received by the sink | `status` |
+| `eventlistener_triggered_resources_total` | Counter | Total resources created by triggers | `kind` |
 
-- `eventlistener_http_duration_seconds` histogram buckets: `0.001, 0.01, 0.1, 1, 10` (seconds)
-- `eventlistener_event_received_count` status values: `succeeded`, `failed`
-- `eventlistener_triggered_resources` kind values: the Kubernetes resource Kind of the created object (e.g., `PipelineRun`, `TaskRun`)
+- `eventlistener_http_duration_seconds` histogram buckets: `0.001, 0.01, 0.1, 1, 5, 10` (seconds)
+- `eventlistener_event_received_total` status values: `succeeded`, `failed`
+- `eventlistener_triggered_resources_total` kind values: the Kubernetes resource Kind of the created object (e.g., `PipelineRun`, `TaskRun`)
 
-> These sink metrics are exposed per EventListener pod, not from the central controller. You may need a separate `ServiceMonitor` or `PodMonitor` to scrape them if the EventListener pods expose a metrics port.
+> These sink metrics are exposed per EventListener pod, not from the central controller. You may need a separate `ServiceMonitor` or `PodMonitor` to scrape them if the EventListener pods expose a metrics port. The Service of an EventListener publishes this metrics port (`9000`, `http-metrics`) next to the event port; before you use a `NodePort` or `LoadBalancer` Service, see [Network Configuration](../triggers/how_to/eventlistener.mdx#network-configuration).
 
 ---
 
@@ -235,82 +264,100 @@ Tekton Results has two sub-services that expose metrics.
 | Service | Description | Metrics Port |
 |---------|-------------|--------------|
 | `tekton-results-watcher` | Watches and cleans up PipelineRun/TaskRun resources | 9090 |
-| `tekton-results-api` | gRPC/REST API server | 9090 |
+| `tekton-results-api-service` | gRPC/REST API server | 9090 |
 
 ### Watcher Metrics
 
-The Watcher metrics use the prefix **`watcher_`**.
+The Watcher metrics use the prefix **`watcher_`**. Counters are exported with the suffix `_total`, for example `watcher_pipelinerun_delete_count_total` and `watcher_runs_not_stored_count_total`.
 
 #### Deletion Metrics
 
 | Metric Name | Type | Description | Labels |
 |-------------|------|-------------|--------|
-| `pipelinerun_delete_count` | Counter | Total number of deleted PipelineRuns | `status`, `namespace` |
-| `pipelinerun_delete_duration_seconds` | Histogram / LastValue | Time from PipelineRun completion to deletion | `status`, `namespace`, `pipeline`\* |
-| `taskrun_delete_count` | Counter | Total number of deleted TaskRuns | `status`, `namespace` |
-| `taskrun_delete_duration_seconds` | Histogram / LastValue | Time from TaskRun completion to deletion | `status`, `namespace`, `pipeline`\*, `task`\* |
+| `pipelinerun_delete_count` | Counter | Total number of deleted PipelineRuns | `status`, `namespace`, `pipeline`\* |
+| `pipelinerun_delete_duration_seconds` | Histogram | Time from PipelineRun completion to deletion | `status`, `namespace`, `pipeline`\* |
+| `taskrun_delete_count` | Counter | Total number of deleted TaskRuns | `status`, `namespace`, `pipeline`\*, `task`\* |
+| `taskrun_delete_duration_seconds` | Histogram | Time from TaskRun completion to deletion | `status`, `namespace`, `pipeline`\*, `task`\* |
+| `customrun_delete_count` | Counter | Total number of deleted CustomRuns | `status`, `namespace`, `pipeline`\*, `customrun`\* |
+| `customrun_delete_duration_seconds` | Histogram | Time from CustomRun completion to deletion | `status`, `namespace`, `pipeline`\*, `customrun`\* |
 
 > \* Optional labels depend on `config-observability` settings for the Results Watcher.
 
-> **Note**: `pipelinerun_delete_count`, `pipelinerun_delete_duration_seconds`, `taskrun_delete_count`, and `taskrun_delete_duration_seconds` are only recorded when the Watcher actually deletes runs. These metrics will remain empty (no data points) unless the `--completed_run_grace_period` flag is set to a non-zero value on the `tekton-results-watcher` Deployment. By default this flag is `0`, which disables automatic deletion. Set it to a positive duration (e.g. `10m`) to enable deletion after a grace period, or to a negative value to delete immediately after archiving.
+> **Note**: `pipelinerun_delete_count`, `pipelinerun_delete_duration_seconds`, `taskrun_delete_count`, `taskrun_delete_duration_seconds`, `customrun_delete_count`, and `customrun_delete_duration_seconds` are only recorded when the Watcher actually deletes runs. These metrics will remain empty (no data points) unless the `--completed_run_grace_period` flag is set to a non-zero value on the `tekton-results-watcher` Deployment (through `TektonConfig`, in the `args` of the `watcher` container under `spec.result.options.deployments.tekton-results-watcher`, as in the reproduction steps below). By default this flag is `0`, which disables automatic deletion. A positive duration (e.g. `10m`) deletes runs after that grace period; a negative value deletes them right away. The Watcher does not wait for log storage to finish before it deletes a run.
+
+> **Warning**: Any non-zero `--completed_run_grace_period` makes the Watcher delete completed PipelineRuns, TaskRuns, and CustomRuns in every namespace it watches, by default all namespaces, including the runs of other teams. It does not delete a run that has an owner reference: TaskRuns and CustomRuns that are part of a PipelineRun are always left to their PipelineRun, and a run owned by any other object is kept while the Watcher flag `-check_owner` has its default `true` (the shipped Watcher arguments do not set it). Deleted runs cannot be restored. The `-label_selector` flag of the Watcher limits deletion to runs whose labels match. Try the flag only on a dedicated test cluster, as in the reproduction steps below.
 
 Status label values for Results Watcher:
 - `success` - Run completed successfully
-- `failed` - Run failed
-- `cancelled` - Run was cancelled
+- `failed` - Run failed with a reason other than the cancelled reasons below
+- `cancelled` - Run ended with reason `Cancelled` (PipelineRun), `TaskRunCancelled` (TaskRun), or `CustomRunCancelled` (CustomRun)
 
 #### Shared Metrics
 
-These metrics are registered by both the PipelineRun and TaskRun reconcilers in the Watcher, tracking storage-related events.
+These metrics are registered by the PipelineRun, TaskRun, and CustomRun reconcilers in the Watcher, tracking storage-related events.
 
 | Metric Name | Type | Description | Labels |
 |-------------|------|-------------|--------|
 | `runs_not_stored_count` | Counter | Runs deleted without being stored to Results | `kind`, `namespace` |
 | `run_storage_latency_seconds` | Histogram | Time from run completion to successful storage | `kind`, `namespace` |
 
-The `kind` label identifies run type (`PipelineRun` / `TaskRun` in some metric series, `pipelinerun` / `taskrun` in others).
+The `kind` label identifies the run type. `runs_not_stored_count` uses `PipelineRun`, `TaskRun`, and `CustomRun`; `run_storage_latency_seconds` uses the lower-case values `pipelinerun`, `taskrun`, and `customrun`. With the Watcher flag `-logs_api=true` (the shipped value), `run_storage_latency_seconds` is recorded only for CustomRuns.
 
 > **Note**: `runs_not_stored_count` is only recorded when a run is externally deleted (e.g. via `kubectl delete`) while the Watcher is holding a finalizer to coordinate archiving. It will remain empty unless **all** of the following conditions are met:
-> 1. The `--logs_api` flag is `false` (log storage disabled) — if logs are enabled, the Watcher skips finalizer-based coordination entirely.
+> 1. For PipelineRuns and TaskRuns, the `--logs_api` flag is `false` (log storage disabled) — with `--logs_api` set to `true`, the Watcher skips finalizer-based coordination for PipelineRuns and TaskRuns. CustomRuns are coordinated either way.
 > 2. The `--disable_crd_update` flag is `false` (annotation updates enabled).
-> 3. The `--store_deadline` flag is set to a non-zero duration — this is the maximum time the Watcher waits for archiving to complete before giving up and allowing deletion.
-> 4. A run is externally deleted before it is successfully archived (no `results.tekton.dev/stored=true` annotation), and the `store_deadline` has elapsed.
+> 3. The `store_deadline` has elapsed since the run completed. The `--store_deadline` flag is always set (default `10m`); it is the maximum time the Watcher waits for archiving to complete before giving up and allowing deletion. With `0`, the deadline has passed as soon as the run completes.
+> 4. The run is externally deleted while it carries no `results.tekton.dev/stored` annotation at all. A run that was archived while it was still running carries `stored=false` and is not counted, even if its final state was never archived.
 >
 > In normal operation (runs archived before deletion, or deletion triggered by the Watcher itself via `--completed_run_grace_period`), this counter stays at zero. A non-zero value indicates potential data loss: runs were deleted before their state could be saved to the Results API.
 
-> **Quick reproduction (test environment)**:
+> **Quick reproduction (dedicated test cluster only)**:
 > If you do not see this metric, that usually means the trigger conditions were not met, not that the metric is missing.
-> 1. Configure Results Watcher via `TektonConfig` so that `logs_api=false`, `disable_crd_update=false`, and `store_deadline` is non-zero (for example `30s`).
+> `TektonConfig` and the Results Watcher are cluster-wide: while the Results API is scaled to `0`, no run in any namespace is archived, and a run deleted after `store_deadline` in that time is never stored. Do not run these steps on a cluster that other teams use.
+> 1. Save the current `spec.result` of `TektonConfig` (`kubectl get tektonconfig config -o jsonpath='{.spec.result}' > result-orig.json`). Then set the Watcher flags in `spec.result.options.deployments.tekton-results-watcher.spec.template.spec.containers`: container `watcher` with `args` `-logs_api=false`, `-disable_crd_update=false`, and a `-store_deadline` value (for example `-store_deadline=30s`). `spec.result.logs_api` sets only the `LOGS_API` setting of the Results API and does not change the Watcher's `-logs_api` flag. The change restarts the Watcher: wait until the new Watcher Pod is `Running` (`kubectl get pods -n tekton-pipelines -l app.kubernetes.io/name=tekton-results-watcher`) before step 2, because a Watcher that starts while the Results API is unreachable waits up to 1 minute for it and then exits.
 > 2. Temporarily set Results API replicas to `0` via `TektonConfig` (`spec.result.options.deployments.tekton-results-api.spec.replicas: 0`) so runs cannot be archived.
 > 3. Create a TaskRun or PipelineRun and wait until it completes.
-> 4. Wait until `store_deadline` has elapsed, then externally delete the run (`kubectl delete ...`).
-> 5. Check Watcher `/metrics` or Prometheus for `watcher_runs_not_stored_count` (component-prefixed name in exposition format); it should increase.
-> 6. Restore the original `TektonConfig` (re-enable Results API replicas and normal `logs_api` settings).
+> 4. Wait until `store_deadline` has elapsed, then externally delete the run (`kubectl delete taskrun <taskrun-name> -n <namespace>` or `kubectl delete pipelinerun <pipelinerun-name> -n <namespace>`). For a TaskRun, the Watcher also waits until `-forward_buffer` (default `150s`) has passed since the run completed, so the deletion and the counter can take that long; check step 5 before you restore in step 6.
+> 5. Check Watcher `/metrics` or Prometheus for `watcher_runs_not_stored_count_total` (the exposition name: component prefix plus the counter suffix `_total`); it should increase.
+> 6. Restore `spec.result` by replacing it with the copy saved in step 1, with a JSON patch `op: replace` on the path `/spec/result` (`jq '[{"op":"replace","path":"/spec/result","value":.}]' result-orig.json > restore-patch.json`, then `kubectl patch tektonconfig config --type json --patch-file restore-patch.json`). A merge patch does not remove the keys added in steps 1 and 2. Then check that the `tekton-results-api` Deployment has its replicas back and that the `watcher` container `args` are the ones they had before step 1 (on a default installation `-api_addr`, `-auth_mode` and `-logs_api=true`), without the `-logs_api=false`, `-disable_crd_update=false` and `-store_deadline` values of step 1.
 
 The `run_storage_latency_seconds` histogram uses the following bucket boundaries (in seconds):
 
-```
+```text
 0.1, 0.5, 1, 2, 5, 10, 30, 60, 120, 300, 600, 1800
 ```
 
 #### Watcher config-observability
 
-The Results Watcher has its own `config-observability` ConfigMap (named via the `CONFIG_OBSERVABILITY_NAME` environment variable, typically `tekton-results-config-observability`). This ConfigMap is managed by the Tekton Operator and should be configured via the `TektonConfig` resource's `spec.result.options.configMaps` field. See [Adjusting Optional Configuration Items for Subcomponents](./customize_options.mdx) for details.
+The Results Watcher has its own `config-observability` ConfigMap, `tekton-results-config-observability` (the name set in the `CONFIG_OBSERVABILITY_NAME` environment variable). This ConfigMap is managed by the Tekton Operator and should be configured via the `TektonConfig` resource's `spec.result.options.configMaps` field, under the key `tekton-results-config-observability`. See [Adjusting Optional Configuration Items for Subcomponents](./customize_options.mdx) for details.
 
-> **Hot reload behavior**: Results Watcher also watches this ConfigMap and applies most key changes without Pod restarts. A restart is only needed when Deployment-level settings (such as env vars/args) are changed.
+> **Reload behavior**: The Results Watcher also watches this ConfigMap. Of the keys in the table below, changes to the two `level` keys (`metrics.pipelinerun.level` and `metrics.taskrun.level`) take effect without a restart; the two `duration-type` keys are parsed but not used, so changing them has no effect. The exporter keys `metrics-protocol` (shipped as `prometheus`), `metrics-endpoint`, and `metrics-export-interval` are read only when the Watcher starts, so a change to them takes effect only after the `tekton-results-watcher` Pod restarts; the restart briefly pauses the Watcher's reconciliation, which archives runs to Results. A restart is also needed when Deployment-level settings (such as env vars/args) are changed.
 
-It supports the following keys:
+Merge the change into `TektonConfig` in the same way as for the Pipelines ConfigMap: save the keys under `spec.result.options.configMaps.tekton-results-config-observability.data` in a file and run `kubectl patch tektonconfig config --type merge --patch-file <file>`. Then check that the values reached the Watcher's ConfigMap. The keys under `data`, outside the commented `_example` block, must show the values that you set:
+
+```bash
+kubectl get configmap tekton-results-config-observability -n tekton-pipelines -o yaml
+```
+
+After a change to an exporter key, a cluster administrator restarts the Watcher by deleting its Pod and checks that the new Pod is `Running`, with an `AGE` shorter than the time since the restart:
+
+```bash
+kubectl delete pods -n tekton-pipelines -l app.kubernetes.io/name=tekton-results-watcher
+kubectl get pods -n tekton-pipelines -l app.kubernetes.io/name=tekton-results-watcher
+```
+
+Besides the exporter keys `metrics-protocol`, `metrics-endpoint`, and `metrics-export-interval` described above, the Watcher's ConfigMap supports the following `metrics.*` keys:
 
 | Key | Default | Values | Description |
 |-----|---------|--------|-------------|
-| `metrics.pipelinerun.level` | `pipeline` | `pipeline`, `namespace` | Controls `pipeline` label on delete duration metrics |
-| `metrics.taskrun.level` | `task` | `task`, `namespace` | Controls `task` label on delete duration metrics |
-| `metrics.pipelinerun.duration-type` | `histogram` | `histogram`, `lastvalue` | Duration metric aggregation type for both PipelineRun and TaskRun deletion |
-| `metrics.taskrun.duration-type` | `histogram` | `histogram`, `lastvalue` | Parsed but currently not used; `metrics.pipelinerun.duration-type` controls both |
+| `metrics.pipelinerun.level` | `pipeline` | `pipeline`, `namespace` | Controls `pipeline` label on the deletion count and duration metrics |
+| `metrics.taskrun.level` | `task` | `task`, `namespace` | Controls `task` label on the TaskRun deletion count and duration metrics, and `customrun` label on the CustomRun ones |
+| `metrics.pipelinerun.duration-type` | `histogram` | `histogram`, `lastvalue` | Parsed but not used: the Watcher always records the deletion durations as histograms |
+| `metrics.taskrun.duration-type` | `histogram` | `histogram`, `lastvalue` | Parsed but not used, as above |
 
 > Note: Unlike Tekton Pipelines, the Results Watcher does not support `pipelinerun` / `taskrun` individual-run granularity levels. It also does not have the `metrics.count.enable-reason`, `metrics.running-pipelinerun.level`, or `metrics.taskrun.throttle.enable-namespace` keys.
 >
-> **Known issue in upstream**: `taskrun_delete_duration_seconds` uses `metrics.pipelinerun.duration-type` (not `metrics.taskrun.duration-type`) to determine the aggregation type. This appears to be a copy-paste bug in the Results source code.
+> The Watcher creates `pipelinerun_delete_duration_seconds`, `taskrun_delete_duration_seconds` and `customrun_delete_duration_seconds` as OpenTelemetry histograms, so setting either `duration-type` key to `lastvalue` has no effect.
 
 ### API Server Metrics
 
@@ -319,7 +366,7 @@ The API server exposes standard gRPC Prometheus metrics via the `go-grpc-prometh
 - `grpc_server_handled_total` - Total RPCs completed on the server
 - `grpc_server_started_total` - Total RPCs started on the server
 - `grpc_server_msg_received_total` / `grpc_server_msg_sent_total` - Message counts
-- `grpc_server_handling_seconds` (if `PROMETHEUS_HISTOGRAM` is enabled) - RPC handling duration
+- `grpc_server_handling_seconds` - RPC handling duration, only if `PROMETHEUS_HISTOGRAM` is enabled. The shipped `tekton-results-api-config` ConfigMap sets `PROMETHEUS_HISTOGRAM=false`, so the API server does not expose this metric by default
 
 ---
 
@@ -333,44 +380,47 @@ Tekton Chains is a security component that generates, signs, and stores provenan
 
 The Chains controller metrics use the prefix **`watcher_`** (same as Results Watcher, but the custom metric names are different, so there are no collisions).
 
-### Chains Metrics
+### Chains Metrics \{#chains-metrics}
 
-All Chains metrics are Counters with no labels.
+All Chains metrics are Counters. Only the signing-failure counters have a label (`error_type`).
 
 | Metric Name (Prometheus) | Type | Description |
 |--------------------------|------|-------------|
 | `watcher_taskrun_sign_created_total` | Counter | Total signed messages for TaskRuns |
+| `watcher_taskrun_payload_uploaded_total` | Counter | Total payloads uploaded to a transparency log for TaskRuns (recorded only on such an upload) |
 | `watcher_taskrun_payload_stored_total` | Counter | Total stored payloads for TaskRuns |
 | `watcher_taskrun_marked_signed_total` | Counter | Total TaskRuns marked as signed |
 | `watcher_pipelinerun_sign_created_total` | Counter | Total signed messages for PipelineRuns |
+| `watcher_pipelinerun_payload_uploaded_total` | Counter | Total payloads uploaded to a transparency log for PipelineRuns (recorded only on such an upload) |
 | `watcher_pipelinerun_payload_stored_total` | Counter | Total stored payloads for PipelineRuns |
 | `watcher_pipelinerun_marked_signed_total` | Counter | Total PipelineRuns marked as signed |
+| `watcher_taskrun_signing_failures_total` | Counter | Total signing failures for TaskRuns, labeled by `error_type` (for example `storage` or `payload_creation`) |
+| `watcher_pipelinerun_signing_failures_total` | Counter | Total signing failures for PipelineRuns, labeled by `error_type` |
 
-> Note: The official Tekton Chains documentation also mentions `*_signing_failures_total` counters for both TaskRun and PipelineRun, but these are not present in the current upstream source code. Verify against your deployed version.
+> **Note**: Chains signs and stores payloads only when a signer is configured; by default the signer uses a key in the `signing-secrets` Secret. The Operator creates no key unless `generateSigningSecret` is `true` in the Chains configuration (the default is `false`); see [Signing Key Configuration](../chains/configure/signing_key_configuration.mdx). Without a key, Chains logs `No signer <signer> configured for <type>`, skips the signature, adds no failure count for the missing key to `*_signing_failures_total`, and still marks the run as signed: `*_marked_signed_total` grows, while `*_sign_created_total` and `*_payload_stored_total` do not. On a controller that has signed nothing since it started, these two counters do not appear in the metrics output at all, because a Chains counter appears only after its first increment.
 
 ---
 
 ## Controller Framework Metrics
 
-All Tekton controllers automatically expose the following infrastructure metrics. These metrics use the same prefix as the component's custom metrics (e.g., `tekton_pipelines_controller_`, `controller_`, `watcher_`).
+Tekton controllers also expose the following framework metrics. These metrics do **not** use the component prefix: the names are the same on every component, so distinguish the components by the target labels that your monitoring stack adds when it scrapes them. The workqueue metrics carry a `name` label with the reconciler, for example `github.com.tektoncd.pipeline.pkg.reconciler.pipelinerun.Reconciler`. The Pipelines-as-Code controller and EventListener sinks expose only the two Kubernetes API client metrics.
 
-| Metric Name (without prefix) | Type | Description |
-|-------------------------------|------|-------------|
-| `client_latency` | Histogram | Kubernetes API client request latency (seconds) |
-| `client_results` | Counter | Kubernetes API request count (by status code) |
-| `workqueue_depth` | Gauge | Current workqueue depth |
-| `workqueue_adds_total` | Counter | Total workqueue additions |
-| `workqueue_queue_latency_seconds` | Histogram | Time items spend waiting in the workqueue |
-| `workqueue_work_duration_seconds` | Histogram | Time spent processing workqueue items |
-| `workqueue_retries_total` | Counter | Total workqueue retries |
-| `workqueue_unfinished_work_seconds` | Histogram | Duration of unfinished workqueue items |
-| `workqueue_longest_running_processor_seconds` | Histogram | Duration of longest running workqueue processor |
-| `reconcile_count` | Counter | Total reconciler invocations (labeled by `reconciler`, `success`, `namespace_name`) |
-| `reconcile_latency` | Histogram | Reconciler invocation latency (labeled by `reconciler`, `success`, `namespace_name`) |
+| Metric Name (Prometheus) | Type | Description |
+|--------------------------|------|-------------|
+| `http_client_request_duration_seconds` | Histogram | Kubernetes API client request duration (seconds) |
+| `kn_k8s_client_http_response_status_code_total` | Counter | Kubernetes API client responses |
+| `kn_workqueue_depth` | Gauge | Current workqueue depth |
+| `kn_workqueue_adds_total` | Counter | Total workqueue additions |
+| `kn_workqueue_queue_duration_seconds` | Histogram | Time items spend waiting in the workqueue |
+| `kn_workqueue_process_duration_seconds` | Histogram | Time spent processing workqueue items |
+| `kn_workqueue_retries_total` | Counter | Total workqueue retries |
+| `kn_workqueue_unfinished_work_seconds` | Gauge | Duration of unfinished workqueue items |
+
+There are no `client_latency`, `reconcile_count`, or `reconcile_latency` series with a component prefix.
 
 ---
 
-## Setting Up ServiceMonitor
+## Setting Up ServiceMonitor \{#setting-up-servicemonitor}
 
 To enable Prometheus scraping for Tekton components, deploy `ServiceMonitor` resources.
 
@@ -381,15 +431,22 @@ Use the following guidance based on your monitoring stack:
 - If you use Prometheus (Prometheus Operator), labels such as `metadata.labels.prometheus: kube-prometheus` must match the Prometheus CR `spec.serviceMonitorSelector`; otherwise, this `ServiceMonitor` will not be scraped.
 - If you use VictoriaMetrics, you typically do not need labels like `prometheus: kube-prometheus`; create `ServiceMonitor`/`VMServiceScrape` according to your monitoring setup.
 
-When using Prometheus, use the following commands to find and verify the selector:
+When using Prometheus, use the following commands to find and verify the selector. They need read access to `Prometheus` resources (the first command lists them in all namespaces), usually a cluster administrator:
 
 ```bash
 # 1) Locate Prometheus CRs (resource type: monitoring.coreos.com/v1, Kind=Prometheus)
-$ kubectl get prometheus -A
+kubectl get prometheus -A
 
 # 2) Check ServiceMonitor selector on the target Prometheus instance
-$ kubectl get prometheus -n <prometheus-namespace> <prometheus-name> -o yaml | yq '.spec.serviceMonitorSelector'
+kubectl get prometheus -n <prometheus-namespace> <prometheus-name> -o jsonpath='{.spec.serviceMonitorSelector}'
+
+# 3) Check the ServiceMonitor namespace selector on the same instance
+kubectl get prometheus -n <prometheus-namespace> <prometheus-name> -o jsonpath='{.spec.serviceMonitorNamespaceSelector}'
 ```
+
+If the second command prints nothing, the `Prometheus` CR does not set `serviceMonitorSelector`. The Prometheus Operator API defines an unset selector as matching no `ServiceMonitor` and an empty selector (`{}`) as matching all of them, so in that case this Prometheus instance does not select the `ServiceMonitor` resources below, whatever their labels.
+
+If the third command prints nothing, the `Prometheus` CR does not set `serviceMonitorNamespaceSelector`. The Prometheus Operator API defines an unset namespace selector as matching only the namespace of the `Prometheus` CR and an empty one (`{}`) as matching all namespaces, so a `Prometheus` CR outside `tekton-pipelines` without this field does not select the `ServiceMonitor` resources below.
 
 If no `Prometheus` CR exists in your cluster, monitoring is usually platform-managed (for example, VictoriaMetrics) or implemented differently. In such cases, labels like `prometheus: kube-prometheus` are usually not required; follow your platform scraping rules.
 
@@ -559,56 +616,67 @@ spec:
 
 ---
 
-## Verification
+## Verification \{#verification}
 
 After deploying the `ServiceMonitor` resources, verify that Prometheus is scraping the targets.
 
-### Check Metrics Endpoints Directly
+### Check Metrics Endpoints Directly \{#check-metrics-endpoints-directly}
+
+Each `kubectl port-forward` command below keeps running in the foreground until you stop it with Ctrl+C. Run it in a second terminal and keep it running, run the `curl` commands that follow it in your first terminal, then stop the port-forward.
+
+These checks assume one replica of each component: `kubectl port-forward svc/<service>` connects to one Pod of the Service. When a component runs more replicas, a counter can be absent on the Pod that you reach; then repeat the check with `pod/<pod-name>` in place of `svc/<service>` for each Pod, or query Prometheus.
 
 ```bash
 # Pipeline controller
 $ kubectl port-forward -n tekton-pipelines svc/tekton-pipelines-controller 9090:9090
 $ curl -s http://localhost:9090/metrics | grep tekton_pipelines_controller_
 
-# HELP tekton_pipelines_controller_client_latency How long Kubernetes API requests take
-# TYPE tekton_pipelines_controller_client_latency histogram
-tekton_pipelines_controller_client_latency_bucket{name="",le="1e-05"} 0
-tekton_pipelines_controller_client_latency_bucket{name="",le="0.0001"} 0
-tekton_pipelines_controller_client_latency_bucket{name="",le="0.001"} 0
+# HELP tekton_pipelines_controller_pipelinerun_total Number of pipelineruns
+# TYPE tekton_pipelines_controller_pipelinerun_total counter
+tekton_pipelines_controller_pipelinerun_total{otel_scope_name="tekton_pipelines_controller",otel_scope_schema_url="",otel_scope_version="",status="cancelled"} 11
+tekton_pipelines_controller_pipelinerun_total{otel_scope_name="tekton_pipelines_controller",otel_scope_schema_url="",otel_scope_version="",status="failed"} 90
 
 # Triggers controller
 $ kubectl port-forward -n tekton-pipelines svc/tekton-triggers-controller 9000:9000
 $ curl -s http://localhost:9000/metrics | grep controller_
 
-# HELP controller_client_latency How long Kubernetes API requests take
-# TYPE controller_client_latency histogram
-controller_client_latency_bucket{name="",le="1e-05"} 0
-controller_client_latency_bucket{name="",le="0.0001"} 1
-controller_client_latency_bucket{name="",le="0.001"} 2
+# HELP controller_clusterinterceptor_count number of clusterinterceptor
+# TYPE controller_clusterinterceptor_count gauge
+controller_clusterinterceptor_count{otel_scope_name="github.com/tektoncd/triggers/pkg/reconciler/metrics",otel_scope_schema_url="",otel_scope_version=""} 5
 
 # EventListener sink metrics (replace namespace/service)
-$ kubectl port-forward -n <eventlistener-namespace> svc/<eventlistener-service> 9000:9000
-$ curl -s http://localhost:9000/metrics | grep eventlistener_
+$ kubectl port-forward -n <eventlistener-namespace> svc/<eventlistener-service> 9094:9000
+$ curl -s http://localhost:9094/metrics | grep eventlistener_
 
-# HELP eventlistener_client_latency How long Kubernetes API requests take
-# TYPE eventlistener_client_latency histogram
-eventlistener_client_latency_bucket{name="",le="1e-05"} 0
-eventlistener_client_latency_bucket{name="",le="0.0001"} 0
-eventlistener_client_latency_bucket{name="",le="0.001"} 0
+# HELP eventlistener_event_received_total number of events received by sink
+# TYPE eventlistener_event_received_total counter
+eventlistener_event_received_total{otel_scope_name="github.com/tektoncd/triggers/pkg/sink",otel_scope_schema_url="",otel_scope_version="",status="succeeded"} 1
 
-# HELP eventlistener_triggered_resources Count of the number of triggered eventlistener resources
-# TYPE eventlistener_triggered_resources counter
-eventlistener_triggered_resources{kind="PipelineRun"} 10
+# HELP eventlistener_triggered_resources_total Count of the number of triggered eventlistener resources
+# TYPE eventlistener_triggered_resources_total counter
+eventlistener_triggered_resources_total{kind="TaskRun",otel_scope_name="github.com/tektoncd/triggers/pkg/sink",otel_scope_schema_url="",otel_scope_version=""} 1
 
 # Results watcher
+# With the shipped watcher argument -logs_api=true, the watcher records
+# watcher_run_storage_latency_seconds only with kind="customrun", and can record
+# watcher_runs_not_stored_count_total with kind="CustomRun" (when a CustomRun
+# without the results.tekton.dev/stored annotation is deleted after
+# store_deadline; see the runs_not_stored_count note); until a CustomRun
+# completes, the grep prints nothing. The deletion metrics appear only when
+# --completed_run_grace_period is set (see the note in the Tekton Results section).
 $ kubectl port-forward -n tekton-pipelines svc/tekton-results-watcher 9091:9090
 $ curl -s http://localhost:9091/metrics | grep watcher_
 
-# HELP watcher_client_latency How long Kubernetes API requests take
-# TYPE watcher_client_latency histogram
-watcher_client_latency_bucket{name="",le="1e-05"} 0
-watcher_client_latency_bucket{name="",le="0.0001"} 0
-watcher_client_latency_bucket{name="",le="0.001"} 0
+# HELP watcher_run_storage_latency_seconds time from run completion to successful storage
+# TYPE watcher_run_storage_latency_seconds histogram
+watcher_run_storage_latency_seconds_bucket{kind="customrun",namespace="<namespace>",otel_scope_name="tekton.dev/results",otel_scope_schema_url="",otel_scope_version="",le="1"} 0
+watcher_run_storage_latency_seconds_bucket{kind="customrun",namespace="<namespace>",otel_scope_name="tekton.dev/results",otel_scope_schema_url="",otel_scope_version="",le="2"} 3
+watcher_run_storage_latency_seconds_bucket{kind="customrun",namespace="<namespace>",otel_scope_name="tekton.dev/results",otel_scope_schema_url="",otel_scope_version="",le="5"} 3
+
+# To tell an empty watcher_ output from a failed port-forward or endpoint, count
+# the target_info line, which the endpoint returns with every scrape: the command
+# prints 1 when the endpoint answered and 0 when it did not.
+$ curl -s http://localhost:9091/metrics | grep -c '^target_info'
 
 # Results API
 $ kubectl port-forward -n tekton-pipelines svc/tekton-results-api-service 9092:9090
@@ -630,14 +698,19 @@ grpc_server_started_total{grpc_method="CreateResult",grpc_service="tekton.result
 $ kubectl port-forward -n tekton-pipelines svc/tekton-chains-metrics 9093:9090
 $ curl -s http://localhost:9093/metrics | grep watcher_
 
-# HELP watcher_client_latency How long Kubernetes API requests take
-# TYPE watcher_client_latency histogram
-watcher_client_latency_bucket{name="",le="1e-05"} 0
-watcher_client_latency_bucket{name="",le="0.0001"} 0
-watcher_client_latency_bucket{name="",le="0.001"} 0
+# HELP watcher_pipelinerun_marked_signed_total Total number of objects marked as signed for pipelineruns
+# TYPE watcher_pipelinerun_marked_signed_total counter
+watcher_pipelinerun_marked_signed_total{otel_scope_name="github.com/tektoncd/chains/pkg/pipelinerunmetrics",otel_scope_schema_url="",otel_scope_version=""} 56
+
+# A Chains counter appears only after its first increment, so the grep prints
+# nothing until the controller has counted a run since it started. To tell that
+# from a failed port-forward or endpoint, count the target_info line, which the
+# endpoint returns with every scrape: the command prints 1 when the endpoint
+# answered and 0 when it did not.
+$ curl -s http://localhost:9093/metrics | grep -c '^target_info'
 ```
 
-> EventListener sink metrics such as `eventlistener_event_received_count` and `eventlistener_http_duration_seconds` are request-driven. Send at least one request to the EventListener before validating these metrics.
+> EventListener sink metrics such as `eventlistener_event_received_total` and `eventlistener_http_duration_seconds` are request-driven. Send at least one request to the EventListener before validating these metrics.
 
 ### Check Prometheus Targets
 
@@ -653,7 +726,9 @@ tekton-results-metrics              10m
 tekton-triggers-metrics             10m
 
 # Check Prometheus targets (via Prometheus UI or API)
-# Look for targets with job labels matching the ServiceMonitor names
+# Look for targets whose job label is the name of a scraped Service:
+# the samples set no spec.jobLabel, so Prometheus Operator uses the
+# Service name as the job label, not the ServiceMonitor name
 ```
 
 ### Example PromQL Queries
@@ -670,13 +745,16 @@ histogram_quantile(0.95,
   rate(tekton_pipelines_controller_pipelinerun_duration_seconds_bucket[5m])
 )
 
-# TaskRun duration P95 (histogram mode, includes standalone + in-pipeline TaskRuns)
+# TaskRun duration P95, standalone TaskRuns (histogram mode)
 histogram_quantile(0.95,
-  (
-    sum by (le) (rate(tekton_pipelines_controller_taskrun_duration_seconds_bucket[5m]))
-    +
-    sum by (le) (rate(tekton_pipelines_controller_pipelinerun_taskrun_duration_seconds_bucket[5m]))
-  )
+  sum by (le) (rate(tekton_pipelines_controller_taskrun_duration_seconds_bucket[5m]))
+)
+
+# TaskRun duration P95, TaskRuns that run in a PipelineRun (histogram mode)
+# Each TaskRun is recorded in only one of the two histograms; adding them with `+`
+# returns nothing while either histogram has no series in the window.
+histogram_quantile(0.95,
+  sum by (le) (rate(tekton_pipelines_controller_pipelinerun_taskrun_duration_seconds_bucket[5m]))
 )
 
 # PipelineRun duration (lastvalue mode)
@@ -685,7 +763,11 @@ avg_over_time(tekton_pipelines_controller_pipelinerun_duration_seconds[5m])
 # Currently running PipelineRuns (single series to avoid duplicate legends)
 max(tekton_pipelines_controller_running_pipelineruns)
 
-# TaskRuns throttled by resource quota
+# TaskRuns throttled by resource quota (no data while no TaskRun is throttled).
+# This query and the TaskRuns Throttled dashboard panel assume
+# metrics.taskrun.throttle.enable-namespace: "false" (the default). With "true" the
+# controller reports one series per namespace and no total, so max() returns the
+# largest per-namespace count.
 max(tekton_pipelines_controller_running_taskruns_throttled_by_quota)
 
 # Trigger resource counts
@@ -699,11 +781,36 @@ watcher_pipelinerun_sign_created_total
 
 ---
 
-## MonitorDashboard Examples
+## Recommended Settings
 
-The following `MonitorDashboard` resources provide ready-to-use dashboards for monitoring Tekton components. Deploy them to the `cpaas-system` namespace under the `tekton` folder.
+**When to enable.** Enable metrics collection when platform or project teams need to see build throughput and duration, signing activity, and event-driven triggering across the cluster. The `config-observability` ConfigMap controls the shared Pipeline controller and is managed through `TektonConfig`, and the control-plane `ServiceMonitor` resources target the `tekton-pipelines` namespace.
 
-> **Important**: Each panel must include `id` (unique integer), `datasource: prometheus`, and `transformations: []`. Each target must include `datasource: prometheus` and `refId`. Duration P50/P95 panels in this document use `*_bucket` queries and require `metrics.*.duration-type=histogram`; if you use `lastvalue`, replace those queries with LastValue-style expressions such as `avg_over_time(...)`.
+**Recommended values.** Deploy the Pipeline, Triggers, and Chains `ServiceMonitor` resources from [Setting Up ServiceMonitor](#setting-up-servicemonitor), add the EventListener sink `ServiceMonitor` for namespaces that run EventListeners, and add the Results `ServiceMonitor` when Results is installed. In `config-observability`, use the values from [Recommended Production Configuration](#recommended-production-configuration): `metrics.pipelinerun.level: "pipeline"`, `metrics.taskrun.level: "task"`, `metrics.pipelinerun.duration-type: "histogram"`, `metrics.taskrun.duration-type: "histogram"`, and `metrics.count.enable-reason: "false"`. Keep the `histogram` duration type, because the P50/P95 duration panels in [MonitorDashboard Examples](#monitordashboard-examples) query `*_bucket` series. Use the `pipelinerun` and `taskrun` levels only on a test cluster or for a short debugging window, since they add per-run labels and significantly increase the number of time series; the duration type still follows `metrics.*.duration-type`. Switching back to `pipeline` and `task` does not remove the per-run series that were already created: they stay until the `tekton-pipelines-controller` Pod restarts. Deploy the dashboards once in the `cpaas-system` namespace under the `tekton` folder.
+
+To confirm the result, check that the values reached `config-observability` as described in [config-observability Configuration](#config-observability-configuration), that the endpoints answer and Prometheus scrapes the targets as described in [Verification](#verification), and that the dashboards exist with the `kubectl get monitordashboard` command in [MonitorDashboard Examples](#monitordashboard-examples). On a default installation, `config-observability` already has the recommended values, so they need no undo; switch the debug levels back as described in [Recommended Production Configuration](#recommended-production-configuration). To remove the monitoring setup, delete the `ServiceMonitor` and `MonitorDashboard` resources that you created, and name only those, for example:
+
+```bash
+kubectl delete servicemonitor -n tekton-pipelines tekton-pipelines-metrics tekton-triggers-metrics tekton-eventlistener-sink-metrics tekton-results-metrics tekton-chains-metrics
+kubectl delete monitordashboard -n cpaas-system tekton-pipeline tekton-triggers tekton-results tekton-chains
+```
+
+Deleting them needs delete rights on these resources in `tekton-pipelines` and `cpaas-system`.
+
+**Prerequisites.** A Prometheus or VictoriaMetrics monitoring stack must be able to discover the `ServiceMonitor` resources you create; with Prometheus Operator, the `ServiceMonitor` labels must match the Prometheus `spec.serviceMonitorSelector`. Scraper pods must reach port `9090` on most control-plane services and port `9000` on the Triggers controller and EventListener sinks. See [Prerequisites](#prerequisites) for the full list, including the permissions to create `ServiceMonitor` resources and, for the dashboards, `MonitorDashboard` resources in `cpaas-system`.
+
+---
+
+## MonitorDashboard Examples \{#monitordashboard-examples}
+
+The following `MonitorDashboard` resources provide ready-to-use dashboards for monitoring Tekton components. Deploy them to the `cpaas-system` namespace under the `tekton` folder. After you apply them, check that they exist:
+
+```bash
+kubectl get monitordashboard -n cpaas-system -l cpaas.io/dashboard.folder=tekton
+```
+
+The output must list the dashboards that you applied: `tekton-pipeline`, `tekton-triggers`, `tekton-results`, and `tekton-chains`. `No resources found in cpaas-system namespace.` means that none of them was created.
+
+> **Important**: Each panel must include `id` (unique integer), `datasource: prometheus`, and `transformations: []`. Each target must include `datasource: prometheus` and `refId`. Duration P50/P95 panels in this document use `*_bucket` queries and require `metrics.*.duration-type=histogram`; if you use `lastvalue`, replace those queries with LastValue-style expressions such as `avg_over_time(...)`. Quote the `y` key in `gridPos` (`"y": 0`); unquoted `y` is parsed as a boolean and the panel loses its vertical position.
 
 ### Tekton Pipeline Dashboard
 
@@ -721,6 +828,7 @@ metadata:
   namespace: cpaas-system
 spec:
   body:
+    title: Tekton Pipeline Overview
     titleZh: Tekton Pipeline Overview
     tags:
       - tekton
@@ -734,45 +842,89 @@ spec:
         title: PipelineRun Total (by status)
         type: timeseries
         datasource: prometheus
-        gridPos: { h: 8, w: 8, x: 0, y: 0 }
+        gridPos:
+          h: 8
+          w: 8
+          x: 0
+          "y": 0
         targets:
           - datasource: prometheus
             expr: sum by (status) (tekton_pipelines_controller_pipelinerun_total)
             refId: A
         fieldConfig:
           defaults:
-            color: { mode: palette-classic }
-            custom: { drawStyle: line, fillOpacity: 0, lineWidth: 1, spanNulls: false }
-            thresholds: { mode: absolute, steps: [{ color: green, value: null }] }
+            color:
+              mode: palette-classic
+            custom:
+              drawStyle: line
+              fillOpacity: 0
+              lineWidth: 1
+              spanNulls: false
+            thresholds:
+              mode: absolute
+              steps:
+                - color: green
+                  value: null
           overrides: []
         options:
-          legend: { calcs: [latest], displayMode: list, placement: bottom, showLegend: true }
-          tooltip: { mode: multi, sort: desc }
+          legend:
+            calcs:
+              - latest
+            displayMode: list
+            placement: bottom
+            showLegend: true
+          tooltip:
+            mode: multi
+            sort: desc
         transformations: []
       - id: 2
         title: TaskRun Total (by status)
         type: timeseries
         datasource: prometheus
-        gridPos: { h: 8, w: 8, x: 8, y: 0 }
+        gridPos:
+          h: 8
+          w: 8
+          x: 8
+          "y": 0
         targets:
           - datasource: prometheus
             expr: sum by (status) (tekton_pipelines_controller_taskrun_total)
             refId: A
         fieldConfig:
           defaults:
-            color: { mode: palette-classic }
-            custom: { drawStyle: line, fillOpacity: 0, lineWidth: 1, spanNulls: false }
-            thresholds: { mode: absolute, steps: [{ color: green, value: null }] }
+            color:
+              mode: palette-classic
+            custom:
+              drawStyle: line
+              fillOpacity: 0
+              lineWidth: 1
+              spanNulls: false
+            thresholds:
+              mode: absolute
+              steps:
+                - color: green
+                  value: null
           overrides: []
         options:
-          legend: { calcs: [latest], displayMode: list, placement: bottom, showLegend: true }
-          tooltip: { mode: multi, sort: desc }
+          legend:
+            calcs:
+              - latest
+            displayMode: list
+            placement: bottom
+            showLegend: true
+          tooltip:
+            mode: multi
+            sort: desc
         transformations: []
       - id: 3
         title: PipelineRun Success Rate (cumulative)
         type: timeseries
         datasource: prometheus
-        gridPos: { h: 8, w: 4, x: 16, y: 0 }
+        gridPos:
+          h: 8
+          w: 4
+          x: 16
+          "y": 0
         targets:
           - datasource: prometheus
             expr: "100 * sum(tekton_pipelines_controller_pipelinerun_total{status=\"success\"}) / clamp_min(sum(tekton_pipelines_controller_pipelinerun_total), 1)"
@@ -780,24 +932,43 @@ spec:
         fieldConfig:
           defaults:
             unit: percent
-            color: { mode: thresholds }
-            custom: { drawStyle: line, fillOpacity: 0, lineWidth: 1, spanNulls: false }
+            color:
+              mode: thresholds
+            custom:
+              drawStyle: line
+              fillOpacity: 0
+              lineWidth: 1
+              spanNulls: false
             thresholds:
               mode: absolute
               steps:
-                - { color: red, value: null }
-                - { color: orange, value: 80 }
-                - { color: green, value: 95 }
+                - color: red
+                  value: null
+                - color: orange
+                  value: 80
+                - color: green
+                  value: 95
           overrides: []
         options:
-          legend: { calcs: [latest], displayMode: list, placement: bottom, showLegend: true }
-          tooltip: { mode: multi, sort: desc }
+          legend:
+            calcs:
+              - latest
+            displayMode: list
+            placement: bottom
+            showLegend: true
+          tooltip:
+            mode: multi
+            sort: desc
         transformations: []
       - id: 12
         title: Completed PipelineRuns (last 5m)
         type: timeseries
         datasource: prometheus
-        gridPos: { h: 8, w: 4, x: 20, y: 0 }
+        gridPos:
+          h: 8
+          w: 4
+          x: 20
+          "y": 0
         targets:
           - datasource: prometheus
             expr: "round(sum(increase(tekton_pipelines_controller_pipelinerun_total[5m])))"
@@ -807,19 +978,39 @@ spec:
           defaults:
             unit: short
             decimals: 0
-            color: { mode: palette-classic }
-            custom: { drawStyle: line, fillOpacity: 0, lineWidth: 1, spanNulls: false }
-            thresholds: { mode: absolute, steps: [{ color: green, value: null }] }
+            color:
+              mode: palette-classic
+            custom:
+              drawStyle: line
+              fillOpacity: 0
+              lineWidth: 1
+              spanNulls: false
+            thresholds:
+              mode: absolute
+              steps:
+                - color: green
+                  value: null
           overrides: []
         options:
-          legend: { calcs: [latest], displayMode: list, placement: bottom, showLegend: true }
-          tooltip: { mode: multi, sort: desc }
+          legend:
+            calcs:
+              - latest
+            displayMode: list
+            placement: bottom
+            showLegend: true
+          tooltip:
+            mode: multi
+            sort: desc
         transformations: []
       - id: 4
         title: Running PipelineRuns
         type: timeseries
         datasource: prometheus
-        gridPos: { h: 8, w: 8, x: 0, y: 8 }
+        gridPos:
+          h: 8
+          w: 8
+          x: 0
+          "y": 8
         targets:
           - datasource: prometheus
             expr: max(tekton_pipelines_controller_running_pipelineruns)
@@ -827,19 +1018,39 @@ spec:
             refId: A
         fieldConfig:
           defaults:
-            color: { mode: palette-classic }
-            custom: { drawStyle: line, fillOpacity: 0, lineWidth: 1, spanNulls: false }
-            thresholds: { mode: absolute, steps: [{ color: green, value: null }] }
+            color:
+              mode: palette-classic
+            custom:
+              drawStyle: line
+              fillOpacity: 0
+              lineWidth: 1
+              spanNulls: false
+            thresholds:
+              mode: absolute
+              steps:
+                - color: green
+                  value: null
           overrides: []
         options:
-          legend: { calcs: [latest], displayMode: list, placement: bottom, showLegend: true }
-          tooltip: { mode: multi, sort: desc }
+          legend:
+            calcs:
+              - latest
+            displayMode: list
+            placement: bottom
+            showLegend: true
+          tooltip:
+            mode: multi
+            sort: desc
         transformations: []
       - id: 5
         title: Running TaskRuns
         type: timeseries
         datasource: prometheus
-        gridPos: { h: 8, w: 8, x: 8, y: 8 }
+        gridPos:
+          h: 8
+          w: 8
+          x: 8
+          "y": 8
         targets:
           - datasource: prometheus
             expr: max(tekton_pipelines_controller_running_taskruns)
@@ -847,19 +1058,39 @@ spec:
             refId: A
         fieldConfig:
           defaults:
-            color: { mode: palette-classic }
-            custom: { drawStyle: line, fillOpacity: 0, lineWidth: 1, spanNulls: false }
-            thresholds: { mode: absolute, steps: [{ color: green, value: null }] }
+            color:
+              mode: palette-classic
+            custom:
+              drawStyle: line
+              fillOpacity: 0
+              lineWidth: 1
+              spanNulls: false
+            thresholds:
+              mode: absolute
+              steps:
+                - color: green
+                  value: null
           overrides: []
         options:
-          legend: { calcs: [latest], displayMode: list, placement: bottom, showLegend: true }
-          tooltip: { mode: multi, sort: desc }
+          legend:
+            calcs:
+              - latest
+            displayMode: list
+            placement: bottom
+            showLegend: true
+          tooltip:
+            mode: multi
+            sort: desc
         transformations: []
       - id: 6
         title: TaskRuns Throttled
         type: timeseries
         datasource: prometheus
-        gridPos: { h: 8, w: 8, x: 16, y: 8 }
+        gridPos:
+          h: 8
+          w: 8
+          x: 16
+          "y": 8
         targets:
           - datasource: prometheus
             expr: max(tekton_pipelines_controller_running_taskruns_throttled_by_quota)
@@ -871,19 +1102,39 @@ spec:
             refId: B
         fieldConfig:
           defaults:
-            color: { mode: palette-classic }
-            custom: { drawStyle: line, fillOpacity: 0, lineWidth: 1, spanNulls: false }
-            thresholds: { mode: absolute, steps: [{ color: orange, value: null }] }
+            color:
+              mode: palette-classic
+            custom:
+              drawStyle: line
+              fillOpacity: 0
+              lineWidth: 1
+              spanNulls: false
+            thresholds:
+              mode: absolute
+              steps:
+                - color: orange
+                  value: null
           overrides: []
         options:
-          legend: { calcs: [latest], displayMode: list, placement: bottom, showLegend: true }
-          tooltip: { mode: multi, sort: desc }
+          legend:
+            calcs:
+              - latest
+            displayMode: list
+            placement: bottom
+            showLegend: true
+          tooltip:
+            mode: multi
+            sort: desc
         transformations: []
       - id: 7
         title: PipelineRun Duration P50 / P95
         type: timeseries
         datasource: prometheus
-        gridPos: { h: 8, w: 8, x: 0, y: 16 }
+        gridPos:
+          h: 8
+          w: 8
+          x: 0
+          "y": 16
         targets:
           - datasource: prometheus
             expr: (histogram_quantile(0.5, sum by (le) (rate(tekton_pipelines_controller_pipelinerun_duration_seconds_bucket[5m])))) and on() (sum(rate(tekton_pipelines_controller_pipelinerun_duration_seconds_bucket{le="+Inf"}[5m])) > 0)
@@ -896,19 +1147,39 @@ spec:
         fieldConfig:
           defaults:
             unit: s
-            color: { mode: palette-classic }
-            custom: { drawStyle: line, fillOpacity: 0, lineWidth: 1, spanNulls: false }
-            thresholds: { mode: absolute, steps: [{ color: green, value: null }] }
+            color:
+              mode: palette-classic
+            custom:
+              drawStyle: line
+              fillOpacity: 0
+              lineWidth: 1
+              spanNulls: false
+            thresholds:
+              mode: absolute
+              steps:
+                - color: green
+                  value: null
           overrides: []
         options:
-          legend: { calcs: [latest], displayMode: list, placement: bottom, showLegend: true }
-          tooltip: { mode: multi, sort: desc }
+          legend:
+            calcs:
+              - latest
+            displayMode: list
+            placement: bottom
+            showLegend: true
+          tooltip:
+            mode: multi
+            sort: desc
         transformations: []
       - id: 8
         title: TaskRun Duration P50 / P95 (Standalone)
         type: timeseries
         datasource: prometheus
-        gridPos: { h: 8, w: 8, x: 8, y: 16 }
+        gridPos:
+          h: 8
+          w: 8
+          x: 8
+          "y": 16
         targets:
           - datasource: prometheus
             expr: (histogram_quantile(0.5, sum by (le) (rate(tekton_pipelines_controller_taskrun_duration_seconds_bucket[5m])))) and on() (sum(rate(tekton_pipelines_controller_taskrun_duration_seconds_bucket{le="+Inf"}[5m])) > 0)
@@ -921,19 +1192,39 @@ spec:
         fieldConfig:
           defaults:
             unit: s
-            color: { mode: palette-classic }
-            custom: { drawStyle: line, fillOpacity: 0, lineWidth: 1, spanNulls: false }
-            thresholds: { mode: absolute, steps: [{ color: green, value: null }] }
+            color:
+              mode: palette-classic
+            custom:
+              drawStyle: line
+              fillOpacity: 0
+              lineWidth: 1
+              spanNulls: false
+            thresholds:
+              mode: absolute
+              steps:
+                - color: green
+                  value: null
           overrides: []
         options:
-          legend: { calcs: [latest], displayMode: list, placement: bottom, showLegend: true }
-          tooltip: { mode: multi, sort: desc }
+          legend:
+            calcs:
+              - latest
+            displayMode: list
+            placement: bottom
+            showLegend: true
+          tooltip:
+            mode: multi
+            sort: desc
         transformations: []
       - id: 13
         title: TaskRun Duration P50 / P95 (In-Pipeline)
         type: timeseries
         datasource: prometheus
-        gridPos: { h: 8, w: 8, x: 16, y: 16 }
+        gridPos:
+          h: 8
+          w: 8
+          x: 16
+          "y": 16
         targets:
           - datasource: prometheus
             expr: (histogram_quantile(0.5, sum by (le) (rate(tekton_pipelines_controller_pipelinerun_taskrun_duration_seconds_bucket[5m])))) and on() (sum(rate(tekton_pipelines_controller_pipelinerun_taskrun_duration_seconds_bucket{le="+Inf"}[5m])) > 0)
@@ -946,63 +1237,123 @@ spec:
         fieldConfig:
           defaults:
             unit: s
-            color: { mode: palette-classic }
-            custom: { drawStyle: line, fillOpacity: 0, lineWidth: 1, spanNulls: false }
-            thresholds: { mode: absolute, steps: [{ color: green, value: null }] }
+            color:
+              mode: palette-classic
+            custom:
+              drawStyle: line
+              fillOpacity: 0
+              lineWidth: 1
+              spanNulls: false
+            thresholds:
+              mode: absolute
+              steps:
+                - color: green
+                  value: null
           overrides: []
         options:
-          legend: { calcs: [latest], displayMode: list, placement: bottom, showLegend: true }
-          tooltip: { mode: multi, sort: desc }
+          legend:
+            calcs:
+              - latest
+            displayMode: list
+            placement: bottom
+            showLegend: true
+          tooltip:
+            mode: multi
+            sort: desc
         transformations: []
       - id: 9
         title: Workqueue Depth
         type: timeseries
         datasource: prometheus
-        gridPos: { h: 8, w: 8, x: 0, y: 24 }
+        gridPos:
+          h: 8
+          w: 8
+          x: 0
+          "y": 24
         targets:
           - datasource: prometheus
-            expr: max(tekton_pipelines_controller_workqueue_depth)
+            expr: max(kn_workqueue_depth{name=~"github.com.tektoncd.pipeline.pkg.reconciler.(pipelinerun|taskrun).Reconciler"})
             legendFormat: depth
             refId: A
         fieldConfig:
           defaults:
-            color: { mode: palette-classic }
-            custom: { drawStyle: line, fillOpacity: 0, lineWidth: 1, spanNulls: false }
-            thresholds: { mode: absolute, steps: [{ color: green, value: null }] }
+            color:
+              mode: palette-classic
+            custom:
+              drawStyle: line
+              fillOpacity: 0
+              lineWidth: 1
+              spanNulls: false
+            thresholds:
+              mode: absolute
+              steps:
+                - color: green
+                  value: null
           overrides: []
         options:
-          legend: { calcs: [latest], displayMode: list, placement: bottom, showLegend: true }
-          tooltip: { mode: multi, sort: desc }
+          legend:
+            calcs:
+              - latest
+            displayMode: list
+            placement: bottom
+            showLegend: true
+          tooltip:
+            mode: multi
+            sort: desc
         transformations: []
       - id: 10
-        title: Reconcile Count (by success)
+        title: Workqueue Adds and Retries
         type: timeseries
         datasource: prometheus
-        gridPos: { h: 8, w: 8, x: 8, y: 24 }
+        gridPos:
+          h: 8
+          w: 8
+          x: 8
+          "y": 24
         targets:
           - datasource: prometheus
-            expr: sum(increase(tekton_pipelines_controller_reconcile_count{success="true"}[5m]))
-            legendFormat: success=true
+            expr: sum(increase(kn_workqueue_adds_total{name=~"github.com.tektoncd.pipeline.pkg.reconciler.(pipelinerun|taskrun).Reconciler"}[5m]))
+            legendFormat: adds
             refId: A
           - datasource: prometheus
-            expr: sum(increase(tekton_pipelines_controller_reconcile_count{success="false"}[5m]))
-            legendFormat: success=false
+            expr: sum(increase(kn_workqueue_retries_total{name=~"github.com.tektoncd.pipeline.pkg.reconciler.(pipelinerun|taskrun).Reconciler"}[5m]))
+            legendFormat: retries
             refId: B
         fieldConfig:
           defaults:
-            color: { mode: palette-classic }
-            custom: { drawStyle: line, fillOpacity: 0, lineWidth: 1, spanNulls: false }
-            thresholds: { mode: absolute, steps: [{ color: green, value: null }] }
+            color:
+              mode: palette-classic
+            custom:
+              drawStyle: line
+              fillOpacity: 0
+              lineWidth: 1
+              spanNulls: false
+            thresholds:
+              mode: absolute
+              steps:
+                - color: green
+                  value: null
           overrides: []
         options:
-          legend: { calcs: [latest], displayMode: list, placement: bottom, showLegend: true }
-          tooltip: { mode: multi, sort: desc }
+          legend:
+            calcs:
+              - latest
+            displayMode: list
+            placement: bottom
+            showLegend: true
+          tooltip:
+            mode: multi
+            sort: desc
         transformations: []
       - id: 11
         title: Resolution Waiting
         type: timeseries
         datasource: prometheus
-        gridPos: { h: 8, w: 8, x: 16, y: 24 }
+        gridPos:
+          h: 8
+          w: 8
+          x: 16
+          "y": 24
         targets:
           - datasource: prometheus
             expr: max(tekton_pipelines_controller_running_pipelineruns_waiting_on_pipeline_resolution)
@@ -1018,13 +1369,29 @@ spec:
             refId: C
         fieldConfig:
           defaults:
-            color: { mode: palette-classic }
-            custom: { drawStyle: line, fillOpacity: 0, lineWidth: 1, spanNulls: false }
-            thresholds: { mode: absolute, steps: [{ color: orange, value: null }] }
+            color:
+              mode: palette-classic
+            custom:
+              drawStyle: line
+              fillOpacity: 0
+              lineWidth: 1
+              spanNulls: false
+            thresholds:
+              mode: absolute
+              steps:
+                - color: orange
+                  value: null
           overrides: []
         options:
-          legend: { calcs: [latest], displayMode: list, placement: bottom, showLegend: true }
-          tooltip: { mode: multi, sort: desc }
+          legend:
+            calcs:
+              - latest
+            displayMode: list
+            placement: bottom
+            showLegend: true
+          tooltip:
+            mode: multi
+            sort: desc
         transformations: []
 ```
 
@@ -1032,11 +1399,11 @@ spec:
 
 ### Tekton Pipeline Dashboard Interpretation (Common Questions)
 
-- `PipelineRun Total (by status)` is a completion-event counter recorded by the controller, not the total number of PipelineRun objects. In the current implementation, user-triggered cancellation (`spec.status=Cancelled`) may not enter this counting path, so the `cancelled` series may be absent. To validate cancellation volume, check PipelineRun objects and events.
+- `PipelineRun Total (by status)` is a completion-event counter recorded by the controller, not the total number of PipelineRun objects. PipelineRuns that end with reason `Cancelled`, including those cancelled with `spec.status: Cancelled`, are counted with `status="cancelled"`. A PipelineRun cancelled or stopped with `spec.status: CancelledRunFinally` or `StoppedRunFinally` in which a task or `finally` task failed ends with reason `Failed` and is counted with `status="failed"`.
 - `Running PipelineRuns` is a real-time snapshot (how many are running now). It can change independently from `PipelineRun Total`.
 - `Completed PipelineRuns (last 5m)` is throughput (newly completed runs in the last 5 minutes). Seeing `0` during low traffic or idle periods is expected.
 - `PipelineRun Success Rate (cumulative)` is cumulative since controller start, not a 5-minute window success rate. A short-term failure does not immediately cause a large shift.
-- `Reconcile Count (by success)` measures controller reconcile loops, not PipelineRun counts.
+- `Workqueue Adds and Retries` counts the items added to and retried in the PipelineRun and TaskRun reconciler work queues in the last 5 minutes, not PipelineRun counts.
 - Status series are shown only for label values that actually have samples in the selected time range. If a status has no samples in the window, its curve/legend will not appear.
 - `TaskRun Duration P50 / P95 (Standalone)` and `TaskRun Duration P50 / P95 (In-Pipeline)` are split to avoid mixed-query instability. In environments that only expose one histogram family, the other panel may be empty, which is expected.
 
@@ -1056,6 +1423,7 @@ metadata:
   namespace: cpaas-system
 spec:
   body:
+    title: Tekton Triggers Overview
     titleZh: Tekton Triggers Overview
     tags:
       - tekton
@@ -1069,7 +1437,11 @@ spec:
         title: EventListener Count
         type: timeseries
         datasource: prometheus
-        gridPos: { h: 6, w: 5, x: 0, y: 0 }
+        gridPos:
+          h: 6
+          w: 5
+          x: 0
+          "y": 0
         targets:
           - datasource: prometheus
             expr: controller_eventlistener_count
@@ -1077,19 +1449,39 @@ spec:
             refId: A
         fieldConfig:
           defaults:
-            color: { mode: palette-classic }
-            custom: { drawStyle: line, fillOpacity: 0, lineWidth: 1, spanNulls: false }
-            thresholds: { mode: absolute, steps: [{ color: green, value: null }] }
+            color:
+              mode: palette-classic
+            custom:
+              drawStyle: line
+              fillOpacity: 0
+              lineWidth: 1
+              spanNulls: false
+            thresholds:
+              mode: absolute
+              steps:
+                - color: green
+                  value: null
           overrides: []
         options:
-          legend: { calcs: [latest], displayMode: list, placement: bottom, showLegend: true }
-          tooltip: { mode: multi, sort: desc }
+          legend:
+            calcs:
+              - latest
+            displayMode: list
+            placement: bottom
+            showLegend: true
+          tooltip:
+            mode: multi
+            sort: desc
         transformations: []
       - id: 2
         title: TriggerTemplate Count
         type: timeseries
         datasource: prometheus
-        gridPos: { h: 6, w: 5, x: 5, y: 0 }
+        gridPos:
+          h: 6
+          w: 5
+          x: 5
+          "y": 0
         targets:
           - datasource: prometheus
             expr: controller_triggertemplate_count
@@ -1097,19 +1489,39 @@ spec:
             refId: A
         fieldConfig:
           defaults:
-            color: { mode: palette-classic }
-            custom: { drawStyle: line, fillOpacity: 0, lineWidth: 1, spanNulls: false }
-            thresholds: { mode: absolute, steps: [{ color: green, value: null }] }
+            color:
+              mode: palette-classic
+            custom:
+              drawStyle: line
+              fillOpacity: 0
+              lineWidth: 1
+              spanNulls: false
+            thresholds:
+              mode: absolute
+              steps:
+                - color: green
+                  value: null
           overrides: []
         options:
-          legend: { calcs: [latest], displayMode: list, placement: bottom, showLegend: true }
-          tooltip: { mode: multi, sort: desc }
+          legend:
+            calcs:
+              - latest
+            displayMode: list
+            placement: bottom
+            showLegend: true
+          tooltip:
+            mode: multi
+            sort: desc
         transformations: []
       - id: 3
         title: TriggerBinding Count
         type: timeseries
         datasource: prometheus
-        gridPos: { h: 6, w: 5, x: 10, y: 0 }
+        gridPos:
+          h: 6
+          w: 5
+          x: 10
+          "y": 0
         targets:
           - datasource: prometheus
             expr: controller_triggerbinding_count
@@ -1117,19 +1529,39 @@ spec:
             refId: A
         fieldConfig:
           defaults:
-            color: { mode: palette-classic }
-            custom: { drawStyle: line, fillOpacity: 0, lineWidth: 1, spanNulls: false }
-            thresholds: { mode: absolute, steps: [{ color: green, value: null }] }
+            color:
+              mode: palette-classic
+            custom:
+              drawStyle: line
+              fillOpacity: 0
+              lineWidth: 1
+              spanNulls: false
+            thresholds:
+              mode: absolute
+              steps:
+                - color: green
+                  value: null
           overrides: []
         options:
-          legend: { calcs: [latest], displayMode: list, placement: bottom, showLegend: true }
-          tooltip: { mode: multi, sort: desc }
+          legend:
+            calcs:
+              - latest
+            displayMode: list
+            placement: bottom
+            showLegend: true
+          tooltip:
+            mode: multi
+            sort: desc
         transformations: []
       - id: 4
         title: ClusterTriggerBinding
         type: timeseries
         datasource: prometheus
-        gridPos: { h: 6, w: 5, x: 15, y: 0 }
+        gridPos:
+          h: 6
+          w: 5
+          x: 15
+          "y": 0
         targets:
           - datasource: prometheus
             expr: controller_clustertriggerbinding_count
@@ -1137,19 +1569,39 @@ spec:
             refId: A
         fieldConfig:
           defaults:
-            color: { mode: palette-classic }
-            custom: { drawStyle: line, fillOpacity: 0, lineWidth: 1, spanNulls: false }
-            thresholds: { mode: absolute, steps: [{ color: green, value: null }] }
+            color:
+              mode: palette-classic
+            custom:
+              drawStyle: line
+              fillOpacity: 0
+              lineWidth: 1
+              spanNulls: false
+            thresholds:
+              mode: absolute
+              steps:
+                - color: green
+                  value: null
           overrides: []
         options:
-          legend: { calcs: [latest], displayMode: list, placement: bottom, showLegend: true }
-          tooltip: { mode: multi, sort: desc }
+          legend:
+            calcs:
+              - latest
+            displayMode: list
+            placement: bottom
+            showLegend: true
+          tooltip:
+            mode: multi
+            sort: desc
         transformations: []
       - id: 5
         title: ClusterInterceptor
         type: timeseries
         datasource: prometheus
-        gridPos: { h: 6, w: 4, x: 20, y: 0 }
+        gridPos:
+          h: 6
+          w: 4
+          x: 20
+          "y": 0
         targets:
           - datasource: prometheus
             expr: controller_clusterinterceptor_count
@@ -1157,19 +1609,39 @@ spec:
             refId: A
         fieldConfig:
           defaults:
-            color: { mode: palette-classic }
-            custom: { drawStyle: line, fillOpacity: 0, lineWidth: 1, spanNulls: false }
-            thresholds: { mode: absolute, steps: [{ color: green, value: null }] }
+            color:
+              mode: palette-classic
+            custom:
+              drawStyle: line
+              fillOpacity: 0
+              lineWidth: 1
+              spanNulls: false
+            thresholds:
+              mode: absolute
+              steps:
+                - color: green
+                  value: null
           overrides: []
         options:
-          legend: { calcs: [latest], displayMode: list, placement: bottom, showLegend: true }
-          tooltip: { mode: multi, sort: desc }
+          legend:
+            calcs:
+              - latest
+            displayMode: list
+            placement: bottom
+            showLegend: true
+          tooltip:
+            mode: multi
+            sort: desc
         transformations: []
       - id: 6
         title: All Trigger Resource Counts (trend)
         type: timeseries
         datasource: prometheus
-        gridPos: { h: 8, w: 24, x: 0, y: 6 }
+        gridPos:
+          h: 8
+          w: 24
+          x: 0
+          "y": 6
         targets:
           - datasource: prometheus
             expr: controller_eventlistener_count
@@ -1193,13 +1665,29 @@ spec:
             refId: E
         fieldConfig:
           defaults:
-            color: { mode: palette-classic }
-            custom: { drawStyle: line, fillOpacity: 0, lineWidth: 1, spanNulls: false }
-            thresholds: { mode: absolute, steps: [{ color: green, value: null }] }
+            color:
+              mode: palette-classic
+            custom:
+              drawStyle: line
+              fillOpacity: 0
+              lineWidth: 1
+              spanNulls: false
+            thresholds:
+              mode: absolute
+              steps:
+                - color: green
+                  value: null
           overrides: []
         options:
-          legend: { calcs: [latest], displayMode: list, placement: bottom, showLegend: true }
-          tooltip: { mode: multi, sort: desc }
+          legend:
+            calcs:
+              - latest
+            displayMode: list
+            placement: bottom
+            showLegend: true
+          tooltip:
+            mode: multi
+            sort: desc
         transformations: []
 ```
 
@@ -1227,6 +1715,7 @@ metadata:
   namespace: cpaas-system
 spec:
   body:
+    title: Tekton Results Overview
     titleZh: Tekton Results Overview
     tags:
       - tekton
@@ -1237,148 +1726,272 @@ spec:
       list: []
     panels:
       - id: 1
-        title: PipelineRun Reconcile Count (last 5m)
+        title: PipelineRun Reconciles and Retries (last 5m)
         type: timeseries
         datasource: prometheus
-        gridPos: { h: 8, w: 12, x: 0, y: 0 }
+        gridPos:
+          h: 8
+          w: 12
+          x: 0
+          "y": 0
         targets:
           - datasource: prometheus
-            expr: round(sum(increase(watcher_reconcile_count{reconciler="github.com.tektoncd.results.pkg.watcher.reconciler.pipelinerun.Reconciler",success="true"}[5m])))
-            legendFormat: success=true
+            expr: round(sum(increase(kn_workqueue_process_duration_seconds_count{name="github.com.tektoncd.results.pkg.watcher.reconciler.pipelinerun.Reconciler"}[5m])))
+            legendFormat: processed
             refId: A
           - datasource: prometheus
-            expr: round(sum(increase(watcher_reconcile_count{reconciler="github.com.tektoncd.results.pkg.watcher.reconciler.pipelinerun.Reconciler",success="false"}[5m])))
-            legendFormat: success=false
+            expr: round(sum(increase(kn_workqueue_retries_total{name="github.com.tektoncd.results.pkg.watcher.reconciler.pipelinerun.Reconciler"}[5m])))
+            legendFormat: retries
             refId: B
         fieldConfig:
           defaults:
-            color: { mode: palette-classic }
-            custom: { drawStyle: line, fillOpacity: 0, lineWidth: 1, spanNulls: false }
-            thresholds: { mode: absolute, steps: [{ color: green, value: null }] }
+            color:
+              mode: palette-classic
+            custom:
+              drawStyle: line
+              fillOpacity: 0
+              lineWidth: 1
+              spanNulls: false
+            thresholds:
+              mode: absolute
+              steps:
+                - color: green
+                  value: null
           overrides: []
         options:
-          legend: { calcs: [latest], displayMode: list, placement: bottom, showLegend: true }
-          tooltip: { mode: multi, sort: desc }
+          legend:
+            calcs:
+              - latest
+            displayMode: list
+            placement: bottom
+            showLegend: true
+          tooltip:
+            mode: multi
+            sort: desc
         transformations: []
       - id: 2
-        title: TaskRun Reconcile Count (last 5m)
+        title: TaskRun Reconciles and Retries (last 5m)
         type: timeseries
         datasource: prometheus
-        gridPos: { h: 8, w: 12, x: 12, y: 0 }
+        gridPos:
+          h: 8
+          w: 12
+          x: 12
+          "y": 0
         targets:
           - datasource: prometheus
-            expr: round(sum(increase(watcher_reconcile_count{reconciler="github.com.tektoncd.results.pkg.watcher.reconciler.taskrun.Reconciler",success="true"}[5m])))
-            legendFormat: success=true
+            expr: round(sum(increase(kn_workqueue_process_duration_seconds_count{name="github.com.tektoncd.results.pkg.watcher.reconciler.taskrun.Reconciler"}[5m])))
+            legendFormat: processed
             refId: A
           - datasource: prometheus
-            expr: round(sum(increase(watcher_reconcile_count{reconciler="github.com.tektoncd.results.pkg.watcher.reconciler.taskrun.Reconciler",success="false"}[5m])))
-            legendFormat: success=false
+            expr: round(sum(increase(kn_workqueue_retries_total{name="github.com.tektoncd.results.pkg.watcher.reconciler.taskrun.Reconciler"}[5m])))
+            legendFormat: retries
             refId: B
         fieldConfig:
           defaults:
-            color: { mode: palette-classic }
-            custom: { drawStyle: line, fillOpacity: 0, lineWidth: 1, spanNulls: false }
-            thresholds: { mode: absolute, steps: [{ color: green, value: null }] }
+            color:
+              mode: palette-classic
+            custom:
+              drawStyle: line
+              fillOpacity: 0
+              lineWidth: 1
+              spanNulls: false
+            thresholds:
+              mode: absolute
+              steps:
+                - color: green
+                  value: null
           overrides: []
         options:
-          legend: { calcs: [latest], displayMode: list, placement: bottom, showLegend: true }
-          tooltip: { mode: multi, sort: desc }
+          legend:
+            calcs:
+              - latest
+            displayMode: list
+            placement: bottom
+            showLegend: true
+          tooltip:
+            mode: multi
+            sort: desc
         transformations: []
       - id: 3
         title: PipelineRun Reconcile Latency P95
         type: timeseries
         datasource: prometheus
-        gridPos: { h: 8, w: 12, x: 0, y: 8 }
+        gridPos:
+          h: 8
+          w: 12
+          x: 0
+          "y": 8
         targets:
           - datasource: prometheus
-            expr: histogram_quantile(0.95, sum by (le) (rate(watcher_reconcile_latency_bucket{reconciler="github.com.tektoncd.results.pkg.watcher.reconciler.pipelinerun.Reconciler"}[5m])))
+            expr: histogram_quantile(0.95, sum by (le) (rate(kn_workqueue_process_duration_seconds_bucket{name="github.com.tektoncd.results.pkg.watcher.reconciler.pipelinerun.Reconciler"}[5m])))
             legendFormat: P95
             refId: A
         fieldConfig:
           defaults:
-            unit: ms
-            color: { mode: palette-classic }
-            custom: { drawStyle: line, fillOpacity: 0, lineWidth: 1, spanNulls: false }
-            thresholds: { mode: absolute, steps: [{ color: green, value: null }] }
+            unit: s
+            color:
+              mode: palette-classic
+            custom:
+              drawStyle: line
+              fillOpacity: 0
+              lineWidth: 1
+              spanNulls: false
+            thresholds:
+              mode: absolute
+              steps:
+                - color: green
+                  value: null
           overrides: []
         options:
-          legend: { calcs: [latest], displayMode: list, placement: bottom, showLegend: true }
-          tooltip: { mode: multi, sort: desc }
+          legend:
+            calcs:
+              - latest
+            displayMode: list
+            placement: bottom
+            showLegend: true
+          tooltip:
+            mode: multi
+            sort: desc
         transformations: []
       - id: 4
         title: TaskRun Reconcile Latency P95
         type: timeseries
         datasource: prometheus
-        gridPos: { h: 8, w: 12, x: 12, y: 8 }
+        gridPos:
+          h: 8
+          w: 12
+          x: 12
+          "y": 8
         targets:
           - datasource: prometheus
-            expr: histogram_quantile(0.95, sum by (le) (rate(watcher_reconcile_latency_bucket{reconciler="github.com.tektoncd.results.pkg.watcher.reconciler.taskrun.Reconciler"}[5m])))
+            expr: histogram_quantile(0.95, sum by (le) (rate(kn_workqueue_process_duration_seconds_bucket{name="github.com.tektoncd.results.pkg.watcher.reconciler.taskrun.Reconciler"}[5m])))
             legendFormat: P95
             refId: A
         fieldConfig:
           defaults:
-            unit: ms
-            color: { mode: palette-classic }
-            custom: { drawStyle: line, fillOpacity: 0, lineWidth: 1, spanNulls: false }
-            thresholds: { mode: absolute, steps: [{ color: green, value: null }] }
+            unit: s
+            color:
+              mode: palette-classic
+            custom:
+              drawStyle: line
+              fillOpacity: 0
+              lineWidth: 1
+              spanNulls: false
+            thresholds:
+              mode: absolute
+              steps:
+                - color: green
+                  value: null
           overrides: []
         options:
-          legend: { calcs: [latest], displayMode: list, placement: bottom, showLegend: true }
-          tooltip: { mode: multi, sort: desc }
+          legend:
+            calcs:
+              - latest
+            displayMode: list
+            placement: bottom
+            showLegend: true
+          tooltip:
+            mode: multi
+            sort: desc
         transformations: []
       - id: 5
         title: Workqueue Depth (PipelineRun vs TaskRun)
         type: timeseries
         datasource: prometheus
-        gridPos: { h: 8, w: 12, x: 0, y: 16 }
+        gridPos:
+          h: 8
+          w: 12
+          x: 0
+          "y": 16
         targets:
           - datasource: prometheus
-            expr: sum(watcher_work_queue_depth{reconciler="github.com.tektoncd.results.pkg.watcher.reconciler.pipelinerun.Reconciler"})
+            expr: sum(kn_workqueue_depth{name="github.com.tektoncd.results.pkg.watcher.reconciler.pipelinerun.Reconciler"})
             legendFormat: pipelinerun
             refId: A
           - datasource: prometheus
-            expr: sum(watcher_work_queue_depth{reconciler="github.com.tektoncd.results.pkg.watcher.reconciler.taskrun.Reconciler"})
+            expr: sum(kn_workqueue_depth{name="github.com.tektoncd.results.pkg.watcher.reconciler.taskrun.Reconciler"})
             legendFormat: taskrun
             refId: B
         fieldConfig:
           defaults:
-            color: { mode: palette-classic }
-            custom: { drawStyle: line, fillOpacity: 0, lineWidth: 1, spanNulls: false }
-            thresholds: { mode: absolute, steps: [{ color: green, value: null }] }
+            color:
+              mode: palette-classic
+            custom:
+              drawStyle: line
+              fillOpacity: 0
+              lineWidth: 1
+              spanNulls: false
+            thresholds:
+              mode: absolute
+              steps:
+                - color: green
+                  value: null
           overrides: []
         options:
-          legend: { calcs: [latest], displayMode: list, placement: bottom, showLegend: true }
-          tooltip: { mode: multi, sort: desc }
+          legend:
+            calcs:
+              - latest
+            displayMode: list
+            placement: bottom
+            showLegend: true
+          tooltip:
+            mode: multi
+            sort: desc
         transformations: []
       - id: 6
         title: Workqueue Adds (last 5m)
         type: timeseries
         datasource: prometheus
-        gridPos: { h: 8, w: 12, x: 12, y: 16 }
+        gridPos:
+          h: 8
+          w: 12
+          x: 12
+          "y": 16
         targets:
           - datasource: prometheus
-            expr: round(sum(increase(watcher_workqueue_adds_total{name=~"github.com.tektoncd.results.pkg.watcher.reconciler.pipelinerun.Reconciler-(consumer|fast|slow)"}[5m])))
+            expr: round(sum(increase(kn_workqueue_adds_total{name="github.com.tektoncd.results.pkg.watcher.reconciler.pipelinerun.Reconciler"}[5m])))
             legendFormat: pipelinerun adds
             refId: A
           - datasource: prometheus
-            expr: round(sum(increase(watcher_workqueue_adds_total{name=~"github.com.tektoncd.results.pkg.watcher.reconciler.taskrun.Reconciler-(consumer|fast|slow)"}[5m])))
+            expr: round(sum(increase(kn_workqueue_adds_total{name="github.com.tektoncd.results.pkg.watcher.reconciler.taskrun.Reconciler"}[5m])))
             legendFormat: taskrun adds
             refId: B
         fieldConfig:
           defaults:
-            color: { mode: palette-classic }
-            custom: { drawStyle: line, fillOpacity: 0, lineWidth: 1, spanNulls: false }
-            thresholds: { mode: absolute, steps: [{ color: green, value: null }] }
+            color:
+              mode: palette-classic
+            custom:
+              drawStyle: line
+              fillOpacity: 0
+              lineWidth: 1
+              spanNulls: false
+            thresholds:
+              mode: absolute
+              steps:
+                - color: green
+                  value: null
           overrides: []
         options:
-          legend: { calcs: [latest], displayMode: list, placement: bottom, showLegend: true }
-          tooltip: { mode: multi, sort: desc }
+          legend:
+            calcs:
+              - latest
+            displayMode: list
+            placement: bottom
+            showLegend: true
+          tooltip:
+            mode: multi
+            sort: desc
         transformations: []
       - id: 7
         title: gRPC Request Rate (Results API)
         type: timeseries
         datasource: prometheus
-        gridPos: { h: 8, w: 12, x: 0, y: 24 }
+        gridPos:
+          h: 8
+          w: 12
+          x: 0
+          "y": 24
         targets:
           - datasource: prometheus
             expr: "sum(rate(grpc_server_handled_total{grpc_service=~\"tekton.results.*\"}[5m]))"
@@ -1386,19 +1999,39 @@ spec:
             refId: A
         fieldConfig:
           defaults:
-            color: { mode: palette-classic }
-            custom: { drawStyle: line, fillOpacity: 0, lineWidth: 1, spanNulls: false }
-            thresholds: { mode: absolute, steps: [{ color: green, value: null }] }
+            color:
+              mode: palette-classic
+            custom:
+              drawStyle: line
+              fillOpacity: 0
+              lineWidth: 1
+              spanNulls: false
+            thresholds:
+              mode: absolute
+              steps:
+                - color: green
+                  value: null
           overrides: []
         options:
-          legend: { calcs: [latest], displayMode: list, placement: bottom, showLegend: true }
-          tooltip: { mode: multi, sort: desc }
+          legend:
+            calcs:
+              - latest
+            displayMode: list
+            placement: bottom
+            showLegend: true
+          tooltip:
+            mode: multi
+            sort: desc
         transformations: []
       - id: 8
         title: gRPC Error Percentage (Results API, excl. NotFound/Canceled)
         type: timeseries
         datasource: prometheus
-        gridPos: { h: 8, w: 12, x: 12, y: 24 }
+        gridPos:
+          h: 8
+          w: 12
+          x: 12
+          "y": 24
         targets:
           - datasource: prometheus
             expr: "100 * ((sum(rate(grpc_server_handled_total{grpc_service=~\"tekton.results.*\",grpc_code!~\"OK|NotFound|Canceled\"}[5m])) or vector(0)) / clamp_min((sum(rate(grpc_server_handled_total{grpc_service=~\"tekton.results.*\"}[5m])) or vector(0)), 0.001))"
@@ -1407,13 +2040,29 @@ spec:
         fieldConfig:
           defaults:
             unit: percent
-            color: { mode: palette-classic }
-            custom: { drawStyle: line, fillOpacity: 0, lineWidth: 1, spanNulls: false }
-            thresholds: { mode: absolute, steps: [{ color: red, value: null }] }
+            color:
+              mode: palette-classic
+            custom:
+              drawStyle: line
+              fillOpacity: 0
+              lineWidth: 1
+              spanNulls: false
+            thresholds:
+              mode: absolute
+              steps:
+                - color: red
+                  value: null
           overrides: []
         options:
-          legend: { calcs: [latest], displayMode: list, placement: bottom, showLegend: true }
-          tooltip: { mode: multi, sort: desc }
+          legend:
+            calcs:
+              - latest
+            displayMode: list
+            placement: bottom
+            showLegend: true
+          tooltip:
+            mode: multi
+            sort: desc
         transformations: []
 ```
 
@@ -1421,9 +2070,9 @@ spec:
 
 ### Tekton Results Dashboard Interpretation (Common Questions)
 
-- This dashboard revision is based on Results Watcher `reconcile/workqueue` metrics plus Results API gRPC metrics, so it stays populated under common deployments (`logs_api=true`, automatic deletion disabled).
-- `PipelineRun Reconcile Count (last 5m)` and `TaskRun Reconcile Count (last 5m)` show separate 5-minute increments for `success=true` and `success=false`.
-- `PipelineRun Reconcile Latency P95` and `TaskRun Reconcile Latency P95` are calculated from watcher reconcile latency histograms. Under low traffic, the line can be sparse.
+- This dashboard revision is based on the Results Watcher workqueue metrics (`kn_workqueue_*`, one series per reconciler in the `name` label) plus Results API gRPC metrics, so it stays populated under common deployments (`logs_api=true`, automatic deletion disabled).
+- `PipelineRun Reconciles and Retries (last 5m)` and `TaskRun Reconciles and Retries (last 5m)` show, per 5-minute window, the number of items the reconciler processed (`kn_workqueue_process_duration_seconds_count`) and the number of items re-added to the queue for another attempt (`kn_workqueue_retries_total`).
+- `PipelineRun Reconcile Latency P95` and `TaskRun Reconcile Latency P95` are calculated from the watcher workqueue processing-time histogram (`kn_workqueue_process_duration_seconds`, in seconds). Under low traffic, the line can be sparse.
 - `Workqueue Depth` shows current queue depth, and `Workqueue Adds (last 5m)` shows enqueue volume over the last 5 minutes.
 - `gRPC Error Percentage (Results API, excl. NotFound/Canceled)` is the percentage of abnormal errors over total requests, excluding common business return codes (`NotFound`, `Canceled`).
 
@@ -1443,6 +2092,7 @@ metadata:
   namespace: cpaas-system
 spec:
   body:
+    title: Tekton Chains Overview
     titleZh: Tekton Chains Overview
     tags:
       - tekton
@@ -1456,7 +2106,11 @@ spec:
         title: TaskRun Signatures Created (last 5m)
         type: timeseries
         datasource: prometheus
-        gridPos: { h: 8, w: 12, x: 0, y: 0 }
+        gridPos:
+          h: 8
+          w: 12
+          x: 0
+          "y": 0
         targets:
           - datasource: prometheus
             expr: round(increase(watcher_taskrun_sign_created_total[5m]))
@@ -1464,19 +2118,39 @@ spec:
             refId: A
         fieldConfig:
           defaults:
-            color: { mode: palette-classic }
-            custom: { drawStyle: line, fillOpacity: 0, lineWidth: 1, spanNulls: false }
-            thresholds: { mode: absolute, steps: [{ color: green, value: null }] }
+            color:
+              mode: palette-classic
+            custom:
+              drawStyle: line
+              fillOpacity: 0
+              lineWidth: 1
+              spanNulls: false
+            thresholds:
+              mode: absolute
+              steps:
+                - color: green
+                  value: null
           overrides: []
         options:
-          legend: { calcs: [latest], displayMode: list, placement: bottom, showLegend: true }
-          tooltip: { mode: multi, sort: desc }
+          legend:
+            calcs:
+              - latest
+            displayMode: list
+            placement: bottom
+            showLegend: true
+          tooltip:
+            mode: multi
+            sort: desc
         transformations: []
       - id: 2
         title: PipelineRun Signatures Created (last 5m)
         type: timeseries
         datasource: prometheus
-        gridPos: { h: 8, w: 12, x: 12, y: 0 }
+        gridPos:
+          h: 8
+          w: 12
+          x: 12
+          "y": 0
         targets:
           - datasource: prometheus
             expr: round(increase(watcher_pipelinerun_sign_created_total[5m]))
@@ -1484,19 +2158,39 @@ spec:
             refId: A
         fieldConfig:
           defaults:
-            color: { mode: palette-classic }
-            custom: { drawStyle: line, fillOpacity: 0, lineWidth: 1, spanNulls: false }
-            thresholds: { mode: absolute, steps: [{ color: green, value: null }] }
+            color:
+              mode: palette-classic
+            custom:
+              drawStyle: line
+              fillOpacity: 0
+              lineWidth: 1
+              spanNulls: false
+            thresholds:
+              mode: absolute
+              steps:
+                - color: green
+                  value: null
           overrides: []
         options:
-          legend: { calcs: [latest], displayMode: list, placement: bottom, showLegend: true }
-          tooltip: { mode: multi, sort: desc }
+          legend:
+            calcs:
+              - latest
+            displayMode: list
+            placement: bottom
+            showLegend: true
+          tooltip:
+            mode: multi
+            sort: desc
         transformations: []
       - id: 3
         title: Payloads Stored (last 5m, TaskRun vs PipelineRun)
         type: timeseries
         datasource: prometheus
-        gridPos: { h: 8, w: 12, x: 0, y: 8 }
+        gridPos:
+          h: 8
+          w: 12
+          x: 0
+          "y": 8
         targets:
           - datasource: prometheus
             expr: round(increase(watcher_taskrun_payload_stored_total[5m]))
@@ -1508,19 +2202,39 @@ spec:
             refId: B
         fieldConfig:
           defaults:
-            color: { mode: palette-classic }
-            custom: { drawStyle: line, fillOpacity: 0, lineWidth: 1, spanNulls: false }
-            thresholds: { mode: absolute, steps: [{ color: green, value: null }] }
+            color:
+              mode: palette-classic
+            custom:
+              drawStyle: line
+              fillOpacity: 0
+              lineWidth: 1
+              spanNulls: false
+            thresholds:
+              mode: absolute
+              steps:
+                - color: green
+                  value: null
           overrides: []
         options:
-          legend: { calcs: [latest], displayMode: list, placement: bottom, showLegend: true }
-          tooltip: { mode: multi, sort: desc }
+          legend:
+            calcs:
+              - latest
+            displayMode: list
+            placement: bottom
+            showLegend: true
+          tooltip:
+            mode: multi
+            sort: desc
         transformations: []
       - id: 4
         title: Marked Signed (last 5m, TaskRun vs PipelineRun)
         type: timeseries
         datasource: prometheus
-        gridPos: { h: 8, w: 12, x: 12, y: 8 }
+        gridPos:
+          h: 8
+          w: 12
+          x: 12
+          "y": 8
         targets:
           - datasource: prometheus
             expr: round(increase(watcher_taskrun_marked_signed_total[5m]))
@@ -1532,13 +2246,29 @@ spec:
             refId: B
         fieldConfig:
           defaults:
-            color: { mode: palette-classic }
-            custom: { drawStyle: line, fillOpacity: 0, lineWidth: 1, spanNulls: false }
-            thresholds: { mode: absolute, steps: [{ color: green, value: null }] }
+            color:
+              mode: palette-classic
+            custom:
+              drawStyle: line
+              fillOpacity: 0
+              lineWidth: 1
+              spanNulls: false
+            thresholds:
+              mode: absolute
+              steps:
+                - color: green
+                  value: null
           overrides: []
         options:
-          legend: { calcs: [latest], displayMode: list, placement: bottom, showLegend: true }
-          tooltip: { mode: multi, sort: desc }
+          legend:
+            calcs:
+              - latest
+            displayMode: list
+            placement: bottom
+            showLegend: true
+          tooltip:
+            mode: multi
+            sort: desc
         transformations: []
 ```
 
@@ -1547,5 +2277,6 @@ spec:
 ### Tekton Chains Dashboard Interpretation (Common Questions)
 
 - `TaskRun Signatures Created (last 5m)`, `PipelineRun Signatures Created (last 5m)`, `Payloads Stored (last 5m)`, and `Marked Signed (last 5m)` use `increase(...[5m])` and represent increments in the last five minutes.
-- When there is no new signing or storage activity, these lines drop to `0`; this does not imply a component fault.
-- `Payloads Stored` and `Marked Signed` represent different processing stages, so their values are not expected to always match.
+- When there is no new signing or storage activity, these lines drop to `0`; this does not imply a component fault. A panel whose counter was never incremented since the Chains controller started shows no data instead, because the counter is not in the metrics output yet.
+- `Payloads Stored` and `Marked Signed` represent different processing stages, so their values are not expected to always match. `Payloads Stored` also counts a payload for which the `oci` storage backend found no image subject and uploaded nothing to the registry (see the Prerequisites in [Signing Key Configuration](../chains/configure/signing_key_configuration.mdx)).
+- If `Marked Signed` grows while `TaskRun Signatures Created` and `PipelineRun Signatures Created` show no data (or stay at `0`, when the controller created signatures earlier), and `*_signing_failures_total` does not grow, Chains marks runs as signed without signing them (see the note under [Chains Metrics](#chains-metrics)). This happens when no signer is configured (by default: `signing-secrets` holds no key), or when signing of TaskRun and PipelineRun artifacts is disabled (for example with `artifacts.taskrun.storage: ""` and `artifacts.pipelinerun.storage: ""`, see [Chains Configuration](../chains/configure/chains_configuration.mdx)). No dashboard panel shows `*_signing_failures_total`; query it in Prometheus or in the Chains metrics output. When it grows in this situation, Chains failed to create, encode or sign a payload (`error_type` `payload_creation`, `marshal_payload` or `signing`) and still marked the run as signed.

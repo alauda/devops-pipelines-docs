@@ -156,7 +156,7 @@ spec:
     # Reference the S3 credentials secret
     secret_name: my-s3-secret
     
-    # If using external database (recommended for production)
+    # External database (required: the built-in PostgreSQL database is not supported)
     is_external_db: true
     db_host: your-postgres-host.example.com
     db_port: 5432
@@ -166,7 +166,7 @@ spec:
 ```
 
 :::tip
-You can combine S3 storage configuration with external database configuration for a complete production setup.
+This sample combines the S3 storage configuration with the external database configuration, which is required because the built-in PostgreSQL database is not supported.
 :::
 
 ### 4. Apply the Configuration
@@ -307,6 +307,8 @@ spec:
     logs_api: true
     logs_type: S3
     secret_name: minio-s3-credentials
+    # Required: the built-in PostgreSQL database is not supported
+    is_external_db: true
 ```
 
 ### Max Log Size Configuration
@@ -361,6 +363,8 @@ spec:
     logs_api: true
     logs_type: S3
     secret_name: my-s3-secret
+    # Required: the built-in PostgreSQL database is not supported
+    is_external_db: true
     
     # Optional: Configure max log size limit via options
     options:
@@ -616,6 +620,7 @@ spec:
     logs_api: true
     logs_type: S3
     secret_name: my-s3-secret
+    is_external_db: true
 status:
   conditions:
   - type: Ready
