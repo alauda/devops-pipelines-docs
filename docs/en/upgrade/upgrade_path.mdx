@@ -7,13 +7,13 @@ weight: 10
 :::note
 **Important**
 
-This document provides the upgrade path principles and supported version compatibility for `Alauda DevOps Pipelines` Operator.
-For detailed upgrade instructions, please refer to the [Upgrade `Alauda DevOps Pipelines` Operator](./upgrade.mdx).
+This document provides the upgrade path principles and supported version compatibility for `Alauda Container Platform Pipelines` Operator.
+For detailed upgrade instructions, please refer to the [Upgrade `Alauda Container Platform Pipelines` Operator](./upgrade.mdx).
 :::
 
 ## Overview
 
-The `Alauda DevOps Pipelines` Operator follows specific upgrade path principles to ensure compatibility and stability during version transitions.
+The `Alauda Container Platform Pipelines` Operator follows specific upgrade path principles to ensure compatibility and stability during version transitions.
 
 ### Version Types
 
@@ -33,7 +33,7 @@ The `Alauda DevOps Pipelines` Operator follows specific upgrade path principles 
 - **Component Cohesion**: All Tekton components are upgraded together to maintain compatibility
 
 ## Upgrade Paths
-### `Alauda DevOps Pipelines` v4.15
+### `Alauda Container Platform Pipelines` v4.15
 
 The table below contains the upgrade paths covered by this release's regression testing.
 
@@ -53,7 +53,7 @@ The table below contains the upgrade paths covered by this release's regression 
 `pipelines-4.6`, `pipelines-4.12`, and `pipelines-4.14` are still within their maintenance period when `v4.15.0` ships, and upgrading from them to `v4.15.x` is supported as well: `4.6.x (LTS)` and `4.14.x (LTS)` through the LTS upgrade paths, and the non-LTS `4.12.x` through the maintenance path. They are not listed in the table above because they were not part of this release's upgrade regression. See [Upgrade Path Guidelines](#upgrade-path-guidelines) for the testing status that applies to each path.
 :::
 
-### `Alauda DevOps Pipelines` v4.14
+### `Alauda Container Platform Pipelines` v4.14
 
 The table below contains the upgrade paths covered by this release's regression testing.
 
@@ -72,7 +72,7 @@ The table below contains the upgrade paths covered by this release's regression 
 `pipelines-4.6`, `pipelines-4.11`, and `pipelines-4.12` are still within their maintenance period when `v4.14.0` ships, and upgrading from them to `v4.14.x` is supported as well: `4.6.x (LTS)` through the LTS-to-LTS extended path, and the non-LTS `4.11.x` and `4.12.x` through the maintenance path. They are not listed in the table above because they were not part of this release's upgrade regression. See [Upgrade Path Guidelines](#upgrade-path-guidelines) for the testing status that applies to each path.
 :::
 
-### `Alauda DevOps Pipelines` v4.12
+### `Alauda Container Platform Pipelines` v4.12
 
 The table below contains the complete upgrade path.
 
@@ -92,7 +92,7 @@ The table below contains the complete upgrade path.
 |                 |     4.2     |        1.33        |
 |                 |     4.3     |        1.34        |
 
-### `Alauda DevOps Pipelines` v4.11
+### `Alauda Container Platform Pipelines` v4.11
 
 The table below contains the complete upgrade path.
 
@@ -111,7 +111,7 @@ The table below contains the complete upgrade path.
 |                 |     4.2     |        1.33        |
 |                 |     4.3     |        1.34        |
 
-### `Alauda DevOps Pipelines` v4.10
+### `Alauda Container Platform Pipelines` v4.10
 
 The table below contains the complete upgrade path.
 
@@ -134,7 +134,7 @@ The table below contains the complete upgrade path.
 |                 |     4.1     |        1.32        |
 |                 |     4.2     |        1.33        |
 
-### `Alauda DevOps Pipelines` v4.8
+### `Alauda Container Platform Pipelines` v4.8
 
 The table below contains the complete upgrade path.
 
@@ -151,7 +151,7 @@ The table below contains the complete upgrade path.
 |                 |     4.1     |       1.32.7       |
 |                 |     4.2     |       1.33.6       |
 
-### `Alauda DevOps Pipelines` v4.7
+### `Alauda Container Platform Pipelines` v4.7
 
 The table below contains the complete upgrade path.
 
@@ -169,7 +169,7 @@ The table below contains the complete upgrade path.
 |                 |     4.1     |       1.32.7       |
 |                 |     4.2     |       1.33.6       |
 
-### `Alauda DevOps Pipelines` v4.6
+### `Alauda Container Platform Pipelines` v4.6
 
 The table below contains the complete upgrade path.
 
@@ -184,9 +184,9 @@ The table below contains the complete upgrade path.
 |  pipelines-4.4  |     4.0     |      1.31.12       |
 |                 |     4.1     |       1.32.7       |
 
-### `Alauda DevOps Pipelines` v4.4.0
+### `Alauda Container Platform Pipelines` v4.4.0
 
-This upgrade path has been tested with `Alauda DevOps Pipelines` Operator version v4.4.0 and ACP version 4.0.5, 4.1.2 (the latest LTS patch version available during testing)
+This upgrade path has been tested with `Alauda Container Platform Pipelines` Operator version v4.4.0 and ACP version 4.0.5, 4.1.2 (the latest LTS patch version available during testing)
 
 | Channel version | ACP version | Kubernetes version |
 |:---------------:|:-----------:|:------------------:|
@@ -199,9 +199,9 @@ This upgrade path has been tested with `Alauda DevOps Pipelines` Operator versio
 | pipelines-4.3 | 4.0.5 | 1.31.12 |
 |               | 4.1.2 | 1.32.7 |
 
-### `Alauda DevOps Pipelines` v4.3.0
+### `Alauda Container Platform Pipelines` v4.3.0
 
-This upgrade path has been tested with `Alauda DevOps Pipelines` Operator version v4.3.0 and ACP version 4.0.4, 4.1.1 (the latest LTS patch version available during testing)
+This upgrade path has been tested with `Alauda Container Platform Pipelines` Operator version v4.3.0 and ACP version 4.0.4, 4.1.1 (the latest LTS patch version available during testing)
 
 | Channel version | ACP version | Kubernetes version |
 |:---------------:|:-----------:|:------------------:|
@@ -212,9 +212,9 @@ This upgrade path has been tested with `Alauda DevOps Pipelines` Operator versio
 | pipelines-4.2 | 4.0.4 | 1.31.6 |
 |               | 4.1.1 | 1.32.7 |
 
-### `Alauda DevOps Pipelines` v4.2.0
+### `Alauda Container Platform Pipelines` v4.2.0
 
-This upgrade path has been tested with `Alauda DevOps Pipelines` Operator version v4.2.0 and ACP version 4.0.3, 4.1.0 (the latest LTS patch version available during testing)
+This upgrade path has been tested with `Alauda Container Platform Pipelines` Operator version v4.2.0 and ACP version 4.0.3, 4.1.0 (the latest LTS patch version available during testing)
 
 | Channel version | ACP version | Kubernetes version |
 |:---------------:|:-----------:|:------------------:|
@@ -223,9 +223,9 @@ This upgrade path has been tested with `Alauda DevOps Pipelines` Operator versio
 | pipelines-4.1 | 4.0.3 | 1.31.6 |
 |               | 4.1.0 | 1.32.7 |
 
-### `Alauda DevOps Pipelines` v4.1.0
+### `Alauda Container Platform Pipelines` v4.1.0
 
-This upgrade path has been tested with `Alauda DevOps Pipelines` Operator version v4.1.0 and ACP version 4.0.3 (the latest LTS patch version available during testing)
+This upgrade path has been tested with `Alauda Container Platform Pipelines` Operator version v4.1.0 and ACP version 4.0.3 (the latest LTS patch version available during testing)
 
 | Channel version | ACP version | Kubernetes version |
 |:---------------:|:-----------:|:------------------:|
