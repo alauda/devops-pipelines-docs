@@ -384,7 +384,7 @@ spec:
 
 ### Example 5: Using Official Tasks with Legacy Global Configuration \{#example-5-using-official-tasks-with-legacy-global-configuration}
 
-**Scenario**: You migrated from Alauda DevOps Tekton v3 to Alauda DevOps Pipelines and set the global `default-pod-template` to `runAsUser: 0` for backward compatibility with existing custom images. Now you want to use official Tekton catalog Tasks, which require `runAsUser: 65532` and `fsGroup: 65532`.
+**Scenario**: You migrated from Alauda DevOps Tekton v3 to Alauda Container Platform Pipelines and set the global `default-pod-template` to `runAsUser: 0` for backward compatibility with existing custom images. Now you want to use official Tekton catalog Tasks, which require `runAsUser: 65532` and `fsGroup: 65532`.
 
 **Solution**: Override the global configuration at the PipelineRun level for Pipelines that use official Tasks.
 
@@ -447,7 +447,7 @@ spec:
 
 ### Example 6: Temporary Override During Active Migration
 
-**Scenario**: You are currently migrating from Alauda DevOps Tekton v3 to Alauda DevOps Pipelines and your custom images are not yet updated to support non-root users. You need a temporary solution to run legacy pipelines while you update your images.
+**Scenario**: You are currently migrating from Alauda DevOps Tekton v3 to Alauda Container Platform Pipelines and your custom images are not yet updated to support non-root users. You need a temporary solution to run legacy pipelines while you update your images.
 
 **Context**: Unlike Example 5 (where migration is complete with global `runAsUser: 0`), this scenario is for users who:
 - Have a secure global default (`runAsUser: 65532`)
@@ -591,4 +591,3 @@ $ kubectl get pod -n <namespace> <pod-name> -o jsonpath='{.spec.securityContext.
 - [Troubleshooting: Custom Image Pod Creation Failed](../pipelines/trouble_shooting/custom_image_pod_creation_failed.mdx) - Solutions for common Pod template configuration issues
 - [Adjusting Optional Configuration Items](./customize_options.mdx) - General guide for customizing TektonConfig options
 - [Kubernetes PodSpec Documentation](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#podspec-v1-core) - Official Kubernetes PodSpec reference
-
