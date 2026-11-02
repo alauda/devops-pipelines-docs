@@ -4,6 +4,8 @@ weight: 30
 
 # Introduction to API Usage
 
+To list, get, watch, or delete PipelineRuns and TaskRuns together with archived copies, use the [Unified Run API](../runs/intro.md). This page documents the Results storage API.
+
 ## Authentication/Authorization
 
 The reference implementation of the Results API expects to obtain [cluster-generated authentication tokens](https://kubernetes.io/docs/reference/access-authn-authz/authentication/) from the cluster in which it runs. In most cases, using a service account will be the simplest way to interact with the API.

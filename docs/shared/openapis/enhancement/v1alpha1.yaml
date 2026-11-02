@@ -1,0 +1,678 @@
+openapi: 3.0.3
+info:
+  title: Unified Run API
+  version: v1alpha1
+  description: >-
+    Lists, reads, watches, and deletes PipelineRuns and TaskRuns. Responses use
+    tekton.dev/v1 and can include archived runs, ordered by start time. This is
+    not the native Kubernetes API.
+servers:
+  - url: https://{gateway}/tektoncd-enhancement/apis
+    description: Global gateway. Ingress removes the service prefix before the backend.
+    variables:
+      gateway:
+        default: example.invalid
+        description: Platform API gateway host.
+  - url: https://{gateway}/clusters-rewrite/{cluster}/tektoncd-enhancement/apis
+    description: Business-cluster gateway.
+    variables:
+      gateway:
+        default: example.invalid
+        description: Platform API gateway host.
+      cluster:
+        default: cluster-name
+        description: Target cluster name.
+security:
+  - bearerAuth: []
+tags:
+  - name: Runs
+    description: Live and archived PipelineRun and TaskRun access.
+paths:
+  /v1alpha1/namespaces/{namespace}/pipelineruns:
+    get:
+      tags: [Runs]
+      operationId: listOrWatchPipelineRuns
+      summary: List or watch PipelineRuns
+      description: >-
+        Returns live and archived PipelineRuns in one tekton.dev/v1 list,
+        ordered by start time. Set watch=true to receive one Kubernetes watch
+        event per line instead of a list. A live deletion is rewritten to
+        MODIFIED when a matching archive remains. metadata.resourceVersion is
+        the live list resourceVersion and only continues a watch.
+        metadata.continue is opaque. Send it back unchanged. An empty token
+        ends the query. Do not infer the last page from the item count.
+        X-Tekton-Archive-State reports whether archived objects are included.
+        An unfiltered list still returns live objects when the archive cannot
+        be read. A keyword, labelSelector, or fieldSelector query does not.
+        POST, PUT, PATCH, and collection DELETE return 405.
+      parameters:
+        - $ref: "#/components/parameters/namespace"
+        - $ref: "#/components/parameters/labelSelector"
+        - $ref: "#/components/parameters/fieldSelector"
+        - $ref: "#/components/parameters/keyword"
+        - $ref: "#/components/parameters/field"
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/continue"
+        - $ref: "#/components/parameters/resourceVersion"
+        - $ref: "#/components/parameters/resourceVersionMatch"
+        - $ref: "#/components/parameters/timeoutSeconds"
+        - $ref: "#/components/parameters/watch"
+        - $ref: "#/components/parameters/allowWatchBookmarks"
+        - $ref: "#/components/parameters/sendInitialEvents"
+        - $ref: "#/components/parameters/source"
+      responses:
+        "200":
+          description: >-
+            A PipelineRunList when watch is omitted or false. Watch returns a
+            stream of ADDED, MODIFIED, DELETED, BOOKMARK, and ERROR events.
+            List sets X-Tekton-Archive-State. Warning 299 is added unless that
+            state is included or disabled.
+          headers:
+            X-Tekton-Archive-State:
+              description: included, disabled, unavailable, forbidden, invalid-data, or live-only. List only.
+              schema:
+                type: string
+            Warning:
+              description: 299 when the archive state is not included or disabled.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PipelineRunList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "504":
+          $ref: "#/components/responses/Timeout"
+  /v1alpha1/namespaces/{namespace}/pipelineruns/{name}:
+    get:
+      tags: [Runs]
+      operationId: getPipelineRun
+      summary: Get a PipelineRun
+      description: >-
+        Returns the live PipelineRun when it exists. Only a live 404 reads the
+        latest same-name archive. A live 403, timeout, or 5xx is not replaced
+        by an archive. resourceVersion 0 is a current read and falls back like an omitted
+        value. Any other non-empty resourceVersion is forwarded only to the live
+        read. An archived copy sets resource.loaded.from.tektonResults to true.
+        POST, PUT, and PATCH return 405.
+      parameters:
+        - $ref: "#/components/parameters/namespace"
+        - $ref: "#/components/parameters/name"
+        - $ref: "#/components/parameters/resourceVersion"
+        - $ref: "#/components/parameters/timeoutSeconds"
+      responses:
+        "200":
+          description: The live object, or the latest archived object when live is confirmed missing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PipelineRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "504":
+          $ref: "#/components/responses/Timeout"
+    delete:
+      tags: [Runs]
+      operationId: deletePipelineRun
+      summary: Delete a PipelineRun
+      description: >-
+        Deletes the live PipelineRun and the same-name archive. A UID
+        precondition is ignored. gracePeriodSeconds, propagationPolicy, and
+        dryRun apply to the live object. Invalid DeleteOptions, including an
+        invalid dryRun, are rejected before any archive or live change. An
+        explicit dry-run does not read or delete the archive. If the archive cannot be queried, the response is
+        503 and the live object remains. Retry by name. Child runs are not
+        deleted. POST, PUT, and PATCH return 405. The success response has no body.
+      parameters:
+        - $ref: "#/components/parameters/namespace"
+        - $ref: "#/components/parameters/name"
+        - $ref: "#/components/parameters/gracePeriodSeconds"
+        - $ref: "#/components/parameters/propagationPolicy"
+        - $ref: "#/components/parameters/dryRun"
+        - $ref: "#/components/parameters/timeoutSeconds"
+      requestBody:
+        required: false
+        description: Optional DeleteOptions. Preconditions are ignored.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteOptions"
+      responses:
+        "200":
+          description: The live object and same-name archive were deleted, or the dry-run was accepted. The body is empty.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          description: DeleteOptions are invalid. Nothing was changed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Status"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "504":
+          $ref: "#/components/responses/Timeout"
+  /v1alpha1/namespaces/{namespace}/taskruns:
+    get:
+      tags: [Runs]
+      operationId: listOrWatchTaskRuns
+      summary: List or watch TaskRuns
+      description: >-
+        Returns live and archived TaskRuns in one tekton.dev/v1 list, ordered
+        by start time. Set watch=true to receive one Kubernetes watch event
+        per line instead of a list. A live deletion is rewritten to MODIFIED
+        when a matching archive remains. metadata.resourceVersion is the live
+        list resourceVersion and only continues a watch. metadata.continue is
+        opaque. Send it back unchanged. An empty token ends the query. Do not
+        infer the last page from the item count. X-Tekton-Archive-State reports
+        whether archived objects are included. An unfiltered list still returns
+        live objects when the archive cannot be read. A keyword, labelSelector,
+        or fieldSelector query does not. POST, PUT, PATCH, and collection
+        DELETE return 405.
+      parameters:
+        - $ref: "#/components/parameters/namespace"
+        - $ref: "#/components/parameters/labelSelector"
+        - $ref: "#/components/parameters/fieldSelector"
+        - $ref: "#/components/parameters/keyword"
+        - $ref: "#/components/parameters/field"
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/continue"
+        - $ref: "#/components/parameters/resourceVersion"
+        - $ref: "#/components/parameters/resourceVersionMatch"
+        - $ref: "#/components/parameters/timeoutSeconds"
+        - $ref: "#/components/parameters/watch"
+        - $ref: "#/components/parameters/allowWatchBookmarks"
+        - $ref: "#/components/parameters/sendInitialEvents"
+        - $ref: "#/components/parameters/source"
+      responses:
+        "200":
+          description: >-
+            A TaskRunList when watch is omitted or false. Watch returns a
+            stream of ADDED, MODIFIED, DELETED, BOOKMARK, and ERROR events.
+            List sets X-Tekton-Archive-State. Warning 299 is added unless that
+            state is included or disabled.
+          headers:
+            X-Tekton-Archive-State:
+              description: included, disabled, unavailable, forbidden, invalid-data, or live-only. List only.
+              schema:
+                type: string
+            Warning:
+              description: 299 when the archive state is not included or disabled.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskRunList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "504":
+          $ref: "#/components/responses/Timeout"
+  /v1alpha1/namespaces/{namespace}/taskruns/{name}:
+    get:
+      tags: [Runs]
+      operationId: getTaskRun
+      summary: Get a TaskRun
+      description: >-
+        Returns the live TaskRun when it exists. Only a live 404 reads the
+        latest same-name archive. A live 403, timeout, or 5xx is not replaced
+        by an archive. resourceVersion 0 is a current read and falls back like an omitted
+        value. Any other non-empty resourceVersion is forwarded only to the live
+        read. An archived copy sets resource.loaded.from.tektonResults to true.
+        POST, PUT, and PATCH return 405.
+      parameters:
+        - $ref: "#/components/parameters/namespace"
+        - $ref: "#/components/parameters/name"
+        - $ref: "#/components/parameters/resourceVersion"
+        - $ref: "#/components/parameters/timeoutSeconds"
+      responses:
+        "200":
+          description: The live object, or the latest archived object when live is confirmed missing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "504":
+          $ref: "#/components/responses/Timeout"
+    delete:
+      tags: [Runs]
+      operationId: deleteTaskRun
+      summary: Delete a TaskRun
+      description: >-
+        Deletes the live TaskRun and the same-name archive. A UID precondition
+        is ignored. gracePeriodSeconds, propagationPolicy, and dryRun apply to
+        the live object. Invalid DeleteOptions, including an invalid dryRun,
+        are rejected before any archive or live change. An explicit dry-run
+        does not read or delete the archive. If the archive cannot be queried,
+        the response is 503 and the live object remains. Retry by name. POST,
+        PUT, and PATCH return 405. The success response has no body.
+      parameters:
+        - $ref: "#/components/parameters/namespace"
+        - $ref: "#/components/parameters/name"
+        - $ref: "#/components/parameters/gracePeriodSeconds"
+        - $ref: "#/components/parameters/propagationPolicy"
+        - $ref: "#/components/parameters/dryRun"
+        - $ref: "#/components/parameters/timeoutSeconds"
+      requestBody:
+        required: false
+        description: Optional DeleteOptions. Preconditions are ignored.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteOptions"
+      responses:
+        "200":
+          description: The live object and same-name archive were deleted, or the dry-run was accepted. The body is empty.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          description: DeleteOptions are invalid. Nothing was changed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Status"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "504":
+          $ref: "#/components/responses/Timeout"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Kubernetes bearer token for the caller.
+  parameters:
+    namespace:
+      name: namespace
+      in: path
+      required: true
+      description: Kubernetes namespace. Empty, `-`, and path characters are rejected.
+      schema:
+        type: string
+    name:
+      name: name
+      in: path
+      required: true
+      description: Run name. Empty, `-`, and path characters are rejected. Maximum length is 253.
+      schema:
+        type: string
+    labelSelector:
+      name: labelSelector
+      in: query
+      required: false
+      description: Kubernetes label selector. Requirements are combined with AND.
+      schema:
+        type: string
+    fieldSelector:
+      name: fieldSelector
+      in: query
+      required: false
+      description: Only metadata.name and metadata.namespace, using `=`, `==`, or `!=`.
+      schema:
+        type: string
+    keyword:
+      name: keyword
+      in: query
+      required: false
+      description: >-
+        Case-sensitive literal fragment of metadata.name. Maximum length is
+        253. Watch accepts it so a list query can be reused, and does not
+        filter events by it.
+      schema:
+        type: string
+    field:
+      name: field
+      in: query
+      required: false
+      description: Defaults to metadata.name. No other value is accepted.
+      schema:
+        type: string
+        default: metadata.name
+    limit:
+      name: limit
+      in: query
+      required: false
+      description: >-
+        Maximum items in a list page. Zero or omitted requests a full server
+        page. The default cap is 5000. Watch rejects a non-zero value. A short
+        page is not the last page.
+      schema:
+        type: integer
+        minimum: 0
+    continue:
+      name: continue
+      in: query
+      required: false
+      description: >-
+        Opaque list token. Send it back unchanged. It cannot be combined with
+        resourceVersion or resourceVersionMatch. Watch rejects it.
+      schema:
+        type: string
+    resourceVersion:
+      name: resourceVersion
+      in: query
+      required: false
+      description: >-
+        For list, a non-zero value without continue starts a new query. The
+        response value continues a watch. For get, 0 is a current read. Any
+        other non-empty value is forwarded only to the live read.
+      schema:
+        type: string
+    resourceVersionMatch:
+      name: resourceVersionMatch
+      in: query
+      required: false
+      description: Exact returns 400. sendInitialEvents=true requires NotOlderThan.
+      schema:
+        type: string
+    timeoutSeconds:
+      name: timeoutSeconds
+      in: query
+      required: false
+      description: >-
+        Explicit deadline, from 1 to 60 seconds. Expiry returns 504. Zero or
+        omitted uses a five-minute safety cap for list, get, and delete, and
+        expiry then returns 503. Omitted watch timeout is 30 seconds. A
+        negative value or a value above 60 returns 400.
+      schema:
+        type: integer
+        minimum: 0
+        maximum: 60
+    watch:
+      name: watch
+      in: query
+      required: false
+      description: true or 1 selects a watch stream. false ignores allowWatchBookmarks.
+      schema:
+        type: string
+    allowWatchBookmarks:
+      name: allowWatchBookmarks
+      in: query
+      required: false
+      description: Ignored when watch is false. Watch requests bookmarks from the apiserver.
+      schema:
+        type: string
+    sendInitialEvents:
+      name: sendInitialEvents
+      in: query
+      required: false
+      description: >-
+        Watch only. true requires resourceVersionMatch=NotOlderThan. Initial
+        events do not include archived objects. A non-watch request rejects it.
+      schema:
+        type: string
+    source:
+      name: source
+      in: query
+      required: false
+      description: >-
+        Defaults to all. live returns only live objects and does not read the
+        archive. A token from another source returns 400.
+      schema:
+        type: string
+        enum: [all, live]
+        default: all
+    gracePeriodSeconds:
+      name: gracePeriodSeconds
+      in: query
+      required: false
+      description: Forwarded to the live delete.
+      schema:
+        type: integer
+        format: int64
+    propagationPolicy:
+      name: propagationPolicy
+      in: query
+      required: false
+      description: Forwarded to the live delete. Foreground, Background, or Orphan.
+      schema:
+        type: string
+    dryRun:
+      name: dryRun
+      in: query
+      required: false
+      description: All probes live admission and does not read or delete the archive. Any other value is rejected before any live or archive change.
+      schema:
+        type: string
+  responses:
+    BadRequest:
+      description: The parameter, namespace, name, or continue token is invalid.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Status"
+    Unauthorized:
+      description: The credentials are missing or invalid.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Status"
+    Forbidden:
+      description: The caller is not allowed to perform the operation.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Status"
+    NotFound:
+      description: Both the live object and the archive are confirmed missing.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Status"
+    Conflict:
+      description: The live delete was rejected by a conflict.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Status"
+    TooLarge:
+      description: The live collection or response exceeds its configured limit.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Status"
+    Unavailable:
+      description: >-
+        The archive cannot be read, or an omitted timeout reached the server
+        safety cap. A filtered list and a delete do not fall back to a
+        live-only success.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Status"
+    Timeout:
+      description: The caller-provided timeoutSeconds expired.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Status"
+  schemas:
+    PipelineRun:
+      type: object
+      description: A tekton.dev/v1 PipelineRun. A stored v1beta1 object is converted before it is returned.
+      properties:
+        apiVersion:
+          type: string
+          description: Always tekton.dev/v1.
+        kind:
+          type: string
+          description: PipelineRun.
+        metadata:
+          $ref: "#/components/schemas/ObjectMeta"
+        spec:
+          type: object
+          description: PipelineRun spec.
+        status:
+          type: object
+          description: PipelineRun status. status.startTime is the primary sort field.
+    PipelineRunList:
+      type: object
+      description: One page of PipelineRuns. The page can contain both live and archived objects.
+      properties:
+        apiVersion:
+          type: string
+          description: tekton.dev/v1.
+        kind:
+          type: string
+          description: PipelineRunList.
+        metadata:
+          $ref: "#/components/schemas/ListMeta"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PipelineRun"
+    TaskRun:
+      type: object
+      description: A tekton.dev/v1 TaskRun. A stored v1beta1 object is converted before it is returned.
+      properties:
+        apiVersion:
+          type: string
+          description: Always tekton.dev/v1.
+        kind:
+          type: string
+          description: TaskRun.
+        metadata:
+          $ref: "#/components/schemas/ObjectMeta"
+        spec:
+          type: object
+          description: TaskRun spec.
+        status:
+          type: object
+          description: TaskRun status. status.startTime is the primary sort field.
+    TaskRunList:
+      type: object
+      description: One page of TaskRuns. The page can contain both live and archived objects.
+      properties:
+        apiVersion:
+          type: string
+          description: tekton.dev/v1.
+        kind:
+          type: string
+          description: TaskRunList.
+        metadata:
+          $ref: "#/components/schemas/ListMeta"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/TaskRun"
+    ObjectMeta:
+      type: object
+      description: Kubernetes object metadata returned with the run.
+      properties:
+        name:
+          type: string
+        namespace:
+          type: string
+        uid:
+          type: string
+          description: Run UID. Objects in the same second are ordered by this value descending.
+        resourceVersion:
+          type: string
+          description: On a rewritten watch event, this is the live event resourceVersion.
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+        annotations:
+          type: object
+          additionalProperties:
+            type: string
+          description: >-
+            An archived copy sets resource.loaded.from.tektonResults to true.
+            A live copy omits that key.
+    ListMeta:
+      type: object
+      description: List metadata. Do not treat it as permission to write an archived object back.
+      properties:
+        resourceVersion:
+          type: string
+          description: Live list resourceVersion. Use it only to continue a watch.
+        continue:
+          type: string
+          description: Opaque token for the next page. Omitted on the last page.
+    DeleteOptions:
+      type: object
+      description: Only gracePeriodSeconds, propagationPolicy, and dryRun are applied. Preconditions are ignored.
+      properties:
+        gracePeriodSeconds:
+          type: integer
+          format: int64
+          description: Forwarded to the live delete.
+        propagationPolicy:
+          type: string
+          description: Forwarded to the live delete.
+        dryRun:
+          type: array
+          items:
+            type: string
+          description: All probes live admission and does not read or delete the archive. Any other value is rejected before any live or archive change.
+    Status:
+      type: object
+      description: Kubernetes Status returned for a failed request.
+      properties:
+        kind:
+          type: string
+          description: Status.
+        apiVersion:
+          type: string
+          description: v1.
+        status:
+          type: string
+          description: Failure.
+        message:
+          type: string
+        reason:
+          type: string
+        code:
+          type: integer
