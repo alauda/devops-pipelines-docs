@@ -103,13 +103,13 @@ List responses set `X-Tekton-Archive-State`. The gateway must forward and expose
 | `invalid-data` | The archive page could not be decoded. An unfiltered new list still returns live objects. |
 | `live-only` | The caller set `source=live`. |
 
-An unfiltered new list does not fail when the archive is unavailable. A list with `keyword`, `labelSelector`, or `fieldSelector` does not fall back to live objects. Explicit `timeoutSeconds` expiry returns 504. The server safety cap or an archive failure returns 503. Missing permission returns 403.
+An unfiltered new list does not fail when the archive is unreachable, the order index is not ready, or the caller cannot read records. A slow query is not that case. List pages wait for the request deadline. Explicit `timeoutSeconds` expiry returns 504. The server safety cap returns 503 and does not replace the page with live objects. A list with `keyword`, `labelSelector`, or `fieldSelector` does not fall back to live objects on an archive failure. Missing permission returns 403.
 
 A continuation that already included archived data returns 503 when the archive later fails. The original token is not rewritten. Drop that token and send a new `source=live` query before replacing the displayed rows.
 
 List, get, and delete use a five-minute safety cap when `timeoutSeconds` is omitted or `0`. That expiry is 503, not 504. Only a caller-provided `timeoutSeconds` expiry is 504. Watch uses 30 seconds when `timeoutSeconds` is omitted.
 
-A live collection that exceeds its configured limit returns 413. The default limit is 50,000 objects or 32 MiB. The default response limit is 16 MiB, and one archived object is limited to 4 MiB.
+A live list returns 413 when the namespace contains more than 50,000 live objects, or when one live object is larger than 64 MiB. The default response limit is 16 MiB, and one archived object is limited to 4 MiB.
 
 ## Watch
 

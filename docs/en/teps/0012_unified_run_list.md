@@ -57,9 +57,11 @@ archive stream. The archive read uses the index and stops at the current page.
 - List, Get, Delete, and Watch follow native parameters, responses, and
   permissions as closely as this API can. The frontend does not understand the
   Results protocol and does not keep two pagers.
-- A Results failure, an index that is not ready, or an archive timeout must
-  not block a live read. The response must say the archive is missing. It must
-  not present a live list as complete history.
+- A Results failure or an index that is not ready must not block a live read
+  on an unfiltered list. The response must say the archive is missing. It must
+  not present a live list as complete history. A slow archive query is not that
+  failure: it waits for the request deadline, and expiry is an error rather
+  than a live-only page.
 - Reuse the existing frontend, routing, deployment, and offline delivery.
   Maintain one implementation.
 
@@ -214,14 +216,57 @@ credentials, complete resources, or internal addresses.
 Each page reads the **current** live set in the namespace. Kubernetes List
 pages by name and cannot order by `startTime`, so the time merge must see the
 current live set. The live count is normally much smaller than the archive.
-This is one namespace List, not an archive table scan.
+This read is not an archive table scan.
 
-Reuse the dynamic client and page by 500. Object count and response bytes
-accumulate in the same collection. Either limit returns 413 immediately and
-does not request the next page. Save this List resourceVersion, put it in the
-response, and use it to continue Watch. Also build the current live name set:
-if a same-name live object exists now, hide the same-name archive even when
-that live object does not match the filter.
+An unfiltered list, a keyword list, and a filtered list all need the current
+live names and sort keys. They do not need every full body. A same-name live
+object hides the archive even when it does not match the filter. Kubernetes
+pages by name, so the time merge cannot stop after the first matching page.
+
+`PartialObjectMetadata` does not include `status.startTime`. A Table date cell
+is a human duration, not RFC3339, so it is not a sort key. Read complete
+objects, extract the sort key, and discard each page before requesting the
+next one. The sort key is `status.startTime`, otherwise
+`metadata.creationTimestamp`, plus the Run UID.
+
+Keep a full body only for a live object that can appear on this response page.
+That window is the newest `limit` live objects that match the query and are
+older than continue. An archived object can occupy a slot, but it cannot pull
+an older live object onto this page. Stop retaining bodies once the newest
+prefix exceeds the 16 MiB response budget, and keep one extra body so
+measurement slack cannot turn a returned object into a stub. Do not GET the
+selected names after the merge. Objects outside the window keep the name,
+namespace, labels, and sort key only. Do not return that stub.
+
+A `labelSelector` or `fieldSelector` still needs every current live name,
+including objects that do not match. Build that name set with
+`PartialObjectMetadata`, no selector, paged by 500. Each name page has its own
+64 MiB budget and is discarded after the name is recorded. The name count is
+cumulative and stops at 50,000. Crossing that limit returns 413 immediately
+and does not request full bodies. Then page complete objects with the same
+selectors sent to the apiserver. Add the returned object names to the name set.
+
+An unfiltered list has no selector. `keyword` is a name fragment, not a
+Kubernetes selector, so it uses the same unfiltered page scan. Apply it while
+choosing the body window. Names that do not match the keyword still hide
+same-name archives.
+
+Each upstream page starts at 500 objects and has its own 64 MiB budget. Name
+pages and complete-object pages do not share a counter, and successive pages
+do not share a counter, because they are not retained. If a page exceeds 64
+MiB, retry the same continue token with a smaller limit, down to one object.
+Do not request the next page until this page fits. A single object over 64 MiB
+returns 413. The object count is cumulative across pages and stops at 50,000
+without requesting the next page. Do not raise the 50,000 object cap or the
+16 MiB response cap. 64 MiB is one upstream page, not a whole-namespace body
+cap.
+
+Save the object list resourceVersion; if it is empty, save the name list
+resourceVersion. Put that resourceVersion in the response and use it to
+continue Watch.
+
+A `metadata.namespace` selector that cannot match this namespace returns an
+empty live set and does not list.
 
 Do not add an informer or a cache service. The cost of listing again on each
 page is limited to the current live set. If measurement later shows this is
@@ -229,12 +274,14 @@ the bottleneck, reuse a cache that exists then. This change does not depend
 on a cache for correctness.
 
 The byte limit is applied before decoding. Create a dedicated client with
-`rest.CopyConfig` and `Config.Wrap`. Pages share one byte counter. Crossing
-the limit closes the current response and returns 413. Do not change the
-controller client or the shared capabilities client. If the whole live set
-still does not fit, return 413. If the internal Kubernetes continue expires,
-collect once more within the same request deadline. A second failure returns
-503 or 504. It is not disguised as an expired client continue.
+`rest.CopyConfig` and `Config.Wrap` for each upstream page. Crossing the page
+limit closes that response and returns 413, or retries the same continue with
+a smaller limit while the limit is above one object. Do not change the
+controller client or the shared capabilities client. Do not raise the 50,000
+cap or the 16 MiB response cap. If the internal Kubernetes continue expires,
+collect that collection once more within the same request deadline. A second
+failure returns 503 or 504. It is not disguised as an expired client continue.
+
 ### 4. Results index and ordered reads {#results-projection}
 
 Archive ordering is done in PostgreSQL. For example, archives C(12:00),
@@ -301,23 +348,24 @@ unavailable. A new List without filters returns the current live set and marks
 the archive unavailable. It does not return 500 and does not fall back to an
 unbounded full-table sort. Delete does not use this degradation. After the
 index is valid, a sequential scan of a small table returns the archive if it
-finishes within the timeout. A large unfiltered list relies on a query
-expression that matches the index and a 2-second archive limit. Timeout is
-treated as archive unavailable.
+finishes within the request deadline. A large unfiltered list uses a query
+expression that matches the index. It does not have a separate archive budget.
+A slow read waits for the request deadline. Crossing that deadline is not an
+unavailable historical range.
 
-`keyword`, `labelSelector`, and `fieldSelector` are user searches or filters
-and do not use those 2 seconds. They use the request deadline. An explicit
-`timeoutSeconds` is at most 60 seconds and expiry returns 504. When omitted,
-the deadline is the five-minute server safety cap, not 30 seconds. Crossing it
-returns 503. The server must not describe its own deadline as Gateway Timeout.
-A search that does not finish within the short limit must not mark the whole
-history unavailable and must not return only live objects as the search
-result. A completed search returns archive hits. An archive failure, an order
-index that is not ready, or a page that cannot be parsed returns 503. No
-permission returns 403. Results must return 403 when an authenticated caller
-is denied. Historically it wrote the same denial as HTTP 401 with a permission
-denied body. The unified API still treats that as 403 and must not show it as
-an unavailable historical range. An invalid or missing credential remains 401.
+List pages, including `keyword`, `labelSelector`, and `fieldSelector`, use the
+request deadline. An explicit `timeoutSeconds` is at most 60 seconds and
+expiry returns 504. When omitted, the deadline is the five-minute server
+safety cap, not 30 seconds. Crossing it returns 503. The server must not
+describe its own deadline as Gateway Timeout. A list that does not finish
+within the deadline must not mark the whole history unavailable and must not
+return only live objects. A completed page returns archive hits. An archive
+failure, an order index that is not ready, or a page that cannot be parsed
+returns 503 for a filtered list. No permission returns 403. Results must
+return 403 when an authenticated caller is denied. Historically it wrote the
+same denial as HTTP 401 with a permission denied body. The unified API still
+treats that as 403 and must not show it as an unavailable historical range.
+An invalid or missing credential remains 401.
 A successful Result or Record read does not mean the archived log succeeded.
 If log storage deletion fails, Delete returns 503 and the live object stays.
 
@@ -605,8 +653,9 @@ The new routes return `metav1.Status`.
 | Both sources confirm absence / native precondition conflict | 404 / 409 |
 | Method or representation is not supported | 405 / 406 or 415 |
 | The live set or one object exceeds the hard limit | 413 |
-| A new List without filters hits Results not ready, the order index not ready, timeout, downstream permission, or a page response that cannot be parsed | 200, return live, and mark the reason in the response header. One bad record does not use this degradation. |
-| A new List with keyword, labelSelector, or fieldSelector hits one of those archive failures | Do not degrade. Explicit `timeoutSeconds` expiry returns 504. When the deadline is omitted, safety-cap expiry returns 503, not Gateway Timeout. Failure or an index that is not ready returns 503. No permission returns 403. Do not return 200 containing only live objects. |
+| A new List without filters hits Results not ready, the order index not ready, downstream permission, or a page response that cannot be parsed | 200, return live, and mark the reason in the response header. One bad record does not use this degradation. A query timeout does not use this path. |
+| A new List hits the request deadline, or Results reports a query timeout | Do not degrade, with or without filters. Explicit `timeoutSeconds` expiry returns 504. When the deadline is omitted, safety-cap expiry returns 503, not Gateway Timeout. Do not return 200 containing only live objects. |
+| A new List with keyword, labelSelector, or fieldSelector hits an archive failure other than timeout | Do not degrade. Failure or an index that is not ready returns 503. No permission returns 403. Do not return 200 containing only live objects. |
 | Delete hits an unavailable name index, query timeout, Results failure, or bad data | 503. Do not delete live and do not report completion. |
 | An existing mixed continue hits an archive failure again | 503 or 502. Keep the original token. Do not switch that continue to live-only. |
 | Explicit request deadline, server safety cap, or unexpected exception | 504 / 503 / 500. Only expiry of a caller-supplied `timeoutSeconds` is 504. |
@@ -631,9 +680,9 @@ performance promise.
 
 | Limit | Starting value |
 | --- | --- |
-| One live collection | 50,000 objects or 32 MiB. Above that, 413. |
+| One live collection | 50,000 objects. Above that, 413. One upstream page is 64 MiB and is discarded after the name or sort key is extracted. A single object over 64 MiB returns 413. Retained full bodies are only the current response window, bounded by the page limit and the 16 MiB response budget. Do not raise the 50,000 or 16 MiB caps. |
 | One Record / response | 4 MiB / 16 MiB |
-| Archive query timeout | 2 seconds for an unfiltered first read, then degrade. User search and filters use the request deadline and do not degrade to an unavailable historical range. |
+| Archive query timeout | List pages use the request deadline. A slow read does not degrade to live. `archive-timeout` bounds only a Watch point lookup. |
 | Request deadline | List, Get, and Delete use a five-minute safety cap when `timeoutSeconds` is omitted. Expiry returns 503. An explicit value is at most 60 seconds and expiry returns 504. Watch stays at 30 seconds when omitted. |
 
 Identical Lists from the same caller share one build. Cancel that build when
@@ -660,7 +709,7 @@ The shared `K8sApiService` and `K8SResourceList` stay unchanged. Add a thin
 
 | Call | Behavior |
 | --- | --- |
-| List | Request the enhancement collection URL. Pass keyword, field, labelSelector, limit, and continue unchanged. |
+| List | Request the enhancement collection URL. Pass keyword, field, labelSelector, limit, and continue unchanged. Changing the query aborts the previous list HTTP request. Ignoring a stale body is not enough, because the server cancels the archive query only after the client disconnects. |
 | Get / Delete | Append the name to the collection URL. Delete forwards grace period and propagationPolicy and does not forward a UID precondition. |
 | List synchronization | Subscribe to the same URL, using the live resourceVersion from the response. Insert `ADDED` by sort key, replace `MODIFIED` by UID, and remove `DELETED`. An event does not trigger List. |
 | Detail | Unified Get, then subscribe to the same Watch. Only `DELETED` means absent. |
@@ -706,7 +755,8 @@ audience. enhancement does not issue its own projected token.
 | --- | --- |
 | Results is available and the index is valid | Return the mixed result with state `included`. |
 | Explicitly not installed | Return live with state `disabled`. |
-| Index not ready, timeout, network, or permission failure | Without filters, return live with `unavailable` or `forbidden`. User search or filters do not degrade: explicit deadline expiry returns 504, omitted-deadline safety cap or failure returns 503, and no permission returns 403. |
+| Index not ready, network, or permission failure | Without filters, return live with `unavailable` or `forbidden`. User search or filters do not degrade: failure returns 503, and no permission returns 403. |
+| Query timeout or request deadline | Do not degrade. Explicit deadline expiry returns 504. Omitted-deadline safety cap returns 503. |
 | One record cannot be shown or converted | Skip that record. Return the rest with state `included`. |
 | Results returns an invalid run record for the whole page | Without filters, return live with state `invalid-data`. User search or filters return 503 and do not mark the whole history unavailable. |
 
@@ -777,10 +827,19 @@ Complex logic may be split into `runs_query.go`, `runs_watch.go`, and
 
 One List request runs in this order:
 
-1. After authorization, page the current namespace live set with a dedicated
-   dynamic client. If the object count or bytes cross the limit, return 413
-   immediately and do not request the next page. On success, keep this live
-   resourceVersion, the complete objects, and the name set.
+1. After authorization, read the current namespace live set. Keep every
+   current live name and a sort key for every live object the query can
+   return. Do not retain every full body, and do not GET selected names after
+   the merge. Metadata and Table rows do not provide an RFC3339
+   `status.startTime`, so page complete objects and extract the sort key.
+   Each upstream page has its own 64 MiB budget. If a page exceeds it, retry
+   that continue with a smaller limit down to one object. A single object over
+   64 MiB returns 413. The object count is still cumulative and stops at
+   50,000. A `labelSelector` or `fieldSelector` also pages all live names with
+   `PartialObjectMetadata` and no selector, then pages complete objects with
+   the selectors pushed to the apiserver. `keyword` is not a selector. On
+   success, keep the live resourceVersion, the sort index, the complete live
+   name set, and full bodies only for the current response window.
 2. Filter and sort live with enhancement's own comparator. Keep only objects
    whose sort key is older than continue.
 3. Ask Results for one page older than the sort key. SQL has already removed
@@ -833,9 +892,11 @@ Kubernetes and Results deadlines and bytes are limited separately. enhancement
 does not apply an application-level concurrency rejection to List. Identical
 Lists from the same caller share a build. Cancel that build after the last
 caller disconnects. Authorize with that request's token before sharing, and
-use a credential fingerprint as the shared key. An archive timeout or circuit
-break on List affects only the List archive branch. A failed Delete query
-returns 503 and does not delete live.
+use a credential fingerprint as the shared key. A List that reaches the
+request deadline returns an error for that request. It does not delete live
+and does not replace the page with live-only. A real archive outage on an
+unfiltered List affects only that List. A failed Delete query returns 503 and
+does not delete live.
 
 Watch is implemented in `runs_watch.go`. It reuses dynamic Watch and the Get
 name lookup:
@@ -993,7 +1054,7 @@ disconnect.
 | Merge | A same-name live object wins and is not affected by the filter. Same-name archives show only the latest. Unchanged `startTime` does not repeat a returned item when pages of different sizes are concatenated. A row whose `records.name` differs from the object UID is returned, as are the other archives. One record that cannot be shown does not turn the page into invalid-data. |
 | Data changes | A newer object does not enter the current pagination. Unchanged `startTime` returns the current content on a later page. An unreturned object whose `startTime` becomes newer is not returned by this pagination. A returned object whose `startTime` becomes older is returned again on a later page. The original continue still works after a replica change. A source that does not match continue returns 400. |
 | Index | An invalid order index makes an unfiltered List return live and unavailable. In the same state, Delete returns 503 and both live and archive remain. A small-table sequential scan can still return the archive. A large query timeout does not fall back to an unbounded full-table sort. The PostgreSQL fixture installs the sort functions before creating expression indexes. |
-| Search | A keyword or label filter that takes more than 2 seconds still returns archive hits. Explicit `timeoutSeconds` expiry returns 504. When omitted, it is not cut to 504 at 30 seconds, and safety-cap expiry returns 503. Neither response is a live-only 200. An unfiltered list still degrades after 2 seconds. Label `!=` keeps records that do not have that label. A keyword of three or more characters plus a pipeline equality, and a dense equality label, do not rescan every hit on the next page. If the pipeline plan is not an ordered Index Scan, that SQL is not executed. |
+| Search | A keyword, label filter, or unfiltered list that takes more than 2 seconds still returns archive hits. Explicit `timeoutSeconds` expiry returns 504. When omitted, it is not cut to 504 at 30 seconds, and safety-cap expiry returns 503. Neither response is a live-only 200. An unfiltered archive outage, missing order index, or denial still returns live. Label `!=` keeps records that do not have that label. A keyword of three or more characters plus a pipeline equality, and a dense equality label, do not rescan every hit on the next page. If the pipeline plan is not an ordered Index Scan, that SQL is not executed. |
 | Get and Watch | A Results failure does not close Watch and is not turned into 410. Archive lookup by name returns the latest. Watch continues from the live resourceVersion. `resourceVersion=0` falls back to the archive after a live 404. A non-empty value other than `0` does not. When etcd deletion finds a Record, downstream receives `MODIFIED` with that live event's resourceVersion. When no Record is confirmed, it receives `DELETED`. An unconfirmed lookup does not send `DELETED`. Kubernetes 410 is preserved. |
 | Delete | A name-query timeout also does not delete live. After a successful query, run the caller-identity live dry-run first. A denial writes no annotation and deletes no archive. After it passes, delete only live when there is no Record. When there is a Record, take the log location, clean storage, and then delete the Record by primary key. A watcher update of that row is still deleted. Zero affected rows is not success. A failed real live delete clears the annotation. A UID precondition is not forwarded. Invalid DeleteOptions, including an invalid `dryRun`, return 422 before any archive or live change. An explicit caller dry-run does not read the Results configuration and does not delete the archive. |
 | Identity | If admission denies the caller, this delete fails. The archive and annotation stay unchanged even if the service account is allowed. SAR is not this check. |
