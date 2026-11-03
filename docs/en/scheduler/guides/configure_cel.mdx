@@ -1,0 +1,156 @@
+---
+weight: 50
+queries:
+  - How do I configure Scheduler CEL expressions?
+  - Which variables and mutation functions can Scheduler CEL use?
+  - How do I verify a pipeline queue or priority policy before submitting work?
+---
+
+# Configure CEL
+
+Common Expression Language (CEL) expressions let administrators derive PipelineRun labels, annotations, priority classes, and quota requests from the submitted run. Scheduler evaluates the policy when a PipelineRun is created in an enrolled namespace.
+
+The policy is cluster-wide for managed PipelineRuns. Prepare every referenced queue, quota resource, and priority class before activating a rule. Start with a metadata-only rule, verify it, and then add routing or resource accounting.
+
+## Configure a policy \{#configure_policy}
+
+Save the following configuration excerpt as `scheduler_policy.yaml`. It sets a metadata label and records the Pipelines as Code (PAC) event type without changing resource requests:
+
+```yaml
+spec:
+  scheduler:
+    disabled: false
+    multi-cluster-disabled: true
+    multi-cluster-role: ""
+    config.yaml:
+      queueName: pipelines-queue
+      cel:
+        expressions:
+          - 'label("pipelines.example.com/environment", plrNamespace == "production" ? "production" : "development")'
+          - 'annotation("pipelines.example.com/event-type", pacEventType != "" ? pacEventType : "manual")'
+```
+
+This is a patch for the existing TektonConfig, not a standalone Kubernetes resource. Retain any existing expressions that are still needed: a merge patch replaces the entire `expressions` array.
+
+## Available variables \{#variables}
+
+The following variables are available to every expression:
+
+| Variable | Type | Value |
+| --- | --- | --- |
+| `pipelineRun` | Map | The submitted PipelineRun, including its metadata and spec. Use `has()` or map membership checks before accessing optional fields. |
+| `plrNamespace` | String | The PipelineRun namespace. |
+| `pacEventType` | String | Value of the `pipelinesascode.tekton.dev/event-type` label, or an empty string if absent. |
+| `pacTestEventType` | String | Value of the `pac.test.appstudio.openshift.io/event-type` label, or an empty string if absent. |
+
+PAC-specific variables can be empty for runs created with `kubectl`. They do not cause Scheduler to fetch Git metadata. Supply any additional routing information through the PipelineRun's own fields.
+
+## Available functions \{#functions}
+
+An expression must return one mutation or a list of mutations. Return `[]` when a conditional rule should make no change. Mutation keys and values must be nonempty, including values produced from optional PAC metadata; use a fallback value or return `[]` when that metadata is absent.
+
+| Function | Arguments | Result |
+| --- | --- | --- |
+| `label(key, value)` | Two strings | Sets a metadata label. Both the key and value must follow Kubernetes label rules. |
+| `annotation(key, value)` | Two strings | Sets a metadata annotation. The key must follow Kubernetes annotation rules, and the value must be nonempty. |
+| `priority(value)` | A string | Sets `kueue.x-k8s.io/priority-class` to the name of an existing WorkloadPriorityClass. |
+| `resource(key, value)` | Resource name string and non-negative integer | Adds a `kueue.konflux-ci.dev/requests-<key>` annotation. Repeated requests for the same key are summed, including an existing integer-valued annotation. |
+| `replace(source, search, replacement)` | Three strings | Replaces all matching substrings. Use the returned string inside another function; a string alone is not a mutation. |
+
+Standard CEL operators, conditionals, and collection operations are also available. Use the resource annotations described in [Resource Quotas](./resource_quotas.mdx) for quantities such as `500m` or `4Gi`; `resource()` accepts integers rather than Kubernetes quantity strings.
+
+## Policy examples \{#policy_examples}
+
+The following blocks are alternatives for the `cel` field inside `spec.scheduler["config.yaml"]`. Keep the configured `queueName` and any other existing fields when adding them; a merge patch replaces the complete `expressions` array.
+
+### Set multiple fields \{#multiple_fields}
+
+A list applies several mutations to the same run. This example records the namespace and normalizes underscores in a PAC event name:
+
+```yaml
+cel:
+  expressions:
+    - |
+      [
+        annotation("pipelines.example.com/namespace", plrNamespace),
+        annotation("pipelines.example.com/event", pacEventType != "" ? replace(pacEventType, "_", "-") : "manual"),
+        label("pipelines.example.com/managed", "true")
+      ]
+```
+
+### Assign a priority \{#assign_priority}
+
+After creating `pipelines-high` and `pipelines-low` as shown in [Priorities and Serial Execution](./priorities_and_serial_execution.mdx#prioritize_pipelines), assign classes by namespace:
+
+```yaml
+cel:
+  expressions:
+    - 'priority(plrNamespace == "scheduler-priority-high" ? "pipelines-high" : "pipelines-low")'
+```
+
+This rule assigns the low class to all other enrolled namespaces. Narrow the condition if the policy should affect only a subset of runs.
+
+### Route known serial work \{#route_serial_work}
+
+If a run is submitted with `pipelines.example.com/serial: "true"`, the following rule routes it to an existing `release-serial` LocalQueue. Other runs retain their selected or default queue:
+
+```yaml
+cel:
+  expressions:
+    - >-
+      has(pipelineRun.metadata.labels) &&
+      "pipelines.example.com/serial" in pipelineRun.metadata.labels &&
+      pipelineRun.metadata.labels["pipelines.example.com/serial"] == "true"
+      ? [label("kueue.x-k8s.io/queue-name", "release-serial")] : []
+```
+
+Create that LocalQueue in every namespace where the rule can match. A separate quota-one ClusterQueue supplies the serial limit. The label and rule express an explicit mapping; they do not discover branches or provision new queues. See [Choose a Queue](./configure_queues.mdx#choose_queue) for queue selection and [Serial Execution](./priorities_and_serial_execution.mdx#run_known_pipelines_serially) for the queue topology.
+
+### Request custom capacity \{#custom_resource}
+
+After adding a `gpu` quota to the selected ClusterQueue, request one unit only for runs in the `pipelines` namespace:
+
+```yaml
+cel:
+  expressions:
+    - 'plrNamespace == "pipelines" ? [resource("gpu", 1)] : []'
+```
+
+The resulting PipelineRun annotation is `kueue.konflux-ci.dev/requests-gpu: "1"`. It reserves a quota unit; the pipeline must request any actual device separately.
+
+## Apply and verify \{#apply_configuration}
+
+Record the existing settings before applying the policy. The following commands use the patch file from [Configure a Policy](#configure_policy):
+
+```bash
+kubectl get tektonconfig config -o jsonpath='{.spec.scheduler}'
+kubectl patch tektonconfig config --type=merge --patch-file scheduler_policy.yaml
+# SCHEDULER_NAMESPACE is the operator's configured component namespace.
+SCHEDULER_NAMESPACE=$(kubectl get tektonconfig config -o jsonpath='{.spec.targetNamespace}')
+kubectl get configmap tekton-kueue-config -n "$SCHEDULER_NAMESPACE" \
+  -o go-template='{{index .data "config.yaml"}}'
+kubectl logs -n "$SCHEDULER_NAMESPACE" deployment/tekton-kueue-webhook --tail=100
+```
+
+Wait for the rendered configuration and a successful reload in the webhook logs. Then preview a PipelineRun in an enrolled namespace using server-side dry run. Save a complete PipelineRun as `policy_test_run.yaml`, using an inline pipeline or an existing Pipeline reference:
+
+```bash
+kubectl create --dry-run=server -f policy_test_run.yaml -o yaml
+```
+
+Check its queue label, policy-generated metadata, and `spec.status: PipelineRunPending`. A dry run previews admission mutations but does not persist the run or create a Workload. Submit a real run and inspect its Workload to verify quota accounting and priority:
+
+```bash
+kubectl create -f policy_test_run.yaml
+kubectl get workloads -n <namespace> -o yaml
+```
+
+## Evaluation behavior \{#evaluation_behavior}
+
+- Scheduler assigns the default queue label before evaluating CEL. A matching `label()` rule can replace that queue label.
+- Expressions are evaluated in list order against the same input. A later expression does not read changes produced by an earlier expression. Mutations are applied after evaluation succeeds.
+- Later label or annotation mutations for the same key replace earlier values. `resource()` instead adds integer quantities for duplicate keys.
+- An invalid configuration reload leaves the last successfully loaded policy active. A runtime evaluation or mutation error can reject the affected PipelineRun creation.
+- Set `cel.expressions: []` through TektonConfig to remove the CEL policy. Already created PipelineRuns keep their metadata and quota requests.
+
+See [Configuration Errors](../trouble_shooting/scheduler_not_ready.mdx#configuration_errors) for diagnostics and [Scheduler Configuration](../configure/scheduler_configuration.mdx) for default values and ownership.

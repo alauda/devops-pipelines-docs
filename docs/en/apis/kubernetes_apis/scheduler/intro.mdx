@@ -1,0 +1,25 @@
+---
+weight: 10
+queries:
+  - Which Kubernetes resources does Scheduler use?
+  - Where are the Scheduler queue and quota API fields documented?
+  - What is the difference between Scheduler and Kueue resources?
+---
+
+# Introduction
+
+Scheduler uses Kueue resources for queue selection, quota, admission, and priorities. This section documents their complete `kueue.x-k8s.io/v1beta2` schemas. Kueue owns and installs these APIs separately from Tekton Operator.
+
+The following resources connect a PipelineRun to its quota and admission state:
+
+| Resource | Scope | Role |
+| --- | --- | --- |
+| [ResourceFlavor](./resourceflavors.mdx) | Cluster | Describes a flavor used by a quota pool. |
+| [ClusterQueue](./clusterqueues.mdx) | Cluster | Defines quota and eligible namespaces. |
+| [LocalQueue](./localqueues.mdx) | Namespace | Connects namespace-local submissions to a ClusterQueue. |
+| [Workload](./workloads.mdx) | Namespace | Records a run's quota request and admission state. |
+| [WorkloadPriorityClass](./workloadpriorityclasses.mdx) | Cluster | Defines a priority value for waiting work. |
+
+Use [TektonConfig](../operator/tektonconfig.mdx) and [TektonScheduler](../operator/tektonschedulers.mdx) for component configuration, and [PipelineRun](../pipelines/tekton.dev_pipelineruns.mdx) to define submitted work. The [Core Concepts](../../../scheduler/concepts/core_concepts.mdx) page explains how these resources relate.
+
+The full Kueue schemas include features beyond the single-cluster PipelineRun workflows described here. A field's presence in the API does not imply that Scheduler implements every Kueue workload behavior. Follow the [Scheduler guides](../../../scheduler/guides/index.mdx) for supported usage and configure actual execution Pod resources and placement through Tekton.

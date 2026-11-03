@@ -1,0 +1,15 @@
+---
+weight: 20
+queries:
+  - What are the ResourceFlavor fields for pipeline queueing?
+  - Does a concurrency-only queue need node labels?
+  - Do ResourceFlavor settings configure PipelineRun execution Pods?
+---
+
+# ResourceFlavor [kueue.x-k8s.io/v1beta2]
+
+A ResourceFlavor is a cluster-scoped resource referenced by a ClusterQueue's resource groups. An empty flavor is sufficient for the `tekton.dev/pipelineruns` concurrency quota.
+
+The schema describes node labels, taints, tolerations, and topology used by Kueue integrations. Scheduler uses a flavor to obtain quota; its PipelineRun integration does not copy those placement settings into actual execution Pods. Configure Pod placement through Tekton instead. See [Resource Flavors](../../../scheduler/concepts/core_concepts.mdx#resource_flavors) for a minimal example.
+
+<K8sAPI name="resourceflavors.kueue.x-k8s.io" apiVersion="v1beta2" namespaced={false} />

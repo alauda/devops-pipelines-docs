@@ -8,24 +8,63 @@ queries:
 
 # Quick Start
 
+This guide helps cluster administrators try queue-based pipeline admission in a test cluster in approximately 10 minutes.
+
 ## Introduction \{#introduction}
 
-This walkthrough is for cluster administrators. In approximately 10 minutes, create a queue with a concurrency limit of one and submit two PipelineRuns. The second run waits until the first completes.
+Consider a team whose build environment can handle only one PipelineRun at a time. Submitting more pipelines should queue the extra work instead of starting additional execution Pods.
+
+This walkthrough creates an isolated queue with one concurrency slot and submits two PipelineRuns. One run executes while the other waits without creating a TaskRun or execution Pod. When the active run completes, the waiting run starts automatically. The inline pipeline sleeps briefly to make these states easy to observe; it does not require an application repository or an existing Pipeline.
 
 ## Prerequisites \{#prerequisites}
 
 - Tekton Pipelines is ready, and you can update TektonConfig and create Kueue resources.
-- Alauda Build of Kueue and cert-manager are installed. Kueue serves `v1beta2` and includes `PipelineRun.v1.tekton.dev` in its external frameworks. See [Prepare Dependencies](./guides/manage_scheduler.mdx#prepare_dependencies).
+- Use a test cluster where Scheduler is disabled and no existing Scheduler policies need to be preserved. The enablement step changes cluster-wide component configuration.
+- The platform-supported Kueue plugin and cert-manager are installed. Kueue serves `v1beta2` and includes `PipelineRun.v1.tekton.dev` in its external frameworks. See [Prepare Dependencies](./guides/manage_scheduler.mdx#prepare_dependencies).
 - A BusyBox-compatible image is available in a registry reachable from the cluster. Mirror it before using an air-gapped environment.
-- The `scheduler-demo` namespace does not already exist.
+- The `scheduler-demo` namespace, ClusterQueue, and ResourceFlavor do not already exist.
 
 ## Process overview \{#process_overview}
 
-Enable Scheduler, create an isolated queue, enroll a namespace, submit two runs, and observe quota admission. Then remove the example resources.
+| Step | Operation | Result |
+| --- | --- | --- |
+| 1 | Enable Scheduler | The component is ready to admit pipelines. |
+| 2 | Create queues and enroll the namespace | A dedicated quota limits the namespace to one admitted run. |
+| 3 | Submit two PipelineRuns | One run executes and the other waits. |
+| 4 | Observe admission and completion | The waiting run starts after quota is released. |
+| 5 | Clean up | The example resources are removed. |
 
 ## Enable Scheduler \{#enable_scheduler}
 
-Follow [Enable Scheduler](./guides/manage_scheduler.mdx#enable_scheduler) and wait for the component to become ready.
+Enable single-cluster scheduling and set the default LocalQueue name explicitly:
+
+```bash
+kubectl patch tektonconfig config --type=merge -p '{
+  "spec": {
+    "scheduler": {
+      "disabled": false,
+      "multi-cluster-disabled": true,
+      "multi-cluster-role": "",
+      "config.yaml": {"queueName": "pipelines-queue"}
+    }
+  }
+}'
+kubectl wait tektonscheduler/scheduler --for=create --timeout=5m
+kubectl wait tektonscheduler/scheduler --for=condition=Ready --timeout=5m
+```
+
+The fields under `spec.scheduler` configure this example as follows:
+
+| Field and value | Purpose in this example |
+| --- | --- |
+| `disabled: false` | Installs and enables Scheduler. |
+| `multi-cluster-disabled: true` | Uses single-cluster scheduling. |
+| `multi-cluster-role: ""` | Clears any Hub or Spoke role, which is unused in single-cluster mode. |
+| `config.yaml.queueName: pipelines-queue` | Assigns the `pipelines-queue` LocalQueue to new runs without an explicit queue label. The queue is created in the next step. |
+
+See [Component Settings](./configure/scheduler_configuration.mdx#component_settings) and [Webhook Settings](./configure/scheduler_configuration.mdx#webhook_settings) for complete field definitions and default values.
+
+The first wait allows the operator to create the child resource; the second waits for installation to finish. Enabling the component does not enroll namespaces or create queues. If readiness fails, see [Troubleshoot Scheduler](./trouble_shooting/scheduler_not_ready.mdx#component_not_ready).
 
 ## Create a queue \{#create_queue}
 
@@ -67,6 +106,23 @@ spec:
   clusterQueue: scheduler-demo
 ```
 
+These resources connect the demonstration namespace to a quota pool with one PipelineRun slot. The table lists fields within each named resource:
+
+| Resource | Field | Purpose in this example |
+| --- | --- | --- |
+| Namespace | `metadata.name` | Creates the dedicated `scheduler-demo` namespace for the two runs. |
+| ResourceFlavor | `metadata.name` | Names the `scheduler-demo` flavor referenced by the ClusterQueue. An empty flavor is sufficient for concurrency accounting; this example sets no node placement constraints. |
+| ClusterQueue | `metadata.name` | Names the cluster-scoped `scheduler-demo` quota pool referenced by the LocalQueue. |
+| ClusterQueue | `spec.namespaceSelector.matchLabels` | Matches the namespace's built-in `kubernetes.io/metadata.name: scheduler-demo` label, restricting this pool to the demonstration namespace. |
+| ClusterQueue | `spec.resourceGroups[].coveredResources` | Accounts for `tekton.dev/pipelineruns`, which counts admitted PipelineRuns rather than Tasks or Pods. |
+| ClusterQueue | `spec.resourceGroups[].flavors[].name` | Selects the ResourceFlavor named `scheduler-demo`. |
+| ClusterQueue | `spec.resourceGroups[].flavors[].resources[].name` | Selects `tekton.dev/pipelineruns` as the resource receiving quota in this flavor. |
+| ClusterQueue | `spec.resourceGroups[].flavors[].resources[].nominalQuota` | Sets the quota to `1`, admitting one run at a time. |
+| LocalQueue | `metadata.name` and `metadata.namespace` | Creates `pipelines-queue` in `scheduler-demo`, matching the default queue name configured above. |
+| LocalQueue | `spec.clusterQueue` | Binds this namespace-local queue to the `scheduler-demo` quota pool. |
+
+See the [ResourceFlavor API](../apis/kubernetes_apis/scheduler/resourceflavors.mdx), [ClusterQueue API](../apis/kubernetes_apis/scheduler/clusterqueues.mdx), and [LocalQueue API](../apis/kubernetes_apis/scheduler/localqueues.mdx) for complete field definitions.
+
 Apply the resources and enroll the namespace:
 
 ```bash
@@ -75,12 +131,16 @@ kubectl wait clusterqueue/scheduler-demo --for=condition=Active --timeout=120s
 kubectl label namespace scheduler-demo tekton.dev/scheduler-enabled=true
 ```
 
+The `tekton.dev/scheduler-enabled=true` namespace label enables Scheduler admission for newly created PipelineRuns. See [Namespace Enrollment](./concepts/core_concepts.mdx#namespace_enrollment) for how enrollment and queue selection work together.
+
 ## Submit two runs \{#submit_runs}
 
 Set `TEST_IMAGE` to your mirrored image, then create two runs with the following inline PipelineSpec:
 
 ```bash
+# TEST_IMAGE identifies the BusyBox-compatible image available to this cluster.
 export TEST_IMAGE='<your-registry>/<busybox-image>:<tag>'
+# RUN gives each submission a unique name within the demonstration namespace.
 for RUN in first second; do
   cat <<EOF | kubectl create -n scheduler-demo -f -
 apiVersion: tekton.dev/v1
@@ -117,6 +177,7 @@ kubectl get workloads -n scheduler-demo
 kubectl get pipelineruns -n scheduler-demo \
   -o custom-columns='NAME:.metadata.name,QUEUE:.metadata.labels.kueue\.x-k8s\.io/queue-name,STATUS:.spec.status'
 kubectl get pods -n scheduler-demo -l tekton.dev/pipelineRun
+kubectl get taskruns -n scheduler-demo
 kubectl get clusterqueue scheduler-demo -o yaml
 ```
 
@@ -132,6 +193,8 @@ Wait for both runs to complete:
 ```bash
 kubectl wait pipelinerun/first pipelinerun/second -n scheduler-demo \
   --for=condition=Succeeded --timeout=5m
+kubectl wait workloads --all -n scheduler-demo \
+  --for=condition=Finished --timeout=2m
 ```
 
 ## Clean up \{#clean_up}
@@ -145,3 +208,9 @@ kubectl delete resourceflavor scheduler-demo
 ```
 
 If you enabled Scheduler only for this walkthrough, follow [Disable Scheduler](./guides/manage_scheduler.mdx#disable_scheduler). Otherwise, keep it enabled for other enrolled namespaces.
+
+## Next steps \{#next_steps}
+
+- [Configure Queues](./guides/configure_queues.mdx): Adjust concurrency or share a budget across namespaces.
+- [Resource Quotas](./guides/resource_quotas.mdx): Combine concurrency with CPU, memory, or custom capacity.
+- [Priorities and Serial Execution](./guides/priorities_and_serial_execution.mdx): Order waiting work and isolate serial pipelines.

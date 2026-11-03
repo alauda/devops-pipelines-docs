@@ -1,0 +1,17 @@
+---
+weight: 50
+queries:
+  - How do I read a PipelineRun Workload quota request?
+  - What do Workload QuotaReserved and Admitted conditions mean?
+  - Should I create Workloads manually for PipelineRuns?
+---
+
+# Workload [kueue.x-k8s.io/v1beta2]
+
+Scheduler creates a namespaced Workload owned by each managed PipelineRun. Do not create or edit a Workload manually to submit a pipeline; create the PipelineRun and let Scheduler and Kueue reconcile its Workload.
+
+Inspect `spec.queueName` for the LocalQueue selection, `spec.podSets` for requested quota, and priority fields for admission order. The Pod template in the Workload describes quota accounting; it is not the execution Pod template for the PipelineRun's Tasks.
+
+`status.admission` records reserved quota and selected flavors. `status.conditions` distinguishes quota reservation (`QuotaReserved`), admission (`Admitted`), and completion (`Finished`). Use condition reasons and messages when a run stays pending. See [Admission Lifecycle](../../../scheduler/concepts/core_concepts.mdx#admission_lifecycle) and [Troubleshoot Scheduler](../../../scheduler/trouble_shooting/scheduler_not_ready.mdx).
+
+<K8sAPI name="workloads.kueue.x-k8s.io" apiVersion="v1beta2" namespaced={true} />

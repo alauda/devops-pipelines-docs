@@ -1,0 +1,103 @@
+---
+weight: 10
+queries:
+  - What are the Scheduler settings and defaults in TektonConfig?
+  - How do I change the default LocalQueue for pipelines?
+  - How does Scheduler configuration reach the webhook?
+---
+
+# Scheduler Configuration
+
+Cluster administrators configure Scheduler through `spec.scheduler` in the existing `TektonConfig/config` resource. This page describes the component settings. Use [Manage Scheduler](../guides/manage_scheduler.mdx) to prepare dependencies and enable or disable the component.
+
+## Configuration ownership \{#configuration_ownership}
+
+Tekton Operator copies the Scheduler settings from TektonConfig into the managed `TektonScheduler/scheduler` resource. It renders the `config.yaml` object into the `config.yaml` data entry of the `tekton-kueue-config` ConfigMap in `spec.targetNamespace`. The webhook loads that configuration and watches for updates.
+
+:::note
+When Scheduler is managed through TektonConfig, make configuration changes in TektonConfig. Direct changes to the child TektonScheduler or its ConfigMap can be overwritten by the operator.
+:::
+
+## Component settings \{#component_settings}
+
+The following table describes fields under `spec.scheduler`:
+
+| Field | Type | Default or omitted behavior | Description |
+| --- | --- | --- | --- |
+| `disabled` | Boolean | `true` | Set to `false` to install Scheduler. Setting it to `true` removes the managed component; finish or cancel managed runs first. |
+| `multi-cluster-disabled` | Boolean | `true` when the Scheduler block is defaulted | Keep `true` for single-cluster scheduling. Set it explicitly when enabling the component. |
+| `multi-cluster-role` | String | Unset | Upstream roles are `Hub` and `Spoke`. Leave this field unset or empty when `multi-cluster-disabled` is `true`. Multi-cluster workflows are outside this guide. |
+| `config.yaml` | Object | Queue configuration is filled when the Scheduler block is defaulted | Supplies the webhook configuration described below. Despite the dotted key, this is a YAML object in TektonConfig, not a YAML string. |
+| `options` | Object | No additional overrides | Overrides component manifests through the operator's [additional options](https://tekton.dev/docs/operator/tektonconfig/#additional-fields-as-options). Use this for deployment settings such as container resource requests; it does not define pipeline queue quota. |
+
+The operator fills `disabled: true`, `multi-cluster-disabled: true`, and `config.yaml.queueName: pipelines-queue` together when `disabled` is omitted. If `disabled` is supplied explicitly, that defaulting block does not fill missing values. Always set `multi-cluster-disabled` and `config.yaml.queueName` explicitly when enabling single-cluster scheduling.
+
+## Webhook settings \{#webhook_settings}
+
+These fields belong to `spec.scheduler["config.yaml"]`:
+
+| Field | Type | Default or omitted behavior | Description |
+| --- | --- | --- | --- |
+| `queueName` | String | `pipelines-queue` when the Scheduler block is defaulted | Names the LocalQueue assigned to a new PipelineRun that has no `kueue.x-k8s.io/queue-name` label. The name must be nonempty. The LocalQueue must exist in each enrolled namespace that uses this default. |
+| `cel.expressions` | Array of strings | No expressions | Optional CEL expressions evaluated when a managed PipelineRun is created. They can assign labels, annotations, priorities, and quota requests. See [Configure CEL](../guides/configure_cel.mdx). |
+| `multiKueueOverride` | Boolean | Derived by Tekton Operator; `false` for single-cluster scheduling | The operator calculates this value from the multi-cluster settings and overrides a manually supplied value. In upstream hub mode it changes `spec.managedBy` on new PipelineRuns. Do not set it independently. |
+
+`queueName` does not create a LocalQueue or enroll a namespace. A queue label supplied by a PipelineRun author takes precedence over the default. CEL expressions run after the default label is assigned and can replace labels, so include any CEL queue-routing rules when checking the effective queue.
+
+## Configure a default queue \{#default_queue}
+
+The following excerpt enables single-cluster scheduling and sets the default queue. It belongs under `spec` in the existing TektonConfig:
+
+```yaml
+spec:
+  scheduler:
+    disabled: false
+    multi-cluster-disabled: true
+    config.yaml:
+      queueName: pipelines-queue
+    options: {}
+```
+
+After [preparing the dependencies](../guides/manage_scheduler.mdx#prepare_dependencies), apply the settings with a merge patch. This command preserves existing CEL expressions and other settings:
+
+```bash
+kubectl patch tektonconfig config --type=merge -p '{
+  "spec": {
+    "scheduler": {
+      "disabled": false,
+      "multi-cluster-disabled": true,
+      "multi-cluster-role": "",
+      "config.yaml": {"queueName": "pipelines-queue"}
+    }
+  }
+}'
+kubectl wait tektonscheduler/scheduler --for=create --timeout=5m
+kubectl wait tektonscheduler/scheduler --for=condition=Ready --timeout=5m
+```
+
+Keep an existing default queue when other namespaces depend on it. To change the default, create the new LocalQueue in each affected namespace before updating `queueName`. Existing PipelineRuns retain their assigned queue; the new default applies to future submissions without an explicit queue label.
+
+## Verify configuration \{#verify_configuration}
+
+Compare the requested configuration, child resource, and rendered ConfigMap:
+
+```bash
+kubectl get tektonconfig config -o jsonpath='{.spec.scheduler}'
+kubectl get tektonscheduler scheduler -o yaml
+# SCHEDULER_NAMESPACE is the operator's configured component namespace.
+SCHEDULER_NAMESPACE=$(kubectl get tektonconfig config -o jsonpath='{.spec.targetNamespace}')
+kubectl get configmap tekton-kueue-config -n "$SCHEDULER_NAMESPACE" \
+  -o go-template='{{index .data "config.yaml"}}'
+kubectl logs -n "$SCHEDULER_NAMESPACE" deployment/tekton-kueue-webhook --tail=100
+```
+
+Configuration reloads are asynchronous. A Ready component alone does not prove that a newly edited CEL policy has loaded. Check the webhook logs and verify the resulting labels and annotations on a newly submitted PipelineRun.
+
+If a reload contains an empty queue name or invalid CEL syntax, the webhook logs an error and retains its last successfully loaded configuration. A CEL evaluation error for an individual PipelineRun can reject its creation. See [Configuration Errors](../trouble_shooting/scheduler_not_ready.mdx#configuration_errors) for recovery steps.
+
+## Related documentation \{#related_documentation}
+
+- [TektonConfig API](../../apis/kubernetes_apis/operator/tektonconfig.mdx)
+- [TektonScheduler API](../../apis/kubernetes_apis/operator/tektonschedulers.mdx)
+- [Configure Queues](../guides/configure_queues.mdx)
+- [Upstream Tekton Scheduler](https://tekton.dev/docs/operator/tektonscheduler/)

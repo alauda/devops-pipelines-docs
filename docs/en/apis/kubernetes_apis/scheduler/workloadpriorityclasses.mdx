@@ -1,0 +1,15 @@
+---
+weight: 60
+queries:
+  - What fields does a WorkloadPriorityClass have?
+  - How does a priority class value affect waiting pipelines?
+  - How do PipelineRuns reference WorkloadPriorityClasses?
+---
+
+# WorkloadPriorityClass [kueue.x-k8s.io/v1beta2]
+
+A WorkloadPriorityClass defines a cluster-scoped integer `value` and an optional `description`. `value` is required; larger values give waiting Workloads higher priority in the same ClusterQueue.
+
+Reference the class by setting the PipelineRun label `kueue.x-k8s.io/priority-class`, or assign it through the CEL `priority()` function. Create the class before submitting a run that references it. A workload priority class orders quota admission and is separate from Kubernetes Pod priority. See [Prioritize Pipelines](../../../scheduler/guides/priorities_and_serial_execution.mdx#prioritize_pipelines).
+
+<K8sAPI name="workloadpriorityclasses.kueue.x-k8s.io" apiVersion="v1beta2" namespaced={false} />

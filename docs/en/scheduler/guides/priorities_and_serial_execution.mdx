@@ -1,0 +1,229 @@
+---
+weight: 40
+queries:
+  - How do I prioritize waiting PipelineRuns?
+  - How can selected pipelines run serially while others run in parallel?
+  - Does pipeline priority interrupt an already running pipeline?
+---
+
+# Priorities and Serial Execution
+
+Use priorities when waiting runs compete for the same quota. Use independent queues when some work must run serially and other work may run in parallel. Scheduler and its dependencies must already be ready.
+
+The priority example creates dedicated test namespaces. Use unused example names and preserve the current TektonConfig before changing its cluster-wide CEL policy. [Configure CEL](./configure_cel.mdx#apply_configuration) explains how to apply and verify expressions.
+
+## Prioritize important pipelines \{#prioritize_pipelines}
+
+Kueue orders waiting Workloads by `WorkloadPriorityClass.value`; a larger value is
+admitted before a smaller value when both Workloads use the same ClusterQueue.
+The following example uses two new namespaces and one shared quota-one ClusterQueue.
+Save this topology as `priority_queues.yaml` and create it before enrolling either namespace:
+
+```yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: scheduler-priority-high
+  labels:
+    pipelines-priority-group: shared-builds
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: scheduler-priority-low
+  labels:
+    pipelines-priority-group: shared-builds
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: pipelines-priority
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: pipelines-priority
+spec:
+  namespaceSelector:
+    matchLabels:
+      pipelines-priority-group: shared-builds
+  resourceGroups:
+    - coveredResources: [tekton.dev/pipelineruns]
+      flavors:
+        - name: pipelines-priority
+          resources:
+            - name: tekton.dev/pipelineruns
+              nominalQuota: 1
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: LocalQueue
+metadata:
+  name: pipelines-queue
+  namespace: scheduler-priority-high
+spec:
+  clusterQueue: pipelines-priority
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: LocalQueue
+metadata:
+  name: pipelines-queue
+  namespace: scheduler-priority-low
+spec:
+  clusterQueue: pipelines-priority
+```
+
+The namespaces share the `pipelines-priority-group: shared-builds` label, which the ClusterQueue's `namespaceSelector` matches. Both LocalQueues set `spec.clusterQueue: pipelines-priority`, so admitted runs share one concurrency slot. See the [ClusterQueue API](../../apis/kubernetes_apis/scheduler/clusterqueues.mdx) and [LocalQueue API](../../apis/kubernetes_apis/scheduler/localqueues.mdx) for quota and binding fields.
+
+Save the following cluster-scoped classes as `priority_classes.yaml`. The Scheduler webhook will select them through its CEL configuration:
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: WorkloadPriorityClass
+metadata:
+  name: pipelines-high
+value: 100
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: WorkloadPriorityClass
+metadata:
+  name: pipelines-low
+value: 10
+```
+
+The class with `value: 100` takes precedence over the class with `value: 10` among waiting Workloads. Each class's `metadata.name` is the identifier selected by the PipelineRun priority label or CEL `priority()` function. See the [WorkloadPriorityClass API](../../apis/kubernetes_apis/scheduler/workloadpriorityclasses.mdx) for complete field definitions.
+
+The following example assigns the high class to PipelineRuns in the `scheduler-priority-high`
+namespace and the low class to other namespaces. Keep the existing queue setting when
+adding the `cel` block. Save the excerpt as `priority_policy.yaml` for use as a merge patch:
+
+```yaml
+spec:
+  scheduler:
+    config.yaml:
+      queueName: pipelines-queue
+      cel:
+        expressions:
+          - 'priority(plrNamespace == "scheduler-priority-high" ? "pipelines-high" : "pipelines-low")'
+```
+
+Apply the topology, classes, and policy. Verify that the policy has loaded as described in [Configure CEL](./configure_cel.mdx#apply_configuration), then enroll both namespaces:
+
+```bash
+kubectl apply -f priority_queues.yaml
+kubectl apply -f priority_classes.yaml
+kubectl patch tektonconfig config --type=merge --patch-file priority_policy.yaml
+kubectl wait clusterqueue/pipelines-priority --for=condition=Active --timeout=120s
+kubectl label namespace scheduler-priority-high scheduler-priority-low tekton.dev/scheduler-enabled=true
+```
+
+Use the inline PipelineSpec from the [Quick Start](../quick_start.mdx#submit_runs), with a longer sleep such as `120` seconds, or a Pipeline available in each namespace. Set the namespace and a unique run name for each submission:
+
+1. Submit a blocking run in `scheduler-priority-low` and wait until it is running.
+2. While the blocking run is active, submit another run in `scheduler-priority-low`, then a run in `scheduler-priority-high`.
+3. Confirm that both new runs are waiting before the blocking run completes. If it completes too early, repeat with a longer-running blocker.
+
+Verify the labels and Workloads:
+
+```bash
+kubectl get pipelineruns -A \
+  -o custom-columns='NAMESPACE:.metadata.namespace,NAME:.metadata.name,PRIORITY:.metadata.labels.kueue\.x-k8s\.io/priority-class,STATUS:.spec.status'
+kubectl get workloads -A -o custom-columns='NAME:.metadata.name,ADMITTED:.status.conditions[?(@.type=="Admitted")].status'
+```
+
+When quota is released, the high-priority Workload should be admitted before the
+low-priority Workload. Priority does not create quota and does not cancel an already
+admitted run. Keep the class names and CEL expression in the same configuration change
+so that every referenced class exists before submitting a PipelineRun.
+
+## Run known pipelines or branches serially \{#run_known_pipelines_serially}
+
+Use a dedicated LocalQueue that points to a ClusterQueue with a nominal quota of `1`.
+Use a dedicated `pipelines` test namespace, created before applying the following resources. Save them as `serial_queues.yaml`:
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: release-serial
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: release-serial
+spec:
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: pipelines
+  resourceGroups:
+    - coveredResources: [tekton.dev/pipelineruns]
+      flavors:
+        - name: release-serial
+          resources:
+            - name: tekton.dev/pipelineruns
+              nominalQuota: 1
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: LocalQueue
+metadata:
+  name: release-serial
+  namespace: pipelines
+spec:
+  clusterQueue: release-serial
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: build-parallel
+spec:
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: pipelines
+  resourceGroups:
+    - coveredResources: [tekton.dev/pipelineruns]
+      flavors:
+        - name: release-serial
+          resources:
+            - name: tekton.dev/pipelineruns
+              nominalQuota: 2
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: LocalQueue
+metadata:
+  name: build-parallel
+  namespace: pipelines
+spec:
+  clusterQueue: build-parallel
+```
+
+Each LocalQueue's `spec.clusterQueue` selects its own quota pool. The `release-serial` pool has `nominalQuota: 1`, while `build-parallel` has `nominalQuota: 2`, allowing parallel work to proceed independently of the serial slot. See the [ClusterQueue API](../../apis/kubernetes_apis/scheduler/clusterqueues.mdx) and [LocalQueue API](../../apis/kubernetes_apis/scheduler/localqueues.mdx) for the field definitions.
+
+Apply the serial topology and enroll the namespace after the queue is ready:
+
+```bash
+kubectl apply -f serial_queues.yaml
+kubectl wait clusterqueue/release-serial --for=condition=Active --timeout=120s
+kubectl wait clusterqueue/build-parallel --for=condition=Active --timeout=120s
+kubectl label namespace pipelines tekton.dev/scheduler-enabled=true --overwrite
+```
+
+Set the queue label when creating each mapped run:
+
+```yaml
+metadata:
+  namespace: pipelines
+  labels:
+    kueue.x-k8s.io/queue-name: release-serial
+```
+
+This pattern works for a fixed set of branches or PipelineRuns whose mapping is known
+in advance. A shared queue makes those runs serialize across the namespace. The `build-parallel` LocalQueue selects an independent ClusterQueue with two slots. Select it explicitly for work that may run in parallel. Scheduler does not inspect a Git branch and does not create
+a new LocalQueue for every previously unseen branch; arbitrary per-branch automatic
+serialization is outside this capability.
+
+Use [CEL routing](./configure_cel.mdx#route_serial_work) to select the serial queue from a PipelineRun label when the mapping should be applied by Scheduler.
+
+To verify the result, use the Quick Start's inline PipelineSpec and submit two runs with `queue-name: release-serial` and one with `queue-name: build-parallel`. One serial run should remain `PipelineRunPending` without a TaskRun or execution Pod while the other executes. The parallel run can be admitted independently. After the active serial run completes, Kueue should admit the waiting serial run automatically.
+
+## Complete the examples \{#complete_examples}
+
+Wait for the example PipelineRuns to finish and their Workloads to report `Finished=True` before restoring the previous CEL configuration. Delete only the LocalQueues, ClusterQueues, ResourceFlavors, priority classes, and test namespaces created for the example. Keep Scheduler running until the managed work has finished.

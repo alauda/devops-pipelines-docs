@@ -3,12 +3,12 @@ weight: 20
 queries:
   - How do I set a namespace pipeline concurrency limit?
   - How does a PipelineRun select a LocalQueue?
-  - Can namespaces share a pipeline quota?
+  - How can namespaces share a pipeline quota?
 ---
 
 # Configure Queues
 
-Cluster administrators define concurrency using ClusterQueues. Pipeline authors select LocalQueues within their namespaces. Scheduler and its prerequisites must be ready before enrolling a namespace.
+Cluster administrators define quotas using ClusterQueues. Pipeline authors select LocalQueues within their namespaces. [Enable Scheduler](./manage_scheduler.mdx#enable_scheduler) and prepare the queues before enrolling a namespace. The [Quick Start](../quick_start.mdx) provides a complete first example.
 
 ## Set a concurrency limit \{#set_concurrency_limit}
 
@@ -22,7 +22,7 @@ resources:
     nominalQuota: 2
 ```
 
-For a strict namespace-specific limit, use a dedicated ClusterQueue with a namespace selector that matches only that namespace. Sharing the ClusterQueue across namespaces makes the quota shared. Decreasing the quota does not guarantee immediate cancellation of runs that were already admitted.
+For a strict namespace-specific limit, use a dedicated ClusterQueue with a namespace selector that matches only that namespace. Sharing the ClusterQueue across namespaces makes the quota shared. Decreasing the quota does not guarantee immediate cancellation of runs that were already admitted. See the [ClusterQueue API](../../apis/kubernetes_apis/scheduler/clusterqueues.mdx) for `nominalQuota` and `namespaceSelector` field definitions.
 
 ## Enroll a namespace \{#enroll_namespace}
 
@@ -33,11 +33,11 @@ kubectl get localqueue pipelines-queue -n <namespace>
 kubectl label namespace <namespace> tekton.dev/scheduler-enabled=true
 ```
 
-Only newly created PipelineRuns pass through this admission path. Existing runs are not retroactively enrolled.
+Only newly created PipelineRuns pass through this admission path. Existing runs are not retroactively enrolled. See [Namespace Enrollment](../concepts/core_concepts.mdx#namespace_enrollment) for the label's relationship to queue selection.
 
 ## Choose a queue \{#choose_queue}
 
-The default queue name is configured by `spec.scheduler["config.yaml"].queueName` in TektonConfig. Each enrolled namespace must contain a LocalQueue with that name unless every submitted run selects another queue explicitly.
+The default queue name is configured by `spec.scheduler["config.yaml"].queueName` in TektonConfig. Each enrolled namespace must contain a LocalQueue with that name unless every submitted run selects another queue explicitly. See [Webhook Settings](../configure/scheduler_configuration.mdx#webhook_settings) for defaulting and queue label precedence.
 
 To select a different existing LocalQueue, set the following label when creating the PipelineRun:
 
@@ -56,8 +56,57 @@ spec:
 
 Create `team-queue` and `example-pipeline` in the namespace before using this example. Apply queue selection at creation time rather than changing an admitted run's label.
 
+## Share quota \{#share_quota}
+
+To share a budget, create one LocalQueue in each participating namespace and point all of them to the same [ClusterQueue](../concepts/core_concepts.mdx#cluster_queues). Set the ClusterQueue's namespace selector to match those namespaces. The nominal quota applies to the combined admitted requests, rather than independently to each LocalQueue.
+
+For example, two namespaces pointing to a ClusterQueue with two PipelineRun slots can admit two runs in total. One namespace may use both slots. Use separate ClusterQueues when each namespace needs its own guaranteed limit.
+
+Queue selection labels do not enforce authorization. Govern who can create runs and queues through namespace permissions and restrict eligible namespaces through the ClusterQueue selector.
+
+## Choose admission order \{#queueing_strategy}
+
+`ClusterQueue.spec.queueingStrategy` determines how waiting Workloads are considered after priority ordering:
+
+| Strategy | Behavior |
+| --- | --- |
+| `BestEffortFIFO` (default) | A newer Workload that fits can pass an older Workload that cannot obtain its requested quota. |
+| `StrictFIFO` | An older Workload that cannot obtain quota blocks newer Workloads behind it. |
+
+Both strategies consider higher priorities first. With different resource requests, a concurrency slot can remain unused while a request waits for another resource. See the [ClusterQueue API](../../apis/kubernetes_apis/scheduler/clusterqueues.mdx).
+
+## Queue design practices \{#queue_design_practices}
+
+- Start with one dedicated ClusterQueue per isolation boundary, then add LocalQueues
+  for namespaces that should share that boundary.
+- Use `tekton.dev/pipelineruns` for predictable concurrency and resource quotas for
+  capacity; do not treat a CPU quota as a PipelineRun count.
+- Select a queue at PipelineRun creation time. Avoid changing queue labels after a
+  Workload has been admitted.
+- Give parallel work a queue with an explicit quota and give known serial work a
+  separate queue with `tekton.dev/pipelineruns: 1`.
+- Verify both the PipelineRun labels and the Workload resource requests before
+  troubleshooting admission. A missing annotation means that resource is not part of
+  the Workload request.
+
 ## Verify the configuration \{#verify_configuration}
 
 Submit more runs than the configured quota. Verify that excess runs remain pending without execution Pods and are admitted after active runs finish. Inspect the LocalQueue, ClusterQueue, and Workload conditions when the observed behavior differs from the limit.
 
 Removing `tekton.dev/scheduler-enabled` stops admission for new runs in that namespace. It does not drain or resume existing queued runs. Keep Scheduler enabled until those runs finish.
+
+## Resource accounting \{#account_for_resources}
+
+Use [Resource Quotas](./resource_quotas.mdx#account_for_resources) to configure CPU, memory, storage, ephemeral storage, and custom capacity requests.
+
+### Combine quotas \{#combine_quota}
+
+Keep the concurrency resource alongside the capacity dimensions that must be limited. See [Combine Concurrency and Resource Quota](./resource_quotas.mdx#combine_quota) for examples.
+
+## Prioritize pipelines \{#prioritize_pipelines}
+
+Use [Priorities and Serial Execution](./priorities_and_serial_execution.mdx#prioritize_pipelines) to configure WorkloadPriorityClasses and verify waiting admission order.
+
+## Serialize known workloads \{#run_known_pipelines_serially}
+
+Use a dedicated quota-one queue for the runs that must share a slot. See [Run Known Pipelines or Branches Serially](./priorities_and_serial_execution.mdx#run_known_pipelines_serially).

@@ -1,31 +1,52 @@
 ---
 weight: 10
 queries:
-  - How does Scheduler limit concurrent pipeline runs?
-  - When should I enable pipeline scheduling?
-  - What does the Scheduler component provide?
+  - What does Scheduler provide for Tekton pipelines?
+  - When should I use pipeline concurrency limits?
+  - How does Scheduler work with Kueue?
 ---
 
 # Introduction
 
-Scheduler connects Tekton PipelineRuns to Kueue queues. Use it to limit the number of pipelines that execute concurrently and to keep excess runs waiting before they create TaskRuns or execution Pods.
+Scheduler manages when Tekton PipelineRuns start by connecting them to Kueue queues. It lets administrators control pipeline concurrency and allocate quota across teams. Runs that cannot obtain quota wait before creating TaskRuns or execution Pods, then start automatically when quota becomes available.
 
-## When to use Scheduler \{#when_to_use}
+## Overview \{#overview}
 
-Use Scheduler when a namespace needs a predictable concurrency limit. For example, a team can admit one PipelineRun at a time while additional runs wait for quota. When the active run finishes, Kueue admits another waiting run automatically.
+Scheduler works with the following components:
 
-Scheduler is disabled by default. Administrators enable the component through TektonConfig and explicitly enroll namespaces. PipelineRuns in namespaces that are not enrolled continue to execute normally.
+- **Tekton Operator** installs and configures Scheduler through TektonConfig.
+- **Scheduler** assigns queues to PipelineRuns, creates their Kueue Workloads, and releases admitted runs for execution.
+- **Kueue** manages queues, quota, and admission order.
+- **Tekton Pipelines** executes admitted PipelineRuns.
 
-## Component responsibilities \{#component_responsibilities}
+Scheduler is disabled by default. Cluster administrators enable the component and choose which namespaces use scheduling. Kueue and cert-manager are installed separately; enabling Scheduler does not install these dependencies or create queues.
 
-Tekton Operator installs and removes Scheduler. Scheduler associates PipelineRuns with queues, creates Kueue Workloads, and starts admitted runs. Kueue manages queues and quota. Tekton Pipelines executes the admitted runs.
+## Key features \{#key_features}
 
-Kueue and cert-manager are separate prerequisites. Enabling Scheduler does not install them or create queues. Administrators must prepare these resources before enrolling a namespace.
+- **[Concurrency limits](./guides/configure_queues.mdx#set_concurrency_limit)**: Limit the number of admitted PipelineRuns using the `tekton.dev/pipelineruns` quota resource.
+- **[Resource quotas](./guides/resource_quotas.mdx)**: Account for CPU, memory, storage, ephemeral storage, and custom capacity alongside concurrency.
+- **[Queue isolation and sharing](./guides/configure_queues.mdx#share_quota)**: Give teams separate budgets or let selected namespaces share a ClusterQueue.
+- **[Workload priorities](./guides/priorities_and_serial_execution.mdx#prioritize_pipelines)**: Use WorkloadPriorityClasses to order waiting runs when quota becomes available.
+- **[Configurable admission](./guides/configure_cel.mdx)**: Use Common Expression Language (CEL) expressions to assign labels, annotations, priorities, and resource requests from PipelineRun metadata.
 
-## Supported configuration \{#supported_configuration}
+## Use cases \{#use_cases}
 
-The initial validated configuration uses Tekton Pipelines 1.12.2, Scheduler 0.3.1, and Alauda Build of Kueue 0.17.0 with the `kueue.x-k8s.io/v1beta2` API. The validation environment uses cert-manager 1.16.2. Other version combinations require compatibility validation.
+- **Protect a shared build environment**: Keep excess PipelineRuns queued until a concurrency slot is available.
+- **Allocate team budgets**: Define dedicated or shared quotas for namespaces that use the same infrastructure.
+- **Prioritize release work**: Admit an urgent waiting run ahead of lower-priority work in the same ClusterQueue.
+- **Serialize known workloads**: Map selected pipelines or branches to a dedicated queue with a concurrency limit of one while other work uses a separate queue.
 
-This guide covers single-cluster scheduling and concurrency quotas. MultiKueue configuration and console-based administration are outside this guide.
+## Limitations \{#limitations}
 
-Start with the [Quick Start](./quick_start.mdx) to observe one running pipeline and one queued pipeline.
+- Scheduling applies to newly created PipelineRuns in namespaces explicitly enrolled by an administrator. Existing runs are not enrolled retroactively.
+- Quota represents the requests attached to a PipelineRun. It does not automatically measure the resources used by its Tasks or Pods. Configure Kubernetes resource requests and limits separately.
+- Priority controls admission order for waiting work. It does not add capacity or provide a guarantee of interrupting an already admitted run.
+- Queue creation and branch-to-queue mappings are administrator-managed. Scheduler does not create queues automatically for new Git branches.
+- This documentation covers single-cluster scheduling. MultiKueue workflows are not covered.
+
+## Next steps \{#next_steps}
+
+- [Quick Start](./quick_start.mdx): Observe one executing run and one queued run.
+- [Core Concepts](./concepts/core_concepts.mdx): Understand the resources and admission lifecycle.
+- [Scheduler Configuration](./configure/scheduler_configuration.mdx): Review component settings and defaults.
+- [Scheduler APIs](../apis/kubernetes_apis/scheduler/index.mdx): Look up resource fields.

@@ -10,9 +10,11 @@ queries:
 
 Cluster administrators manage Scheduler through the existing `TektonConfig/config` resource. Kueue and cert-manager have independent lifecycles.
 
+See [Scheduler Configuration](../configure/scheduler_configuration.mdx) for the complete component settings, webhook configuration, defaults, and ownership rules.
+
 ## Prepare dependencies \{#prepare_dependencies}
 
-Install Alauda Build of Kueue through your platform's plugin distribution mechanism. For an air-gapped cluster, import the plugin package and its images before installation. Use the platform-supported cert-manager installation as well.
+Install the platform-supported Kueue plugin through your platform's plugin distribution mechanism. For an air-gapped cluster, import the plugin package and its images before installation. Use the platform-supported cert-manager installation as well.
 
 Confirm that both APIs are available:
 
@@ -47,21 +49,24 @@ kubectl patch tektonconfig config --type=merge -p '{
     "scheduler": {
       "disabled": false,
       "multi-cluster-disabled": true,
+      "multi-cluster-role": "",
       "config.yaml": {"queueName": "pipelines-queue"}
     }
   }
 }'
 ```
 
+In this patch, `disabled: false` enables the component. `multi-cluster-disabled: true` and the empty role select single-cluster mode, while `queueName` names the default LocalQueue for new runs. See [Component Settings](../configure/scheduler_configuration.mdx#component_settings) and [Webhook Settings](../configure/scheduler_configuration.mdx#webhook_settings) for field definitions and defaults.
+
 Wait for the child resource to appear, then check readiness:
 
 ```bash
-kubectl get tektonscheduler scheduler
+kubectl wait tektonscheduler/scheduler --for=create --timeout=5m
 kubectl wait tektonscheduler/scheduler --for=condition=Ready --timeout=5m
 kubectl get tektonconfig config
 ```
 
-If the first command reports `NotFound`, retry it after the operator reconciles the configuration. If readiness does not converge, see [Troubleshoot Scheduler](../trouble_shooting/scheduler_not_ready.mdx).
+If readiness does not converge, see [Troubleshoot Scheduler](../trouble_shooting/scheduler_not_ready.mdx).
 
 Enabling the component does not enroll namespaces. Follow [Configure Queues](./configure_queues.mdx) before accepting scheduled submissions.
 
@@ -83,7 +88,7 @@ Use this procedure when all enrolled namespaces can stop using scheduling. Sched
    kubectl get workloads -A
    ```
 
-   Wait for managed runs to finish while Scheduler is still enabled. Resolve blocked queues or cancel unwanted runs through the normal Tekton cancellation workflow. Workloads from other integrations are managed independently.
+   Wait for managed runs to finish while Scheduler is still enabled. Also wait for their corresponding Workloads to report `Finished=True` and release quota and finalizers before removal. Resolve blocked queues or cancel unwanted runs through the normal Tekton cancellation workflow. Workloads from other integrations are managed independently.
 
 4. Disable the component:
 

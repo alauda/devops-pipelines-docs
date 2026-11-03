@@ -1,0 +1,17 @@
+---
+weight: 30
+queries:
+  - What are the ClusterQueue quota and namespace selector fields?
+  - What is the default ClusterQueue queueing strategy?
+  - How do I read ClusterQueue status and resource usage?
+---
+
+# ClusterQueue [kueue.x-k8s.io/v1beta2]
+
+A ClusterQueue defines a cluster-scoped quota pool. LocalQueues reference it by name, and their admitted Workloads share its capacity.
+
+Use `spec.resourceGroups` for flavors and per-resource quotas. `spec.namespaceSelector` controls which namespaces can use the queue: `{}` allows all namespaces, while an omitted or null selector allows none. `spec.queueingStrategy` defaults to `BestEffortFIFO`. Inspect `status.conditions` and usage fields when admission does not proceed.
+
+For a strict isolated PipelineRun limit, use a dedicated ClusterQueue without cohort borrowing. Kueue sharing, preemption, and admission-check fields are included in the full schema; they require their own integration-specific configuration. See [Configure Queues](../../../scheduler/guides/configure_queues.mdx) for Scheduler examples.
+
+<K8sAPI name="clusterqueues.kueue.x-k8s.io" apiVersion="v1beta2" namespaced={false} />

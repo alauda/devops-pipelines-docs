@@ -1,0 +1,173 @@
+---
+weight: 30
+queries:
+  - How do I add CPU and memory quota to pipeline scheduling?
+  - Which resource request annotations does Scheduler support?
+  - How do I account for custom pipeline capacity with CEL?
+---
+
+# Resource Quotas
+
+Cluster administrators can combine a PipelineRun concurrency limit with CPU, memory, storage, or custom capacity budgets. Scheduler and its dependencies must be ready before following this guide. Start with [Configure Queues](./configure_queues.mdx) if you have not created a quota topology before.
+
+## Configure resource quota \{#account_for_resources}
+
+Add the resources that the queue must account for to the ClusterQueue. The following
+example keeps a four-run concurrency limit and adds CPU, memory, storage, and
+ephemeral-storage quota. Use a dedicated `pipelines` namespace with an existing `build` Pipeline. The Pipeline must use images available in the cluster. Create these prerequisites before continuing. Save the following resources as `resource_queues.yaml`. `nominalQuota` accepts Kubernetes resource
+quantities, so use values such as `8`, `16Gi`, or `100Gi` as appropriate for the cluster:
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: pipelines-default
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: pipelines-capacity
+spec:
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: pipelines
+  resourceGroups:
+    - coveredResources: [tekton.dev/pipelineruns, cpu, memory, storage, ephemeral-storage]
+      flavors:
+        - name: pipelines-default
+          resources:
+            - name: tekton.dev/pipelineruns
+              nominalQuota: 4
+            - name: cpu
+              nominalQuota: 8
+            - name: memory
+              nominalQuota: 16Gi
+            - name: storage
+              nominalQuota: 100Gi
+            - name: ephemeral-storage
+              nominalQuota: 100Gi
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: LocalQueue
+metadata:
+  name: pipelines-capacity
+  namespace: pipelines
+spec:
+  clusterQueue: pipelines-capacity
+```
+
+`coveredResources` lists the quota dimensions, and each `nominalQuota` sets the budget for one resource. The namespace selector restricts this pool to `pipelines`, and the flavor name references `pipelines-default`. The LocalQueue binds that namespace to the `pipelines-capacity` pool. See the [ResourceFlavor API](../../apis/kubernetes_apis/scheduler/resourceflavors.mdx), [ClusterQueue API](../../apis/kubernetes_apis/scheduler/clusterqueues.mdx), and [LocalQueue API](../../apis/kubernetes_apis/scheduler/localqueues.mdx) for complete field definitions.
+
+Apply these resources, wait for the ClusterQueue to become active, and enroll the
+namespace:
+
+```bash
+kubectl apply -f resource_queues.yaml
+kubectl wait clusterqueue/pipelines-capacity --for=condition=Active --timeout=120s
+kubectl label namespace pipelines tekton.dev/scheduler-enabled=true --overwrite
+```
+
+The new LocalQueue binds the run to the resource quota above. An existing
+`pipelines-queue` may still point to the count-only Quick Start ClusterQueue;
+`LocalQueue.spec.clusterQueue` is immutable, so create a new LocalQueue when changing
+that binding. Select `pipelines-capacity` and use the supported PipelineRun
+annotations to attach a request to the Workload. Save the following PipelineRun as `resource_run.yaml`:
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: resource-aware-build
+  namespace: pipelines
+  labels:
+    kueue.x-k8s.io/queue-name: pipelines-capacity
+  annotations:
+    kueue.konflux-ci.dev/requests-cpu: "2"
+    kueue.konflux-ci.dev/requests-memory: "4Gi"
+    kueue.konflux-ci.dev/requests-storage: "20Gi"
+    kueue.konflux-ci.dev/requests-ephemeral-storage: "10Gi"
+spec:
+  pipelineRef:
+    name: build
+```
+
+Submit the run and inspect the resulting requests:
+
+```bash
+kubectl create -f resource_run.yaml
+kubectl get workloads -n pipelines -o yaml
+```
+
+In `spec.podSets[].template.spec.containers[].resources.requests`, expect one `tekton.dev/pipelineruns` unit, two CPUs, `4Gi` memory, `20Gi` storage, and `10Gi` ephemeral storage. These values account for quota. They do not allocate a PVC, provision a device, or configure the resource requests of the actual execution Pods. See the [Workload API](../../apis/kubernetes_apis/scheduler/workloads.mdx) for the PodSet request and admission status fields.
+
+The available fixed resource annotations are `requests-cpu`, `requests-memory`,
+`requests-storage`, and `requests-ephemeral-storage`, all under the
+`kueue.konflux-ci.dev/` prefix. Use Kubernetes quantity syntax for these values. A
+request is admitted only when the selected ClusterQueue has a matching resource and
+enough unused quota. If a PipelineRun requests CPU or memory but the ClusterQueue
+declares only `tekton.dev/pipelineruns`, the Workload cannot be admitted; update the
+queue and its resource group together.
+
+## Request custom capacity \{#custom_capacity}
+
+Use a custom resource when the queue represents a finite device or service capacity.
+Add the resource to the same resource group and give it a nominal quota. Extend the
+preceding ClusterQueue's two lists as follows:
+
+```yaml
+coveredResources: [tekton.dev/pipelineruns, cpu, memory, storage, ephemeral-storage, gpu]
+```
+
+```yaml
+resources:
+  # Keep the existing resource entries and add the custom capacity.
+  - name: gpu
+    nominalQuota: 2
+```
+
+Apply the edited `resource_queues.yaml` again. Then merge the following CEL policy into the existing TektonConfig. Keep the current default queue name; submitted runs explicitly select `pipelines-capacity`. The example below uses the default name from the Quick Start and adds a request only in the `pipelines` namespace. Preserve any existing expressions that are still required:
+
+```yaml
+spec:
+  scheduler:
+    config.yaml:
+      queueName: pipelines-queue
+      cel:
+        expressions:
+          - 'plrNamespace == "pipelines" ? [resource("gpu", 1)] : []'
+```
+
+The expression creates the annotation
+`kueue.konflux-ci.dev/requests-gpu: "1"`. The `resource()` value is a non-negative
+integer; use the fixed annotations above when a Kubernetes quantity such as `500m` or
+`4Gi` is required. Resource names and annotation values must follow the selected Kueue
+release's validation rules. See [CEL Functions](./configure_cel.mdx#functions) for the `resource()` arguments and accumulation behavior.
+
+After applying the updated quota and [CEL configuration](./configure_cel.mdx#apply_configuration), submit a new run selecting `pipelines-capacity`. Expect `kueue.konflux-ci.dev/requests-gpu: "1"` on the PipelineRun and a matching `gpu: "1"` Workload request. This is quota accounting; configure the actual device or service request in the pipeline separately.
+
+## Combine concurrency and resource quota \{#combine_quota}
+
+Keep `tekton.dev/pipelineruns` in the same ClusterQueue when the goal is to enforce
+both a maximum run count and a capacity budget. The Workload must fit every declared
+resource, so the tighter dimension determines whether the next run waits. For
+example, four one-CPU runs fit a queue with four slots and eight CPUs, while a fifth
+run waits even if CPU remains available; a three-CPU run can wait on CPU before all
+four slots are occupied.
+
+Use a separate LocalQueue and ClusterQueue when teams need different budgets or
+isolation. Share one ClusterQueue only when namespaces are intentionally allowed to
+consume the same quota. Keep the queue's namespace selector, resource names, and
+PipelineRun annotations in the same change so that a request cannot be submitted into
+an incomplete quota configuration.
+
+## Verify resource accounting \{#verify_resources}
+
+Submit runs whose combined requests exceed one of the queue's quota dimensions. Expect excess Workloads to wait even when other dimensions still have capacity. Inspect the actual requests and condition messages:
+
+```bash
+kubectl get pipelineruns -n pipelines -o yaml
+kubectl get workloads -n pipelines -o yaml
+kubectl get clusterqueue pipelines-capacity -o yaml
+```
+
+For example, two runs requesting four CPUs each consume an eight-CPU budget. A third CPU-requesting run must wait even if a PipelineRun slot is available. See [Troubleshoot Scheduler](../trouble_shooting/scheduler_not_ready.mdx#resource_requests) if a request never obtains quota.

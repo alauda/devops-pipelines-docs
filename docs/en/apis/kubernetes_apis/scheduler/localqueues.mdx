@@ -1,0 +1,15 @@
+---
+weight: 40
+queries:
+  - What are the LocalQueue fields?
+  - Can I change a LocalQueue ClusterQueue binding?
+  - How does a PipelineRun choose a LocalQueue?
+---
+
+# LocalQueue [kueue.x-k8s.io/v1beta2]
+
+A LocalQueue binds PipelineRuns in one namespace to the ClusterQueue named by `spec.clusterQueue`. This binding is immutable. To change it, create a new LocalQueue and select it for future submissions.
+
+A PipelineRun's `kueue.x-k8s.io/queue-name` label names a LocalQueue in the same namespace. If the label is absent, Scheduler supplies the configured default name. `spec.stopPolicy` and status fields describe queue availability and usage; stopping a queue is distinct from disabling Scheduler. See [Choose a Queue](../../../scheduler/guides/configure_queues.mdx#choose_queue).
+
+<K8sAPI name="localqueues.kueue.x-k8s.io" apiVersion="v1beta2" namespaced={true} />
