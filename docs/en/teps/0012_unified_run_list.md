@@ -97,7 +97,7 @@ are rejected.
 | `fieldSelector` | Only `metadata.name` and `metadata.namespace`. Supports `=`, `==`, and `!=`. |
 | `keyword` / `field` | The existing K8sApiService name search. `field` defaults to and only accepts `metadata.name`. No alias is added. |
 | `source` | Defaults to `all`. `live` is only for the Run service to rebuild the live list after an archive failure. It is not a user filter. |
-| `limit` | `0` or omitted returns everything that fits the capacity limits. A positive value returns at most N. The server page is at most 5000, and the byte budget may return a shorter page. |
+| `limit` | `0` or omitted returns at most `page-max-items` (5000). A positive value returns at most N, and at most 5000. Serialized size does not shorten the page. |
 | `continue` | The client sends the token back unchanged. The server token does not expose the Results page token. |
 | `resourceVersion` | The response value is the Kubernetes resourceVersion of this live List. It is only used to continue Watch. |
 | `resourceVersionMatch` | `Exact` returns 400. `sendInitialEvents=true` requires `NotOlderThan` and is forwarded to the apiserver. |
@@ -232,11 +232,10 @@ next one. The sort key is `status.startTime`, otherwise
 Keep a full body only for a live object that can appear on this response page.
 That window is the newest `limit` live objects that match the query and are
 older than continue. An archived object can occupy a slot, but it cannot pull
-an older live object onto this page. Stop retaining bodies once the newest
-prefix exceeds the 16 MiB response budget, and keep one extra body so
-measurement slack cannot turn a returned object into a stub. Do not GET the
-selected names after the merge. Objects outside the window keep the name,
-namespace, labels, and sort key only. Do not return that stub.
+an older live object onto this page. Do not drop a retained body because of
+serialized size. `limit` and `page-max-items` already bound the page. Do not
+GET the selected names after the merge. Objects outside the window keep the
+name, namespace, labels, and sort key only. Do not return that stub.
 
 A `labelSelector` or `fieldSelector` still needs every current live name,
 including objects that do not match. Build that name set with
@@ -257,9 +256,10 @@ do not share a counter, because they are not retained. If a page exceeds 64
 MiB, retry the same continue token with a smaller limit, down to one object.
 Do not request the next page until this page fits. A single object over 64 MiB
 returns 413. The object count is cumulative across pages and stops at 50,000
-without requesting the next page. Do not raise the 50,000 object cap or the
-16 MiB response cap. 64 MiB is one upstream page, not a whole-namespace body
-cap.
+without requesting the next page. Do not raise the 50,000 object cap. There
+is no response byte cap. 64 MiB is one upstream page, not a whole-namespace
+body cap. An existing `response-max-bytes` key is ignored so an old ConfigMap
+still loads.
 
 Save the object list resourceVersion; if it is empty, save the name list
 resourceVersion. Put that resourceVersion in the response and use it to
@@ -273,14 +273,16 @@ page is limited to the current live set. If measurement later shows this is
 the bottleneck, reuse a cache that exists then. This change does not depend
 on a cache for correctness.
 
-The byte limit is applied before decoding. Create a dedicated client with
+The upstream page byte limit is applied before decoding. Create a dedicated
+client with
 `rest.CopyConfig` and `Config.Wrap` for each upstream page. Crossing the page
 limit closes that response and returns 413, or retries the same continue with
 a smaller limit while the limit is above one object. Do not change the
 controller client or the shared capabilities client. Do not raise the 50,000
-cap or the 16 MiB response cap. If the internal Kubernetes continue expires,
-collect that collection once more within the same request deadline. A second
-failure returns 503 or 504. It is not disguised as an expired client continue.
+cap. A response is not rejected for serialized size. If the internal
+Kubernetes continue expires, collect that collection once more within the
+same request deadline. A second failure returns 503 or 504. It is not
+disguised as an expired client continue.
 
 ### 4. Results index and ordered reads {#results-projection}
 
@@ -439,7 +441,10 @@ stop. A page with candidate scanning also disables those joins and pages by
 the hits' own sort keys. It does not probe candidates from the time index one
 row at a time. Do not add a column or change the index direction. The old
 create, update, and ID orders and their tokens keep their old behavior. The
-current page returns complete Records directly.
+current page returns complete Records directly. enhancement reads that HTTP
+body in full and does not cut it at a byte limit. `page_size` is `limit+1`,
+and at most the archive scan budget. One record over 4 MiB is skipped. A body
+that is not JSON is still a query failure.
 
 ### 5. Merge {#ordering}
 
@@ -680,8 +685,8 @@ performance promise.
 
 | Limit | Starting value |
 | --- | --- |
-| One live collection | 50,000 objects. Above that, 413. One upstream page is 64 MiB and is discarded after the name or sort key is extracted. A single object over 64 MiB returns 413. Retained full bodies are only the current response window, bounded by the page limit and the 16 MiB response budget. Do not raise the 50,000 or 16 MiB caps. |
-| One Record / response | 4 MiB / 16 MiB |
+| One live collection | 50,000 objects. Above that, 413. One upstream page is 64 MiB and is discarded after the name or sort key is extracted. A single object over 64 MiB returns 413. Retained full bodies are the current page, bounded by `limit` and `page-max-items`. Do not raise the 50,000 object cap. |
+| One Record | 4 MiB. There is no list response byte cap and no Results body byte cap. An existing `response-max-bytes` key is ignored. The Results request is `limit+1` records, at most the archive scan budget. |
 | Archive query timeout | List pages use the request deadline. A slow read does not degrade to live. `archive-timeout` bounds only a Watch point lookup. |
 | Request deadline | List, Get, and Delete use a five-minute safety cap when `timeoutSeconds` is omitted. Expiry returns 503. An explicit value is at most 60 seconds and expiry returns 504. Watch stays at 30 seconds when omitted. |
 
@@ -692,8 +697,8 @@ raw token. Different tokens, groups, or extra do not share a result. An
 archive denial on an unfiltered list returns live-only for that request and
 does not join another request's archive page. Different callers or different
 queries build separately. Do not return 429 because of concurrency. One
-request is still bounded by the live collection, response size, and request
-deadline.
+request is still bounded by the live collection, the page item limit, and the
+request deadline.
 
 The suggested target is first-page P95 within 3 seconds and continuation P95
 within 500 milliseconds. It has not been measured. Acceptance must cover an
@@ -847,13 +852,13 @@ One List request runs in this order:
    Hidden rows do not count as returned objects. When the read must continue,
    move only the archive position `a`.
 4. Compare the heads of the two ordered streams and take the newer one until
-   the page is full, both sources are exhausted, or the scan or byte budget
-   is reached. If the budget is exhausted and the archive is not finished,
+   the page is full, both sources are exhausted, or the archive scan budget
+   is reached. If the scan budget is exhausted and the archive is not finished,
    stop the page. `a` stays at the last scanned key. Do not write an older
    live object that has not been compared into `k`. The public continue `k`
    stops at the last returned object. It must not stop on an object that was
    only prefetched and not decided.
-5. Return 200 only after bounded serialization succeeds. An archive failure
+5. Return the page without trimming it to a serialized-size cap. An archive failure
    on a new query keeps live and the state header. An archive failure on an
    existing mixed continue returns 503 and does not rewrite the original
    token's source.

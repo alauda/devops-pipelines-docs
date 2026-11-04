@@ -109,7 +109,7 @@ A continuation that already included archived data returns 503 when the archive 
 
 List, get, and delete use a five-minute safety cap when `timeoutSeconds` is omitted or `0`. That expiry is 503, not 504. Only a caller-provided `timeoutSeconds` expiry is 504. Watch uses 30 seconds when `timeoutSeconds` is omitted.
 
-A live list returns 413 when the namespace contains more than 50,000 live objects, or when one live object is larger than 64 MiB. The default response limit is 16 MiB, and one archived object is limited to 4 MiB.
+A live list returns 413 when the namespace contains more than 50,000 live objects, or when one live object is larger than 64 MiB. A page is bounded by `limit` and `page-max-items`. There is no response byte cap. An existing `response-max-bytes` value is ignored. One archived object is limited to 4 MiB. The Results list body is read in full. The request asks for `limit+1` records, and at most the archive scan budget. A larger body is not truncated.
 
 ## Watch
 
@@ -155,7 +155,7 @@ Failures use a Kubernetes `Status` body.
 | Both sources confirm the object is missing | 404 |
 | Live delete conflict | 409 |
 | Unsupported method | 405 |
-| Live collection or response exceeds its limit | 413 |
+| Live collection or one live object exceeds its limit | 413 |
 | Caller `timeoutSeconds` expired | 504 |
 | Server safety cap expired, or delete cannot read the archive | 503 |
 
