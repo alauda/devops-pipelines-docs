@@ -1,0 +1,222 @@
+---
+title: Deploy with Gateway API
+---
+
+The default API exposure method is Ingress. This guide explains how to configure
+Gateway API HTTPRoutes to expose the component APIs through a Gateway.
+
+The API endpoints are `/tektoncd-enhancement/apis` and `/results`. Enhancement
+rewrites only the API subtree to `/apis`, preserving its authentication and
+capabilities contracts.
+
+## Prerequisites and ownership
+
+Select `exposure.type: HTTPRoute` explicitly. Installing Gateway CRDs does not
+change the exposure method automatically.
+The platform administrator installs Gateway API v1 HTTPRoute CRDs, an appropriate
+Gateway controller, and the shared Gateway with HTTP/HTTPS listeners. The
+controller must implement URLRewrite and verified backend TLS for Results.
+Results uses BackendTLSPolicy v1alpha3 by default; set
+`exposure.backendTLS.apiVersion: v1` when the controller serves the stable API.
+Install the selected policy CRD before enabling Results Gateway exposure.
+
+Components manage their local routes, public CA ConfigMap and backend TLS policy
+through TektonInstallerSets. They do not manage the shared Gateway or its frontend
+TLS certificate. Configure listener `allowedRoutes` for the installation namespace
+when the Gateway is in another namespace. This parent attachment does not require
+a ReferenceGrant. Backend Services remain local. The same configuration works in
+global and business clusters without IngressClass, ALB or NGINX annotations.
+
+## First installation
+
+Prepare all Gateway resources before installing components. Disable automatic
+component creation in the operator installation manifest **before applying it**:
+set `AUTOINSTALL_COMPONENTS: "false"` in `tekton-config-defaults`. The operator
+Deployment reads this ConfigMap. Then install the operator and submit the complete
+configuration below. Keep the existing component/database/authentication settings
+from the documented TektonConfig or TektonResult examples.
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  targetNamespace: tekton-pipelines
+  profile: all
+  pipeline:
+    exposure:
+      type: HTTPRoute
+      parentRefs:
+        - name: platform
+          namespace: gateway-system
+          sectionName: https
+      hostnames: [devops.example.com]
+  result:
+    disabled: false
+    exposure:
+      type: HTTPRoute
+      parentRefs:
+        - name: platform
+          namespace: gateway-system
+          sectionName: https
+      hostnames: [devops.example.com]
+```
+
+Set `exposure.disabled: true` to remove that component API entrance while
+keeping its in-cluster Service and workloads.
+
+The corresponding child CR also accepts `spec.exposure`. The parent remains the
+source of truth for components it manages. Leave `hostnames` empty for a hostless
+route. `parentRefs` can contain multiple Gateways/listeners; each requested parent
+must accept the route. `options.ingress` remains available for Ingress mode and
+is applied before route conversion. Set Gateway hostnames through `exposure`,
+not through Ingress host overrides. Do not enable an additional manually managed
+entrance for the same endpoint.
+
+## Results HTTPS backend
+
+Results keeps its HTTPS Service. The route strips `/results`, so
+`/results/apis/results.tekton.dev/...` reaches `/apis/results.tekton.dev/...`.
+The default SNI is
+`tekton-results-api-service.<targetNamespace>.svc.cluster.local`.
+The operator copies only public `ca.crt` from `tekton-results-tls`; for a self-signed
+certificate it can use `tls.crt` as the trust anchor. It never copies `tls.key` to
+a ConfigMap. A CA-issued certificate without `ca.crt` needs explicit public CA
+ConfigMap references:
+
+```yaml
+exposure:
+  type: HTTPRoute
+  parentRefs:
+    - name: platform
+      namespace: gateway-system
+      sectionName: https
+  backendTLS:
+    apiVersion: v1alpha3
+    hostname: tekton-results-api-service.tekton-pipelines.svc.cluster.local
+    caCertificateRefs: [results-trusted-ca]
+```
+
+Each referenced ConfigMap must be in the Results namespace and contain `ca.crt`.
+Use the DNS name present in the serving certificate. Rotate the serving Secret
+and trust bundle together, and restart Results if that version does not reload
+its serving certificate. The operator watches Secret changes and updates its
+managed public trust; a controller watches explicitly referenced ConfigMaps.
+Verify BackendTLSPolicy acceptance and a real Results/Record/Log request after
+rotation. Certificate verification cannot be disabled through this API.
+
+## EventListener webhooks
+
+Set `spec.pipeline.options.configMaps.trigger-wrapper-config.data.config` in
+the owning TektonConfig to the following configuration string. The default `export-rules: []` exposes nothing. For an
+explicit Gateway rule use:
+
+```yaml
+export-rules:
+  - name: gateway-webhooks
+    type: HTTPRoute
+    gateway:
+      name: platform
+      namespace: gateway-system
+      sectionName: https
+    host: webhooks.example.com
+    externalHosts: [https://webhooks.example.com]
+    urlPathPrefix: /hooks
+    namespaceSelector:
+      matchNames: ["*"]
+```
+
+Omitting `type` retains Ingress for existing rules. HTTPRoute rules publish
+EventListener status addresses and Trigger URL annotations only after current
+Accepted=True and ResolvedRefs=True. The controller manages routes and, only for
+cross-namespace backend references, the required ReferenceGrant. Cross-namespace
+Gateway attachment still uses listener allowedRoutes. Send a real webhook and
+confirm a PipelineRun is created; test rule removal and switching back to Ingress.
+
+
+## Pipelines as Code
+
+Pipelines as Code (PAC) uses a user-managed webhook endpoint. The operator
+exposure setting does not change PAC callback URLs. Create an HTTPRoute in the
+PAC namespace and attach it to your Gateway:
+
+```yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: pipelines-as-code
+  namespace: tekton-pipelines
+spec:
+  parentRefs:
+    - name: platform
+      namespace: gateway-system
+      sectionName: https
+  hostnames: [pac.example.com]
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: pipelines-as-code-controller
+          port: 8080
+```
+
+Set the callback URL through the owning TektonConfig. Merge this block into
+its existing configuration and preserve other ConfigMap keys:
+
+```yaml
+spec:
+  platforms:
+    kubernetes:
+      pipelinesAsCode:
+        enable: true
+        options:
+          configMaps:
+            pipelines-as-code-info:
+              data:
+                controller-url: https://pac.example.com
+```
+
+For an OpenShift operator build use `platforms.openshift` instead of
+`platforms.kubernetes`. Configure listener TLS/DNS and remove the previous user-managed PAC
+Ingress during cutover. Trigger a real repository event, confirm webhook
+registration uses the new URL, and verify the resulting PipelineRun and logs.
+An HTTP 2xx response alone does not validate PAC integration.
+
+## Migration, rollback and failure diagnosis
+
+Save the current CRs, Helm/plugin settings and external URLs. In a maintenance
+window, configure the Gateway/listener first, then update the component exposure.
+The operator waits for current-generation Accepted and ResolvedRefs on every
+requested HTTPRoute parent, and for the Results BackendTLSPolicy to be accepted,
+before deleting an old entrance it owns. For shared webhook rules, every
+matching EventListener must reach this state before the shared Ingress and aliases
+are retired. Missing CRDs, an unavailable Gateway,
+forbidden namespace attachment or unresolved backends surface in InstallerSet
+conditions; they do not silently enable Ingress. A failed transition retains the
+old managed entrance. The default Ingress path never requires Gateway CRDs.
+
+Validate the API path boundary and rewrite using the external hostname, and
+exercise existing authentication and authorization. Check Results Result/Record/
+Log access including archived pipeline logs, webhook-created PipelineRuns, PAC
+callbacks and catalog resolution. Check that only the intended managed entrance
+remains after convergence. Shared Gateways and user-owned routes are not deleted.
+To roll back, replace the entire exposure block with `type: Ingress`, removing
+`parentRefs`, `hostnames` and `backendTLS` (or remove exposure entirely). Restore
+the saved `options.ingress` and old external URLs. The InstallerSet removes retired
+managed HTTPRoute/policy/trust resources after applying Ingress. Verify data-plane
+traffic again. Disabling exposure also retires all managed entrance, policy and
+trust resources. Component uninstall also cleans its retired entrances.
+
+When the Results serving TLS Secret changes, the Results reconciler refreshes the
+public CA ConfigMap through its InstallerSet. After rotating the certificate,
+verify both the current serving certificate and external Result/Record access.
+
+
+
+The feature introduces no runtime internet fetching. Package the Gateway CRDs,
+controller and images through the platform's normal offline distribution process.
+Acceptance requires actual data-plane and business-flow testing for this version;
+unit tests and rendered objects alone are insufficient.
