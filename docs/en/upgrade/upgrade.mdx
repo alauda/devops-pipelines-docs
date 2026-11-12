@@ -16,6 +16,7 @@ Before upgrading the `Alauda Container Platform Pipelines` Operator, ensure you:
 
 - Have administrative access to your cluster
 - Review the release notes for the new version to understand any breaking changes
+- When upgrading from a version earlier than 4.14, update the affected monitoring configuration, dashboard queries, and alert expressions. See [Migrate Metrics from OpenCensus to OpenTelemetry](../configure/metrics_migration.mdx)
 - Verify that your existing Tekton component configurations are compatible with the new version
 - Confirm that all Tekton components are in a ready state
 - Upload a new version of the Operator, refer to the installation guide for [operator upload instructions

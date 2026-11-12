@@ -1,0 +1,329 @@
+---
+weight: 45
+---
+
+# Enable Pipeline Metrics
+
+## Feature Overview
+
+**Pipelines** > **Overview** uses archived `PipelineRun` records or namespace monitoring metrics, depending on the availability of Tekton Results.
+
+| Data Source | Selection Condition | Available Statistics |
+| --- | --- | --- |
+| Tekton Results | `TektonResult` named `result` exists, `spec.disabled` is `false`, and its `Ready` condition is `True` | Run counts, success rate, duration, latest start time, repositories, and deployment pipeline statistics |
+| Monitoring | `TektonResult` named `result` is absent or its `spec.disabled` is `true` | Approximate run counts and status |
+
+When Results is enabled, the page uses the archive. It does not switch to monitoring if Results is not ready, access is denied, or a query fails. Only one data source is required.
+
+Archived statistics cover records retained in Tekton Results that match the selected namespace, time range, and filters. The retention policy determines which records remain available; it does not set the page's time range. See [Retention Policy Configuration](../../results/configure/retention_policy_configuration.mdx).
+
+The **Metrics** tab on a Pipeline detail page uses the same data sources. The **Metrics** tabs on Repository and Run Template detail pages require Tekton Results.
+
+A default installation sets `spec.result.disabled: true` on `TektonConfig` named `config` and does not create `TektonResult` named `result`. Configure monitoring for this installation, or enable Results for statistics based on archived records.
+
+:::note
+The examples use `tekton-pipelines`, the default `spec.targetNamespace` on `TektonConfig`. Replace it if your components are installed in another namespace. The namespace selected in the console identifies the runs to include in the statistics and can differ from the component namespace.
+:::
+
+## Use Cases
+
+- Enable detailed statistics based on archived `PipelineRun` records.
+- View approximate run counts without deploying an external database.
+- Configure a data source when Overview reports that run statistics are unavailable.
+
+## Prerequisites
+
+- Tekton Pipelines is installed.
+- You have access to the target namespace in the console.
+- For archived statistics, you can update the cluster-scoped `TektonConfig` named `config` and have an external PostgreSQL 12 or newer database.
+- For monitoring statistics, you can install a monitoring plugin and create a `ServiceMonitor`.
+
+## Steps
+
+### Check the Current Data Source \{#match-the-page}
+
+Select a namespace, then open **Pipelines** > **Overview**. In the Chinese console, the navigation is **流水线** > **概览**, and the detail-page **Metrics** tab is **指标**. Without a namespace, Overview displays `Select a namespace first`.
+
+Check whether Results is enabled:
+
+```sh
+kubectl get tektonconfig config -o jsonpath='{.spec.result.disabled}{"\n"}'
+kubectl get tektonresults.operator.tekton.dev result
+```
+
+On a default installation, the first command prints `true` and the second reports that `result` was not found. If `result` exists, check its state:
+
+```sh
+kubectl get tektonresult result -o jsonpath='{.spec.disabled}{" "}{.status.conditions[?(@.type=="Ready")].status}{"\n"}'
+```
+
+Choose one configuration option:
+
+- **Option A: Enable the archive** for detailed statistics. If Results is already enabled but not ready, complete its configuration.
+- **Option B: Enable monitoring** when Results is absent or disabled.
+
+If reading the resource fails, resolve the reported error before changing the data source. See [Troubleshooting](#troubleshooting).
+
+### Option A: Enable the Archive \{#enable-the-archive}
+
+Follow [Installation of Tekton Results](../../results/quick_start.mdx). Merge the configuration into the existing `TektonConfig` named `config` and set `spec.result.disabled: false`.
+
+Before applying the configuration:
+
+- Reuse existing `tekton-results-postgres` and `tekton-results-tls` Secrets in the target namespace.
+- Configure an external PostgreSQL database with `is_external_db: true`. Replace database placeholders with your connection details, or omit fields that are already configured. See [Database Configuration](../../results/configure/database_configuration.mdx).
+- Select the log storage configuration described below.
+
+Check the existing storage type:
+
+```sh
+kubectl get tektonconfig config -o jsonpath='{.spec.result.logs_type}{"\n"}'
+```
+
+| Storage Type | Configuration |
+| --- | --- |
+| Existing S3 configuration | Keep `logs_type: S3` and `logs_api: true`. Follow [S3 Storage Configuration](../../results/configure/s3_storage_configuration.mdx#configure-tektonconfig-resource), referencing the Secret for the configured bucket. S3 does not require the `tekton-logs` PVC. |
+| File storage for the Quick Start test | Follow the Quick Start File sample. Apply it when `tekton-logs` is `Bound`, or when it is `Pending` only because its StorageClass uses `WaitForFirstConsumer` and the claim events do not report a provisioning failure. Then confirm the claim is `Bound`. |
+
+:::warning
+A `Pending` claim is not always a storage failure. With `volumeBindingMode: WaitForFirstConsumer`, binding waits until the Results API Pod is created, unless the claim events already report a provisioning failure. A missing default class, a `kubernetes.io/no-provisioner` class without a matching volume, or a provisioning error must be fixed before applying the File configuration. Keep `logs_api: true`; disabling the logs API is not a substitute for provisioning the required storage. Log storage does not supply the statistics, but the storage selected in the configuration must be available for Results to become ready.
+:::
+
+The Quick Start disables authentication for testing. [Turn authentication back on](../../results/quick_start.mdx#turn-authentication-back-on) after the test. Viewing archived statistics requires `get` permission on `results.tekton.dev` `records` in the selected namespace. See [Permission Description](../../results/permissions.mdx).
+
+Continue with [Verify Archived Statistics](#verify-archived-statistics).
+
+### Option B: Enable Monitoring \{#enable-monitoring}
+
+Use this option when `TektonResult` named `result` is absent or disabled. The platform provides the namespace metrics API; the target cluster needs a monitoring plugin and a `ServiceMonitor` for the Pipeline controller.
+
+#### 1. Install or Reuse a Monitoring Plugin
+
+If Prometheus or VictoriaMetrics is already `Running`, reuse it. Install only one monitoring plugin.
+
+Check the ACP version:
+
+```sh
+kubectl get productbase base -o jsonpath='{.spec.version}{"\n"}'
+```
+
+Select the installation guide for that major and minor version. For example, use [Install Monitoring for ACP 4.3](https://docs.alauda.io/container_platform/4.3/observability/monitor/install_monitor.html) for `v4.3.2`. In **App Store Management** > **Cluster Plugins**, select the target cluster and install the appropriate plugin. For ACP 4.3 plugin names and the Prometheus 4.3.7 configuration issue, see [ACP 4.3 Monitoring Installation](#acp-43-monitoring-installation).
+
+If you install only the VictoriaMetrics agent, associate it with an existing VictoriaMetrics Center. For an imported OpenShift cluster with existing monitoring, use the OpenShift monitoring registration plugin when it is available in **Cluster Plugins**.
+
+Wait for the plugin to become `Running`. For the Prometheus plugin, also verify that the `Available` condition is `True`:
+
+```sh
+kubectl get moduleinfo -l cpaas.io/module-name=prometheus
+kubectl get prometheus -n cpaas-system -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.status.conditions[?(@.type=="Available")].status}{"\n"}{end}'
+```
+
+#### 2. Configure Pipeline Metrics Collection
+
+The monitoring plugin and Tekton Operator do not create the Pipeline `ServiceMonitor`. Configure it after the plugin is ready.
+
+For Prometheus, inspect the selectors:
+
+```sh
+kubectl get prometheus -n cpaas-system -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.spec.serviceMonitorSelector}{" "}{.spec.serviceMonitorNamespaceSelector}{"\n"}{end}'
+```
+
+The sample below matches a `serviceMonitorSelector` of `{"matchLabels":{"prometheus":"kube-prometheus"}}`. Adjust `metadata.labels` to match your selector. An unset `serviceMonitorSelector` selects no `ServiceMonitor`; an empty `serviceMonitorNamespaceSelector` selects all namespaces. If namespace selection is restricted, place the `ServiceMonitor` in a selected namespace.
+
+For VictoriaMetrics or another platform-managed monitoring installation, follow the discovery configuration in [Setting Up ServiceMonitor](../../configure/metrics_collection.mdx#setting-up-servicemonitor). The `prometheus: kube-prometheus` label is specific to the Prometheus selector above.
+
+Save the following manifest as `pipeline-servicemonitor.yaml`:
+
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: tekton-pipelines-metrics
+  namespace: tekton-pipelines
+  labels:
+    app.kubernetes.io/name: tekton-pipelines
+    prometheus: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: tekton-pipelines
+  endpoints:
+    - port: http-metrics
+      path: /metrics
+      interval: 30s
+      honorLabels: true
+  namespaceSelector:
+    matchNames:
+      - tekton-pipelines
+```
+
+Apply the manifest:
+
+```sh
+kubectl apply -f pipeline-servicemonitor.yaml
+```
+
+`spec.namespaceSelector` identifies the component namespace containing the Service, independently of the namespace selected in Overview. The controller Service `tekton-pipelines-controller` exposes the `http-metrics` port.
+
+Keep `honorLabels: true` for the Prometheus plugin. It preserves the metric's `namespace` label, which identifies the PipelineRun namespace. Otherwise, Prometheus replaces it with the Service namespace and stores the original value as `exported_namespace`. Overview filters on `namespace`.
+
+Overview reads `tekton_pipelines_controller_pipelinerun_duration_seconds_count` and `tekton_pipelines_controller_pipelinerun_duration_seconds_sum`. Keep `metrics.pipelinerun.level: pipeline` and `metrics.pipelinerun.duration-type: histogram`. A level of `namespace` does not provide per-pipeline series. Changing the duration type requires a controller restart; see [config-observability Configuration](../../configure/metrics_collection.mdx#config-observability-configuration).
+
+Continue with [Verify Monitoring Statistics](#verify-monitoring-statistics).
+
+## Verification
+
+### Create a Test PipelineRun \{#create-a-test-pipelinerun}
+
+Use this sample for either data source. For monitoring, first confirm that scraping is active as described in [Verify Monitoring Statistics](#verify-monitoring-statistics), then start a new run.
+
+Replace `<namespace>` with the namespace selected in the console and use an image accessible to the cluster, such as one in your internal registry:
+
+```sh
+cat <<'EOF' | kubectl create -n <namespace> -f -
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: metrics-check-
+spec:
+  pipelineSpec:
+    tasks:
+      - name: echo
+        taskSpec:
+          steps:
+            - name: echo
+              image: <image-your-cluster-can-pull>
+              command: ["echo", "metrics"]
+EOF
+```
+
+Use the generated name to watch the run until it succeeds, then press Ctrl+C:
+
+```sh
+kubectl get pipelinerun <name> -n <namespace> -w
+```
+
+If admission rejects the inline specification, inspect the rejection message. When `disable-inline-spec` contains `pipelinerun`, create a `Pipeline` and reference it with `pipelineRef`. See [Constrain Tekton Pipeline Execution with Kyverno](./constrain_pipeline_execution_with_kyverno.mdx).
+
+### Verify Archived Statistics \{#verify-archived-statistics}
+
+Verify that Tekton Results is ready. The first command must print `false True`, and the Results Pods must be `Running`:
+
+```sh
+kubectl get tektonresult result -o jsonpath='{.spec.disabled}{" "}{.status.conditions[?(@.type=="Ready")].status}{"\n"}'
+kubectl get pods -n tekton-pipelines -l app.kubernetes.io/name=tekton-results-api
+kubectl get pods -n tekton-pipelines -l app.kubernetes.io/name=tekton-results-watcher
+kubectl get pods -n tekton-pipelines -l app.kubernetes.io/name=tekton-results-retention-policy-agent
+```
+
+[Create a test PipelineRun](#create-a-test-pipelinerun) in the selected namespace. The Results Quick Start uses a `TaskRun`, which is not included in Overview's PipelineRun statistics.
+
+After the run succeeds, verify that the watcher has added the `results.tekton.dev/record` annotation:
+
+```sh
+kubectl get pipelinerun <name> -n <namespace> -o go-template='{{index .metadata.annotations "results.tekton.dev/record"}}{{"\n"}}'
+```
+
+If the annotation is absent, wait for the watcher to archive the record and repeat the check. Investigate any command error before interpreting its output.
+
+Refresh **Overview**, keeping the namespace selected and the time range set to `Last 24h`. The run count should include the test PipelineRun. A value of `0` is expected when no retained records match the selected filters.
+
+### Verify Monitoring Statistics \{#verify-monitoring-statistics}
+
+Confirm that the metrics endpoint is reachable and the target is being scraped, following [Metrics Collection Verification](../../configure/metrics_collection.mdx#verification). Ensure that stored PipelineRun duration series use `namespace` for the run namespace.
+
+Monitoring statistics measure the counter increase between samples in the selected range. [Create a new test PipelineRun](#create-a-test-pipelinerun) after a baseline sample is available, wait for it to succeed, and refresh Overview after the following sample. A run already included in the baseline does not contribute to this increase.
+
+The sample `ServiceMonitor` scrapes every 30 seconds. Overview refreshes every 30 seconds by default, but the `Last 24h` query uses a 3600-second step and requires at least two samples at that step. If the count remains `-`, wait for the next query-step boundary and refresh. A count of `About 0` means that the counter did not increase between the available samples.
+
+Monitoring-based statistics are available when an approximate run count is displayed. Repository statistics, latest start time, and deployment pipeline statistics require the archive.
+
+## Troubleshooting \{#troubleshooting}
+
+### Archive State and Permissions
+
+| Observed State | Console Message | Recommended Action |
+| --- | --- | --- |
+| Results is enabled but its `Ready` condition is not `True` | `Archive is not ready` | Complete the [Results configuration](#enable-the-archive). Monitoring is not used while Results is enabled. |
+| Results is ready, but the query fails | `Unable to get data` | Investigate the reported query error and Results API availability. |
+| Reading `TektonResult` fails | `Archive status cannot be confirmed` | Resolve the resource-read error, then refresh Overview. |
+| The statistics query is forbidden | `No permission` | Grant the required access in the selected namespace. For Results, see [Permission Description](../../results/permissions.mdx). |
+
+Use `kubectl get tektonresults.operator.tekton.dev result` to distinguish a missing `result` object from a resource-type error. The API group is `operator.tekton.dev`. An incorrect group such as `result.operator.tekton.dev` does not establish that Results is absent.
+
+### Monitoring Data Is Unavailable
+
+| Console Message | Meaning | Recommended Action |
+| --- | --- | --- |
+| `Run statistics are not available yet` | The monitoring component is not detected | Complete the monitoring plugin installation. |
+| `Monitor component is abnormal` or `Monitor query is unavailable` | The component or query is unavailable | Check the component status and reported query error. The data source does not switch automatically. |
+| `No permission` | The monitoring query is forbidden | Grant permission to view monitoring data in the selected namespace. |
+| `Incomplete data` with `-` | No matching series, or fewer than two samples at the query step | Check the endpoint, stored labels, and sample availability as described below. |
+| `Incomplete data` with `About 0` | The counter did not increase between samples | Complete a new PipelineRun after the baseline sample and refresh after the following sample. |
+| `Incomplete data` with a count such as `About 1` | Monitoring-based statistics are available | Enable the archive if repository or deployment statistics are required. |
+
+If the count is `-`, use [Check Metrics Endpoints Directly](../../configure/metrics_collection.mdx#check-metrics-endpoints-directly) to port-forward the controller Service, then run:
+
+```sh
+curl -s http://localhost:9090/metrics | grep tekton_pipelines_controller_pipelinerun_duration_seconds_count
+```
+
+If the endpoint responds but this metric is absent, check whether a PipelineRun has completed since the controller started. With multiple controller replicas, check each replica or query Prometheus.
+
+If the endpoint exposes the selected namespace but Overview still displays `-`, inspect the series stored in Prometheus. If the run namespace appears only as `exported_namespace`, set `honorLabels: true` and wait for the next scrape. Previously stored samples are not rewritten. If the labels are correct, verify that the selected range contains at least two samples at the query step. A missing value does not indicate zero runs.
+
+### ACP 4.3 Monitoring Installation \{#acp-43-monitoring-installation}
+
+The published ACP 4.3 Prometheus package uses the display name **Alauda Container Platform Monitoring for Prometheus**. Later platform guides use different names. To find the installed package's English display name:
+
+```sh
+kubectl get moduleplugin prometheus -o jsonpath='{.metadata.annotations.cpaas\.io/display-name}{"\n"}'
+```
+
+Search **Cluster Plugins** using the returned JSON object's `en` value or the plugin name `prometheus`.
+
+Before using the ACP 4.3 installation guide's YAML example, check the available plugin version:
+
+```sh
+kubectl get moduleconfig -o name | grep prometheus
+```
+
+For example, `moduleconfig.cluster.alauda.io/prometheus-v4.3.7` identifies version `v4.3.7`. Replace the sample version and storage node placeholder with the available version and an actual node name.
+
+:::warning
+The Prometheus `v4.3.7` chart already adds `kubernetes.io/os: linux` to `nodeSelector`. Repeating that entry from the installation example can cause `ModuleInfo` to fail with `mapping key "kubernetes.io/os" already defined`.
+:::
+
+On clusters without infra nodes, use the console with **Node Selectors** and **Node Tolerations** empty. If this specific duplicate-key error has already occurred with the example configuration, clear those sample fields on the existing object. The following command applies to the `v4.3.7` package:
+
+```sh
+name=$(kubectl get moduleinfo -l cpaas.io/module-name=prometheus -o jsonpath='{.items[0].metadata.name}')
+kubectl patch moduleinfo "$name" --type json -p '[{"op":"replace","path":"/spec/version","value":"v4.3.7"},{"op":"replace","path":"/spec/config/components/nodeSelector","value":[]},{"op":"replace","path":"/spec/config/components/tolerations","value":[]}]'
+```
+
+Ensure `spec.config.storage.nodes` contains an actual node name. Then verify that `ModuleInfo` is `Running`, `TARGET_VERSION` matches the selected version, and Prometheus reports `Available=True`.
+
+### Switch from Results to Monitoring
+
+Use this optional procedure only when you intend to disable Results.
+
+:::warning
+Setting `spec.result.disabled: true` uninstalls Tekton Results and deletes the `TektonResult` named `result`. The Metrics tabs on Repository and Run Template detail pages require the archive and become unavailable.
+:::
+
+Save the following merge patch as `results-disable.yaml`:
+
+```yaml
+spec:
+  result:
+    disabled: true
+```
+
+Apply the patch and wait until the second command reports that `result` was not found:
+
+```sh
+kubectl patch tektonconfig config --type merge --patch-file results-disable.yaml
+kubectl get tektonresults.operator.tekton.dev result
+```
+
+Continue with [Enable Monitoring](#enable-monitoring).

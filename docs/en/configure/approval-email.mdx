@@ -1,0 +1,251 @@
+---
+weight: 15
+---
+
+# Configure approval email notifications
+
+Configure an internal SMTP relay to notify users when a Manual Approval task is waiting for their decision. The email links to the **Approvals** tab of the existing PipelineRun details page. Users sign in through the platform and submit their decision with their existing approval permissions.
+
+Default email delivery works with tektoncd-operator alone. Custom templates and email preview additionally require artifacthub-shim and its catalog template import.
+
+Administrators configure the SMTP connection once per Tekton installation. Pipeline authors then enable **Email Notification** on individual Manual Approval tasks.
+
+## Prerequisites
+
+- Tekton Operator and ManualApprovalGate are installed and ready.
+- You can create Secrets in the Tekton installation namespace and edit the `TektonConfig` resource.
+- The enhancement controller can reach an SMTP relay. Obtain its host, port, sender policy, TLS settings, and any required credentials.
+- ACP approvers have valid contact mailboxes in `User.spec.mail`. For installations without ACP users, prepare the ConfigMap directory described below.
+
+The examples use the default installation namespace, `tekton-pipelines`. Replace it with your installation namespace when necessary.
+
+## Configure the SMTP relay
+
+### 1. Create the SMTP Secret
+
+Save the following manifest as `approval-smtp.yaml`, replace the example values, and apply it with `kubectl apply -f approval-smtp.yaml`:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: approval-smtp
+  namespace: tekton-pipelines
+type: Opaque
+stringData:
+  smtp-host: smtp.example.com
+  smtp-port: "587"
+  smtp-from: pipeline-approval@example.com
+  # Include both entries if the relay requires authentication.
+  # smtp-username: "<smtp-username>"
+  # smtp-password: "<smtp-password>"
+  smtp-tls-mode: starttls
+  smtp-ssl-verify: "true"
+  # Optional PEM certificates for a private SMTP CA.
+  # smtp-ca.crt: |
+  #   <PEM CA bundle>
+```
+
+| Secret key | Required | Default | Description |
+| --- | --- | --- | --- |
+| `smtp-host` | Yes | None | SMTP server DNS name or IP address, also used to verify the server certificate. |
+| `smtp-port` | Yes | None | TCP port from 1 to 65535. The port is not inferred from the TLS mode. |
+| `smtp-from` | Yes | None | One sender mailbox accepted by the relay, used for the envelope and the From header. |
+| `smtp-username` | When authentication is required | Empty | SMTP authentication username. Provide it together with `smtp-password`. |
+| `smtp-password` | When authentication is required | Empty | SMTP authentication password. Provide it together with `smtp-username`. Authentication requires `starttls` or `tls`. |
+| `smtp-tls-mode` | No | `starttls` | `starttls` upgrades the SMTP connection to TLS; `tls` starts TLS before the SMTP greeting; `none` uses an unencrypted connection and cannot be used with authentication. |
+| `smtp-ssl-verify` | No | `true` | Verifies the SMTP server certificate. Set to `false` to skip certificate verification, corresponding to the Send Mail Task's `sslVerify=false`. TLS encryption remains enabled when a TLS mode is selected. |
+| `smtp-ca.crt` | No | System CA trust | Additional PEM CA certificates for a private relay. These are added to the system trust store. |
+
+The minimum Secret contains **`smtp-host`, `smtp-port`, and `smtp-from`**. Add the username/password pair when the relay requires authentication. To trust a private CA while retaining verification, provide `smtp-ca.crt`.
+
+With a username/password pair, the sender uses the authentication mechanisms advertised by the relay after TLS negotiation. It prefers **PLAIN** and uses **LOGIN** when PLAIN is unavailable. No additional authentication setting is required. The sender does not switch mechanisms after an authentication failure. A relay that advertises only OAuth mechanisms such as XOAUTH2 cannot use this username/password configuration.
+
+The host, port, username, and password keys match the Send Mail Task's `smtp-credentials` workspace files. Approval notifications additionally store the sender, TLS mode, verification flag, and optional CA in this Secret. Send Mail configures these through task parameters and its separate CA workspace. An existing Send Mail Secret can be reused in the installation namespace after the required approval settings are added.
+
+### 2. Reference the Secret through TektonConfig
+
+Run `kubectl edit tektonconfig config` and add the following settings under `spec.pipeline.options.configMaps`. Preserve the other settings in the same `data.config` block.
+
+```yaml
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  pipeline:
+    options:
+      configMaps:
+        tektoncd-enhancement-config:
+          data:
+            config: |
+              approval-notification:
+                smtp-secret: approval-smtp
+```
+
+With ACP's default directory, **`approval-notification.smtp-secret` is the only enhancement setting you must supply**. The built-in default email requires no template installation. The feature uses this explicitly selected Secret. It does not automatically discover or copy the ACP global SMTP credential.
+
+The Operator manages the resulting `tektoncd-enhancement-config` ConfigMap. Direct edits to that ConfigMap can be overwritten during reconciliation. The controller reloads configuration; pending approvals that already opted into email are checked every five minutes while SMTP is unconfigured.
+
+## Configuration reference
+
+All fields below are under `approval-notification` in `tektoncd-enhancement-config.data.config`.
+
+| Field | Default | Description |
+| --- | --- | --- |
+| `smtp-secret` | Empty string | Name of the SMTP Secret in the enhancement controller namespace. Empty disables email delivery. |
+| `directory` | `acp` | Source used to map approver identities to mailboxes. Supported values are `acp` and `configmap`. It does not control approval authorization. |
+| `directory-configmap` | Empty string | Name of the directory ConfigMap in the controller namespace. Required for `directory: configmap`; unused for `acp`. |
+| `platform-url` | Empty string | Overrides the platform URL prefix. Empty uses `kube-public/global-info.data.platformURL`, as existing mail templates do. |
+| `details-url-template` | Empty string | Overrides the PipelineRun details URL template. Empty inherits `template-render.details-url-template`; if that is also empty, the standard PipelineRun details route is used. Only `tab` is set to `approvals`; other query parameters and fragments are preserved. |
+
+These URL settings apply to both the built-in default email and custom templates rendered
+by artifacthub-shim. Shim reads the same ConfigMap for each new approval render. When Tekton
+uses a different installation namespace, set shim's Helm value
+`extension.approvalNotification.configMapRef.namespace` to that namespace. The reference
+defaults to `tekton-pipelines/tektoncd-enhancement-config`, key `config`; its `name` and `key`
+can also be set through `extension.approvalNotification.configMapRef`. SMTP credentials stay
+in enhancement and are not needed by shim to read URL settings.
+
+### Resolve recipient identities
+
+`directory` answers: which contact mailbox belongs to this approver, and which users belong to this approver group? An approval identity is not necessarily a delivery address. Directory lookup only determines who receives email; it does not grant permission to approve, change approver slots, or change quorum.
+
+The default `acp` directory reads `auth.alauda.io/v1` User and Group resources:
+
+| ACP field | Purpose |
+| --- | --- |
+| `User.spec.email` | Existing individual approval identity selected by the console. This field is not necessarily a contact mailbox. |
+| `User.spec.username` | Additional lookup identity for manually authored approval tasks. Used only to resolve notification recipients. |
+| `User.spec.mail` | Contact mailbox used for delivery. |
+| `Group.spec.users` | Current group members, referencing User metadata names. The older `User.spec.groups` relationship is also supported. |
+
+The controller therefore needs User and Group `get`/`list` permissions. The Operator supplies these permissions. Inactive, invalid, expired, deleted, ambiguous, or mailbox-less users are skipped. Each resolved user receives one notification even when listed individually and through a group. This lookup does not change the existing console selection, displayed approval identities, or approval PATCH payloads.
+
+For a directory managed independently of ACP, create this ConfigMap in the controller namespace:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: approval-directory
+  namespace: tekton-pipelines
+data:
+  users.json: |
+    [
+      {
+        "name": "alice",
+        "mail": "alice@example.com",
+        "groups": ["release-reviewers"],
+        "disabled": false
+      }
+    ]
+```
+
+Set `directory: configmap` and `directory-configmap: approval-directory` alongside `smtp-secret`. Each `name` must match the user's approval identity. `groups` lists notification group memberships and `disabled: true` suppresses delivery to that user.
+
+## Enable notifications in a pipeline
+
+1. Add or open a **Manual Approval** task in the pipeline editor.
+2. Configure the approvers and the required approval count. Enter review instructions in **Description**; the default email includes these instructions.
+3. Enable **Email Notification** and save the pipeline.
+
+No other email task parameters are required for the built-in default email. If the server has no valid SMTP configuration, the switch is disabled and its description links to this guide. Reopen the task form after administrator configuration changes. This capability check validates the Secret format; it does not test network connectivity or send a test message.
+
+For a custom template, expand **Advanced parameters**. Template fields are hidden while notifications are disabled. The form supports template source preview and inline child fields declared by the selected template. The values preview uses native CustomRun dry-run and the same shim admission renderer used to populate mail parameters. Runtime information uses explicit examples because the pipeline has not run yet. Previewing does not persist a run, send an email, or submit a decision. A selected template can be previewed with blank optional values; hover over the subject help icon to view its default.
+
+| Task parameter | Default | Description |
+| --- | --- | --- |
+| `notifyEmail` | `false` | Sends waiting notifications when set to `true`. |
+| `renderTemplateNamespace` | `kube-public` | Namespace containing the mail ConfigMap. Must be the run namespace or an allowed shared namespace. |
+| `renderTemplateName` | `approval-mail-template-0.1` | Mail ConfigMap name. |
+| `renderTemplateValues` | Empty string | YAML values exposed as `.values`. Supports Go template expressions and accepts JSON objects for compatibility. The default template's `subject` and `extraContent` are optional. |
+
+Mail templates use labels `tekton.alaudadevops.io/template-engine: gotemplate` and `tekton.alaudadevops.io/template-type: mail`, and keys `subject.tpl`, `body.tpl`, and `contentType.tpl`. Supported content types are `text/plain` and `text/html`. HTML output is contextually escaped. Templates require no external assets in an air-gapped installation.
+
+The default template is displayed as **Approval Mail Template v0.1**. An empty subject uses `PipelineRun [<PipelineRun Name>] - Approval Required`; an empty extra content uses instructions to sign in and submit a decision. A custom subject replaces the entire default subject.
+
+For example, enter these values in the YAML editor:
+
+```yaml
+subject: Release review
+extraContent: |
+  Check the release notes.
+  Confirm the rollback procedure.
+```
+
+The renderer uses the same processing as Send Mail: render Go template expressions in the values, parse the result as YAML, and render the selected ConfigMap. The shim admission renderer supplies `.approval.name`, `.approval.description`, `.approval.required`, `.approval.url`, `.approval.duration` (approval timeout), `.detailsURL`, `.platformURL`, `.project`, `.cluster`, `.namespace`, `.pipelineRunName`, `.pipelineRunUID`, `.customRunName`, and `.startsAt`. Custom values cannot override this context. The default template accepts `.values.subject` and `.values.extraContent`. Admission occurs before the ApprovalTask exists, so the exact deadline is unavailable and `.approval.deadline` is empty. The built-in fallback email uses the actual deadline after approval starts.
+
+## Template rendering and independent delivery
+
+The catalog imports `approval-mail-template-0.1` through its ordinary ConfigMap resource
+synchronization. Artifacthub-shim extends the existing Send Mail admission rendering to
+ApprovalTask CustomRuns. It writes `subject`, `body`, and `contentType` into the CustomRun
+parameters. Enhancement validates and consumes those parameters without executing another
+configurable template engine. The same fields may also be supplied directly by the caller;
+enhancement uses any complete valid set regardless of whether shim produced it.
+
+The shim chart setting `extension.templateRender.sharedTemplateNamespaces` defaults to
+`[kube-public]`. The run namespace is always permitted; set an explicit empty list to permit
+only run-local templates. The admission caller must also have ConfigMap `get` permission
+for the exact selected template, `get` on the parent PipelineRun, and `get`/namespace-scoped
+`list` on child TaskRuns and CustomRuns used by the template context. A local Pipeline or Task
+needs `get` when no resolved run snapshot exists. Unauthorized context reads or missing remote
+snapshots discard only the shim-generated rendering and retain any caller fields. Enhancement
+uses the built-in email only when the current fields are missing, partial, or invalid; approval
+rendering never submits remote resolution requests. These rules apply to both
+CREATE and dry-run preview. Configure template access in shim independently of SMTP settings.
+
+If shim is absent, unreachable, or cannot render the template, enhancement preserves and uses
+complete valid caller fields when present. Missing, partial, or invalid fields use a built-in
+plain text email containing the run, project, approval instructions, actual deadline, and
+approval link. The `template-render-error` annotation is diagnostic only; the legacy
+`template-render-success` annotation is not a delivery authorization signal.
+Template rendering customizations and preview require shim; default or directly authored
+notification delivery requires only SMTP and the recipient directory.
+
+## Verify the result
+
+Start a PipelineRun that reaches the approval step. Pending approvers with valid directory mailboxes receive the notification. Follow its link, sign in if necessary, and confirm that the existing run details page opens the **Approvals** tab. Submit a decision through the normal approval form.
+
+Opening or previewing a link does not cast a vote. The notification controller sends email only for approvals owned by a live PipelineRun; standalone CustomRuns have no PipelineRun details target.
+
+## Troubleshoot delivery
+
+Open the PipelineRun **Events** tab or inspect the ApprovalTask and parent PipelineRun:
+
+```bash
+kubectl -n <run-namespace> describe approvaltask <approval-task-name>
+kubectl -n <run-namespace> describe pipelinerun <pipeline-run-name>
+```
+
+Manual Approval uses a CustomRun and an ApprovalTask. It does not create an approval TaskRun or step Pod. The notification controller writes diagnostics to the ApprovalTask and to the live parent PipelineRun, allowing users to use the existing run Events view.
+
+| Event reason | Check |
+| --- | --- |
+| `SMTPNotConfigured`, `ConfigurationUnavailable` | `approval-notification.smtp-secret` and the YAML in `tektoncd-enhancement-config.data.config`. |
+| `SMTPConfigurationUnavailable` | Secret existence, installation namespace, and controller read permission. |
+| `SMTPConfigurationInvalid` | Required Secret fields, port range, sender address, paired credentials, TLS mode, verification flag, and CA format. |
+| `SMTPConnectionFailed` | DNS, host, port, NetworkPolicy, and relay availability. |
+| `SMTPTLSNegotiationFailed` | TLS mode, private CA trust, server certificate names, and `smtp-ssl-verify`. |
+| `SMTPAuthenticationFailed` | SMTP username and password, and relay support for AUTH PLAIN or LOGIN over TLS. |
+| `SMTPSenderRejected` | Sender address and relay sender policy. |
+| `SMTPRecipientRejected` | Directory mailbox and relay recipient policy. |
+| `SMTPDataRejected`, `SMTPAcceptanceFailed` | Relay DATA policy, message size limits, and relay logs. |
+| `DirectoryUnavailable`, `RecipientsSkipped` | Directory configuration, User/Group permissions, active identities, contact mailboxes, and current group membership. |
+| `ApprovalURLUnavailable` | Platform URL, details URL template, and namespace project/cluster labels. |
+| `TemplateRenderUnavailable`, `TemplateRenderInvalid` | A built-in default email is sent. For custom templates, inspect the CustomRun template-render-error annotation, shim configuration, template reference, labels, keys, and values YAML. |
+| `DeliveryRetryScheduled` | Receipt ConfigMap write permissions in the controller namespace, directory availability, and current approval state. |
+
+Messages identify the failed stage and a corrective action. They exclude credentials, recipient addresses, template bodies, and raw SMTP server replies. Ask the relay administrator for detailed protocol errors when needed. Kubernetes Events expire according to the cluster's Event retention settings.
+
+The controller persists per-recipient retry state. Transport failures retry after 30 seconds, doubling up to one hour, including across controller restarts. A user's committed approve or reject decision stops further notifications to that user, including through another pending group or individual slot. Group member decisions are committed only when the parent group input is `approve`, following the approval gate's rules. Successfully accepted recipients are normally not resent; a lost SMTP acceptance reply or receipt-write failure can still cause duplicates. Approval or parent run completion, cancellation, expiry, or deletion stops further sending.
+
+Mail failure does not change the approval decision, block manual approval, or delay resource deletion. Users can continue through the normal approval form while administrators repair delivery.
+
+For the core task behavior, parameters, approval counting, and examples, open the Manual Approval Task description in the console. Its English and Chinese READMEs ship with the frontend and also appear when selecting the Task in the pipeline editor.
+
+## Related information
+
+- [Configure enhancement features through TektonConfig](./configure-tektoncd-enhancement-configmap.mdx)
+- [Use manual approval in a pipeline](../pipelines/how_to/manual_approval_gate.mdx)

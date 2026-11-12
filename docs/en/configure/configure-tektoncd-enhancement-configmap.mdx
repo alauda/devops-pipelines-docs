@@ -4,6 +4,8 @@ weight: 14
 
 # Configure Enhancement Features via TektonConfig
 
+For approval email, see [Configure Approval Email](./approval-email.mdx).
+
 This guide shows how to manage enhancement feature configuration through `TektonConfig` using `spec.pipeline.options.configMaps`.
 
 For self-signed or private-CA Git providers, configure the CA trust for the Enhancement and PAC controllers separately from the provider-side webhook verification setting. See [Configure Custom Certificates](../pac/install/configure_custom_certificates.mdx) for the complete certificate mounting examples.
@@ -38,6 +40,12 @@ spec:
           data:
             config: |
               # Shared configuration for enhancement features.
+              approval-notification:
+                smtp-secret: "" # empty disables mail
+                directory: acp
+                directory-configmap: ""
+                platform-url: "" # falls back to kube-public/global-info
+                details-url-template: "" # inherits template-render.details-url-template
               template-render:
                 # Template to build the details URL.
                 details-url-template: "{{- if .isPipelineRun -}}{{ .platformURL }}/console-acp/workspace/{{ .project }}~{{ .cluster }}~{{ .namespace }}/pipeline/pipelineRuns/detail/{{ .pipelineRunName }}{{- else -}}{{ .platformURL }}/console-acp/workspace/{{ .project }}~{{ .cluster }}~{{ .namespace }}/pipeline/taskRuns/detail/{{ .taskRunName }}{{- end -}}"

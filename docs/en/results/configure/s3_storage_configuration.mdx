@@ -80,9 +80,17 @@ Before configuring Tekton Results, ensure you have:
 - Valid access credentials with appropriate permissions (read, write, delete)
 - Network connectivity from your Kubernetes cluster to the S3 endpoint
 
-### 2. Create S3 Credentials Secret
+### 2. Select or Create an S3 Credentials Secret \{#select-or-create-s3-secret}
 
-Create a Kubernetes Secret containing your S3 credentials and configuration:
+List Secrets containing S3 bucket configuration in the Pipelines target namespace. Replace `tekton-pipelines` if `spec.targetNamespace` is different. The command prints names only:
+
+```bash
+kubectl get secret -n tekton-pipelines -o jsonpath='{range .items[?(@.data.S3_BUCKET_NAME)]}{.metadata.name}{"\n"}{end}'
+```
+
+If a suitable Secret exists, use its name for `spec.result.secret_name` and continue to [Configure TektonConfig Resource](#configure-tektonconfig-resource). If multiple Secrets are listed, select the one configured for the S3 endpoint and bucket used by Tekton Results.
+
+If no suitable Secret exists, create one using the following example. Replace `my-s3-secret` with your chosen name and update the namespace and S3 connection parameters:
 
 ```yaml
 apiVersion: v1
@@ -138,47 +146,45 @@ stringData:
    my-s3-secret   Opaque   7      5m
    ```
 
-### 3. Configure TektonConfig Resource
+### 3. Configure TektonConfig Resource \{#configure-tektonconfig-resource}
 
-Enable S3 storage in your TektonConfig configuration:
+The Operator creates the `TektonConfig` named `config`. Merge the required `spec.result` fields into that resource to preserve other configuration.
 
-```yaml
-apiVersion: operator.tekton.dev/v1alpha1
-kind: TektonConfig
-metadata:
-  name: config
-spec:
-  result:
-    # Enable logs API and specify S3 as storage type
-    logs_api: true
-    logs_type: S3
-    
-    # Reference the S3 credentials secret
-    secret_name: my-s3-secret
-    
-    # External database (required: the built-in PostgreSQL database is not supported)
-    is_external_db: true
-    db_host: your-postgres-host.example.com
-    db_port: 5432
-    db_name: tekton_results
-    db_sslmode: require
-    db_secret_name: tekton-results-postgres
-```
+| Field | Required Configuration |
+| --- | --- |
+| `disabled` | Set to `false` to install Tekton Results. Omitting this field preserves its current value, including `true`. |
+| `logs_api` / `logs_type` | Set to `true` / `S3`. |
+| `secret_name` | Use the Secret selected or created in the preceding step. |
+| `is_external_db` | Set to `true`; the built-in PostgreSQL database is not supported. |
+| Database fields | Provide valid connection details, or omit fields that are already configured. Preserve existing TLS settings unless intentionally updating them. See [Database Configuration](./database_configuration.mdx). |
 
-:::tip
-This sample combines the S3 storage configuration with the external database configuration, which is required because the built-in PostgreSQL database is not supported.
-:::
+### 4. Apply the Configuration \{#4-apply-the-configuration}
 
-### 4. Apply the Configuration
+1. **Prepare the merge patch**. Save the following YAML as `tekton-results-s3-patch.yaml`. Set `secret_name` to the selected Secret. Replace the database placeholders with valid values, or remove database fields that should retain their existing values:
 
-1. **Apply the TektonConfig configuration**:
-   ```bash
-   kubectl apply -f tekton-config-s3-config.yaml
+   ```yaml
+   spec:
+     result:
+       disabled: false
+       logs_api: true
+       logs_type: S3
+       secret_name: <s3-secret-name>
+       is_external_db: true
+       db_host: <database_host>
+       db_port: 5432
+       db_name: <database_name>
+       db_secret_name: tekton-results-postgres
    ```
-   
+
+   Apply the prepared patch:
+
+   ```bash
+   kubectl patch tektonconfig config --type merge --patch-file tekton-results-s3-patch.yaml
+   ```
+
    **Example Output:**
    ```
-   tektonconfig.operator.tekton.dev/config configured
+   tektonconfig.operator.tekton.dev/config patched
    ```
 
 2. **Wait for the components to restart**:
@@ -215,6 +221,8 @@ This sample combines the S3 storage configuration with the external database con
 
 ## Advanced Configuration
 
+The examples in this section are configuration references. Adapt their Secret names and connection details to your installation. Merge the relevant `spec.result` fields into the existing `TektonConfig` as shown in [Apply the Configuration](#4-apply-the-configuration), rather than applying a partial `TektonConfig` manifest.
+
 ### Custom Multipart Size
 
 For optimizing upload performance, you can adjust the multipart size:
@@ -233,9 +241,9 @@ When using Ceph as your S3-compatible storage:
 - Use the correct endpoint URL provided by your Ceph cluster
 - Ensure your Ceph RGW (RADOS Gateway) is properly configured for S3 compatibility
 
-### Complete Production Configuration Example
+### Production Configuration Reference
 
-Complete configuration combining S3 storage and external database with detailed explanations:
+The following reference shows S3 and external database fields together. Select the required fields for your merge patch:
 
 ```yaml
 ---
@@ -277,7 +285,7 @@ spec:
     secret_name: tekton-results-s3-credentials  # S3 credentials
 ```
 
-### MinIO-Specific Configuration Example
+### MinIO Configuration Reference
 
 Configuration example for MinIO object storage:
 
@@ -511,7 +519,7 @@ tekton-results-watcher-6b4f7c8d5-z3n4p    1/1     Running   0          10m
 ### Naming Conventions
 
 - Use descriptive bucket names that include environment information (e.g., `tekton-logs-prod`, `tekton-logs-staging`)
-- Apply consistent naming for secrets (e.g., `tekton-results-s3-credentials`)
+- Use descriptive Secret names and reference the same name in `spec.result.secret_name`.
 - Include environment-specific prefixes when running multiple instances
 - Use clear, consistent naming for configuration resources
 

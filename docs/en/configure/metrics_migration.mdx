@@ -1,0 +1,288 @@
+---
+weight: 61
+---
+
+# Migrate Metrics from OpenCensus to OpenTelemetry
+
+## Overview
+
+Starting with version 4.14, the Pipelines plugin uses OpenTelemetry for metrics export. Some metric names, labels, and types have changed, and `metrics.backend-destination` is no longer recognized. Update the affected monitoring configuration, dashboard queries, and alert expressions using the mappings below.
+
+This guide applies to upgrades from versions earlier than 4.14, including 4.10 and 4.12. For current metric definitions, `ServiceMonitor` manifests, and dashboard examples, see [Metrics Collection](./metrics_collection.mdx).
+
+The configuration and metric reference covers Pipelines, Triggers, Results, Chains, Pipelines as Code, Pruner, and the Operator. Manual Approval Gate does not expose a metrics endpoint; see [Manual Approval Gate](./metrics_collection.mdx#manual-approval-gate).
+
+## Before You Begin
+
+- Review custom observability configuration, dashboard queries, and alert expressions that use the old keys or metrics.
+- Ensure you have permission to update the relevant configuration and restart component Pods. See [Metrics Collection Prerequisites](./metrics_collection.mdx#prerequisites).
+- Plan for counter resets and new time series during the upgrade. Old and new metric names are not exported together, and dashboards and alerts are not rewritten automatically.
+
+## Migration Steps
+
+1. Update custom exporter settings using [Configuration Changes](#config-keys). Keep `metrics-protocol: prometheus` when using Prometheus scraping.
+2. Update affected queries using [Metric Changes](#metric-changes) and [Dashboard and Alert Updates](#dashboards-and-alerts).
+3. After upgrading to version 4.14 or later, restart components whose exporter configuration changed. Changing a Pipeline duration type also requires an immediate controller restart.
+4. Complete [Verification](#check-the-new-series) for each component and validate the affected dashboards and alert expressions.
+
+## Configuration Changes \{#config-keys}
+
+Configure component keys through the `TektonConfig` paths below. Configure the Operator's own ConfigMap directly in `tekton-operator`. The old `metrics.backend-destination` key is no longer recognized; replace custom settings that use it.
+
+| Component | ConfigMap | Configuration Location | Previous Setting | Current Setting |
+| --- | --- | --- | --- | --- |
+| Pipelines | `config-observability` | `spec.pipeline.options.configMaps` | `metrics.backend-destination` | `metrics-protocol` |
+| Triggers | `config-observability-triggers` | `spec.trigger.options.configMaps` | `metrics.backend-destination` | `metrics-protocol` |
+| Results watcher | `tekton-results-config-observability` | `spec.result.options.configMaps` | `metrics.backend-destination` | `metrics-protocol` |
+| Chains | `tekton-chains-config-observability` | `spec.chain.options.configMaps` | `metrics.backend-destination` | `metrics-protocol` |
+| Pruner | `config-observability-tekton-pruner` | `spec.tektonpruner.options.configMaps` | `metrics.backend-destination` | `metrics-protocol` |
+| Operator | `tekton-config-observability` | namespace `tekton-operator` | `metrics.backend-destination` | `metrics-protocol` |
+| Pipelines as Code | `pipelines-as-code-config-observability` | `spec.platforms.kubernetes.pipelinesAsCode.options.configMaps` | `K_METRICS_CONFIG` and `metrics.backend-destination` | `CONFIG_OBSERVABILITY_NAME` and `metrics-protocol` |
+
+These ConfigMaps are in the Pipelines target namespace (`tekton-pipelines` unless `spec.targetNamespace` is different), except the Operator ConfigMap, which is in `tekton-operator`.
+
+The legacy keys `metrics.stackdriver-project-id`, `metrics.allow-stackdriver-custom-metrics`, and `metrics.request-metrics-backend-destination` are no longer recognized. Configure `metrics-protocol: prometheus` to retain Prometheus export.
+
+### Pipelines as Code
+
+From 4.14, the controller and the watcher read `CONFIG_OBSERVABILITY_NAME=pipelines-as-code-config-observability`. Set `metrics-protocol` in that ConfigMap. `K_METRICS_CONFIG` is not set, and a value left only there is not read.
+
+Before 4.14, the controller did not read `CONFIG_OBSERVABILITY_NAME`. Its `K_METRICS_CONFIG` environment variable specified the ConfigMap `pipelines-as-code-config-observability`, Prometheus port `9090`, domain `pipelinesascode.tekton.dev/controller`, and component `pac_controller`. That ConfigMap used `metrics.backend-destination`.
+
+Use the exported names listed in [Pipelines as Code](./metrics_collection.mdx#pipelines-as-code), including the `_total` suffix. The Prometheus label is `event_type`; update filters that use `event-type`. The current endpoints do not export `pipelines_as_code_running_pipelineruns_count`.
+
+### `metrics-protocol`
+
+| Value | Effect |
+| --- | --- |
+| `prometheus` | Serve Prometheus text on the metrics port. This is the shipped value. |
+| `grpc` | Export OTLP over gRPC. Set `metrics-endpoint`. |
+| `http/protobuf` | Export OTLP over HTTP. Set `metrics-endpoint`. |
+| `none` | Do not export metrics. |
+
+The installation manifests configure `metrics-protocol: prometheus`, including for the Results watcher. This configured value differs from the default when the key is omitted:
+
+| Components | Configured by the Operator | Default When Unset |
+| --- | --- | --- |
+| Pipelines, Triggers, Chains, Pipelines as Code, Pruner, Operator | `prometheus` | `none` |
+
+Retain an explicit `metrics-protocol: prometheus` when updating custom configurations. Omitting the key on these components disables metrics export after restart.
+
+`metrics-endpoint` and `metrics-export-interval` apply to `grpc` and `http/protobuf`. For `prometheus`, Pipelines as Code uses `metrics-endpoint` as the listen address. The shipped value is `:9090`.
+
+These exporter keys are read when the process starts. Restart the component Pod after you change them. The restart is described in [Metrics Collection](./metrics_collection.mdx#config-observability-configuration).
+
+### Tracing and Runtime Configuration
+
+Pipelines, Triggers, Pruner, the Operator, and Pipelines as Code also accept these keys. Chains and the Results watcher example blocks document the metrics exporter keys above, not these tracing and runtime keys.
+
+The following values are configuration examples, not a list of defaults for omitted keys:
+
+| Key | Allowed Values | Example Value |
+| --- | --- | --- |
+| `tracing-protocol` | `grpc`, `http/protobuf`, `none`, `stdout` | `none` |
+| `tracing-endpoint` | OTLP endpoint | empty |
+| `tracing-sampling-rate` | `0.0` to `1.0` | `0.0` to disable sampling |
+| `runtime-profiling` | `enabled`, `disabled` | `disabled` |
+| `runtime-export-interval` | Go duration | `15s` |
+
+Pipelines as Code lists `grpc`, `http/protobuf`, and `none` for `tracing-protocol`. It does not list `stdout`.
+
+## Metric Changes \{#metric-changes}
+
+### Renamed Infrastructure Metrics \{#renamed-infrastructure-metrics}
+
+The core metric names `tekton_pipelines_controller_pipelinerun_duration_seconds`, `tekton_pipelines_controller_pipelinerun_total`, and `tekton_pipelines_controller_taskrun_total` are unchanged.
+
+Infrastructure metrics dropped the component prefix. The same new name is now used by every component. Distinguish components by the scrape target. Workqueue series also have a `name` label set to the full reconciler path, for example `github.com.tektoncd.pipeline.pkg.reconciler.pipelinerun.Reconciler`, not `pipelinerun`.
+
+Replace `<prefix>` with the old component prefix:
+
+| Old prefix | Component |
+| --- | --- |
+| `tekton_pipelines_controller_` | Pipelines controller |
+| `controller_` | Triggers controller |
+| `watcher_` | Results watcher and Chains |
+| `eventlistener_` | EventListener sink |
+
+| Previous Metric Name | Current Metric Name | Current Type |
+| --- | --- | --- |
+| `<prefix>workqueue_adds_total` | `kn_workqueue_adds_total` | Counter |
+| `<prefix>workqueue_depth` | `kn_workqueue_depth` | Gauge |
+| `<prefix>workqueue_queue_latency_seconds` | `kn_workqueue_queue_duration_seconds` | Histogram |
+| `<prefix>workqueue_work_duration_seconds` | `kn_workqueue_process_duration_seconds` | Histogram |
+| `<prefix>workqueue_retries_total` | `kn_workqueue_retries_total` | Counter |
+| `<prefix>workqueue_unfinished_work_seconds` | `kn_workqueue_unfinished_work_seconds` | Gauge |
+| `<prefix>client_latency` | `http_client_request_duration_seconds` | Histogram |
+| `<prefix>client_results` | `kn_k8s_client_http_response_status_code_total` | Counter |
+| `<prefix>go_*` | `go_*` | unchanged |
+
+`kn_workqueue_unfinished_work_seconds` was a histogram under the old prefix. It is a gauge now. Do not call `histogram_quantile` on it.
+
+`go_goroutines` and `go_memstats_alloc_bytes` are exported without a component prefix. Use the `go_*` and `process_*` names as exposed by the endpoint.
+
+Chains signing names are unchanged. They are listed in [Chains Metrics](./metrics_collection.mdx#chains-metrics).
+
+### Counter Suffix Changes \{#counter-suffix}
+
+Some counters gained a `_total` suffix. A query that omits it does not match.
+
+| Old name | New name |
+| --- | --- |
+| `eventlistener_event_received_count` | `eventlistener_event_received_total` |
+| `eventlistener_triggered_resources` | `eventlistener_triggered_resources_total` |
+| `watcher_pipelinerun_delete_count` | `watcher_pipelinerun_delete_count_total` |
+| `watcher_taskrun_delete_count` | `watcher_taskrun_delete_count_total` |
+| `watcher_runs_not_stored_count` | `watcher_runs_not_stored_count_total` |
+
+The existing `tekton_pipelines_controller_pipelinerun_total` and `tekton_pipelines_controller_taskrun_total` names retain their single `_total` suffix.
+
+#### Current Pipelines as Code Metrics
+
+Use these exported names for version 4.14 and later:
+
+- `pipelines_as_code_pipelinerun_count_total`
+- `pipelines_as_code_pipelinerun_duration_seconds_sum_total`
+- `pipelines_as_code_git_provider_api_request_count_total`
+
+For descriptions and labels, see [Pipelines as Code](./metrics_collection.mdx#pipelines-as-code).
+
+The Pruner series `tekton_pruner_controller_*` are new in 4.14. They are not renames. See [Pruner](./metrics_collection.mdx#pruner).
+
+Results deletion counters appear only when the watcher deletes a run. See [Metrics Collection](./metrics_collection.mdx).
+
+### Removed Metrics \{#removed-metrics}
+
+The following metrics are no longer exported. Update affected rules to use the alternatives below, accounting for differences in meaning. Review rules without a direct replacement before removing them.
+
+| Removed | Replacement |
+| --- | --- |
+| `<prefix>reconcile_count` | `kn_workqueue_adds_total` for that reconciler. This counts queue adds, not successful reconciles. |
+| `<prefix>reconcile_latency` | `kn_workqueue_process_duration_seconds` |
+| `<prefix>workqueue_longest_running_processor_seconds` | none |
+| `pipelines_as_code_running_pipelineruns_count` | none |
+
+The Operator endpoint does not export these series either:
+
+- `tekton_operator_lifecycle_pipeline_reconcile_total`
+- `tekton_operator_lifecycle_trigger_reconcile_total`
+- `tekton_operator_lifecycle_chains_reconciled_total`
+- `tekton_operator_lifecycle_results_reconciled`
+
+The Operator does export the shared controller metrics in the rename table, on Service `tekton-operator` port `9090`.
+
+Manual Approval Gate does not expose a metrics endpoint. The Operator workqueue named `github.com.tektoncd.operator.pkg.reconciler.kubernetes.manualapprovalgate.Reconciler` measures the Operator's reconciliation of that component, not approval activity. Metrics prefixed with `tektoncd_enhancement_*` do not measure approval activity either.
+
+### Pod Latency \{#pod-latency}
+
+`tekton_pipelines_controller_taskruns_pod_latency_milliseconds` was a gauge and had a `pod` label. It is a histogram, and it has no `pod` label. A query grouped by `pod`, or a query that reads the series as a gauge, returns no data.
+
+The histogram buckets, in milliseconds, are `5`, `10`, `25`, `50`, `100`, `250`, `500`, `1000`, `2500`, `5000`, and `10000`.
+
+P95 over the last five minutes:
+
+```text
+histogram_quantile(0.95,
+  sum by (le) (
+    rate(tekton_pipelines_controller_taskruns_pod_latency_milliseconds_bucket[5m])
+  )
+)
+```
+
+Keep `sum by (le)` when you do not need another label. The `task` and `taskrun` labels still follow `metrics.taskrun.level`, as described in [Metrics Collection](./metrics_collection.mdx#config-observability-configuration).
+
+## Dashboard and Alert Updates \{#dashboards-and-alerts}
+
+Update infrastructure queries and Pod latency queries that use the former gauge or `pod` label. Retain unchanged PipelineRun and TaskRun metric names.
+
+Workqueue depth:
+
+```text
+# before
+tekton_pipelines_controller_workqueue_depth > 100
+
+# after
+kn_workqueue_depth{name=~"github.com.tektoncd.pipeline.pkg.reconciler.(pipelinerun|taskrun).Reconciler"} > 100
+```
+
+The `name` value is the full reconciler path. `name="pipelinerun"` does not match.
+
+Client latency:
+
+```text
+# before
+histogram_quantile(0.95,
+  sum by (le) (rate(tekton_pipelines_controller_client_latency_bucket[5m]))
+)
+
+# after
+histogram_quantile(0.95,
+  sum by (le) (rate(http_client_request_duration_seconds_bucket[5m]))
+)
+```
+
+`http_client_request_duration_seconds` has the same name on every scraped component. Add a target label from your scrape config when the panel must show one component.
+
+EventListener events:
+
+```text
+# before
+increase(eventlistener_event_received_count[5m])
+
+# after
+increase(eventlistener_event_received_total[5m])
+```
+
+PipelineRun success rate, unchanged:
+
+```text
+100 * sum(tekton_pipelines_controller_pipelinerun_total{status="success"})
+  / clamp_min(sum(tekton_pipelines_controller_pipelinerun_total), 1)
+```
+
+The Pipeline `MonitorDashboard` sample in [Metrics Collection](./metrics_collection.mdx#monitordashboard-examples) already uses the new infrastructure names. Its first panel is:
+
+```text
+sum by (status) (tekton_pipelines_controller_pipelinerun_total)
+```
+
+If you applied an older version of the dashboard, update its workqueue and client queries. The PipelineRun metric names remain unchanged.
+
+Queries based on `tekton_pipelines_controller_pipelinerun_duration_seconds_count` and `tekton_pipelines_controller_pipelinerun_duration_seconds_sum` do not require a metric rename. For per-pipeline statistics, keep `metrics.pipelinerun.level: pipeline` and `metrics.pipelinerun.duration-type: histogram`.
+
+## Verification \{#check-the-new-series}
+
+1. Confirm that `metrics-protocol` is `prometheus` for each component being scraped and that exporter changes have taken effect after restart.
+2. Verify that the component's `ServiceMonitor` is selected and its target is healthy. See [Setting Up ServiceMonitor](./metrics_collection.mdx#setting-up-servicemonitor).
+3. Query a renamed infrastructure metric, such as:
+
+   ```text
+   http_client_request_duration_seconds_bucket
+   ```
+
+   Filter by the target labels for the component being verified. A recent sample confirms that the renamed metric is being collected from that component.
+
+4. Complete a PipelineRun and query the business metrics:
+
+   ```text
+   sum by (status) (tekton_pipelines_controller_pipelinerun_total)
+   ```
+
+   ```text
+   sum(tekton_pipelines_controller_pipelinerun_duration_seconds_count)
+   ```
+
+   These names are unchanged. Non-empty results confirm business-metric collection, but do not independently verify the migration.
+
+5. Validate the updated dashboard panels and alert expressions over a time range after the upgrade. Confirm that target and workqueue label filters select the intended components.
+
+If a query returns no data, check target selection, endpoint availability, label filters, and whether the activity that records the metric has occurred. See [Metrics Collection Verification](./metrics_collection.mdx#verification).
+
+## Upgrade Considerations \{#upgrade-notes}
+
+- The metric names in this guide apply to version 4.14 and later. Update queries written for earlier versions using the relevant mappings.
+- Counters reset when the component Pod restarts. Account for resets when interpreting data across the upgrade.
+- Renamed metrics create new time series. Queries using only the new name do not include samples stored under the old name before the upgrade.
+- `kn_*` and `http_client_*` names are shared across components. Filter by the scrape target or, where applicable, the workqueue `name` label.
+- Changing `metrics.pipelinerun.duration-type` or `metrics.taskrun.duration-type` still requires a restart of `tekton-pipelines-controller`. Without that restart, the next completed run makes the metrics endpoint return HTTP 500. See [Metrics Collection](./metrics_collection.mdx#config-observability-configuration).
+- Air-gapped installations use the same in-cluster metrics endpoints and ports.

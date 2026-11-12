@@ -11,7 +11,7 @@ This document explains how to install Tekton Results using an **existing databas
 :::note
 Currently, the built-in PostgreSQL database is not supported, please use an external database.
 
-About external database please refer to [Using PostgreSQL from Data Services](./configure/database_configuration.mdx#using-postgresql-from-data-services)
+Configure `db_host` and `db_name` for an existing external PostgreSQL database. See [Database Configuration](./configure/database_configuration.mdx).
 :::
 
 :::tip
@@ -45,7 +45,7 @@ Tekton Results supports storing logs in various storage backends. **S3-compatibl
    read -rs DB_PASSWORD
    ```
 
-   Then create the `Secret`. `unset` removes the password from the shell after the `Secret` is created:
+   Create the `Secret` if it does not already exist in the target namespace; otherwise, reuse it. Afterward, run `unset DB_PASSWORD` to remove the password from the shell.
 
    ```bash
    kubectl create secret generic tekton-results-postgres --namespace="tekton-pipelines" --from-literal=POSTGRES_USER=<your_username> --from-literal=POSTGRES_PASSWORD="$DB_PASSWORD"
@@ -74,7 +74,7 @@ Tekton Results supports storing logs in various storage backends. **S3-compatibl
       If your `openssl` version is too low and does not support some parameters, please upgrade your `openssl` version from [openssl binaries](https://github.com/openssl/openssl/wiki/Binaries) .
       :::
 
-   - Create a new TLS Secret from the certificate.
+   - Create the TLS Secret if `tekton-results-tls` does not already exist in the target namespace; otherwise, reuse the existing Secret.
 
       ```sh
       kubectl create secret tls -n tekton-pipelines tekton-results-tls \
@@ -107,12 +107,30 @@ Tekton Results supports storing logs in various storage backends. **S3-compatibl
    ```
 
    - Please adjust the PVC size as needed.
-   - The sample sets no `storageClassName`, so the PVC uses the default StorageClass of the cluster, which `kubectl get storageclass` marks with `(default)`. If the cluster has none, add `storageClassName: <storage-class>` to `spec`; without a StorageClass the PVC can stay `Pending`.
-   - Note: This is only required if using the legacy File storage type.
+   - The sample omits `storageClassName`. For dynamic provisioning, verify that the cluster has a suitable default StorageClass, marked `(default)` by `kubectl get storageclass`, or specify a suitable class in the claim.
+   - A StorageClass with provisioner `kubernetes.io/no-provisioner` requires a matching, separately provisioned PersistentVolume.
+   - Check the claim before applying the File configuration:
+
+     ```sh
+     kubectl get pvc tekton-logs -n tekton-pipelines -o jsonpath='{.status.phase}{" "}{.spec.storageClassName}{"\n"}'
+     kubectl get storageclass -o custom-columns='NAME:.metadata.name,BINDING:.volumeBindingMode,DEFAULT:.metadata.annotations.storageclass\.kubernetes\.io/is-default-class'
+     ```
+
+     Use the claim's `storageClassName`. When that field is empty, use the StorageClass marked `true` in `DEFAULT`.
+
+     A `Bound` claim can be used immediately. If the claim is `Pending` and its StorageClass uses `volumeBindingMode: WaitForFirstConsumer`, read the claim events before treating that as a failure. When those events do not report a provisioning failure, the claim is waiting for its first consumer. The Results API Pod is that consumer. It is created only after you apply the File configuration below, because it mounts `logging_pvc_name`. Apply the configuration, then wait until the claim is `Bound` and Tekton Results is Ready.
+     Stop without applying the File configuration when the claim has no StorageClass and the cluster has no default class, when the class uses `kubernetes.io/no-provisioner` and no matching PersistentVolume is available, or when the claim events report a provisioning failure. `kubectl describe pvc tekton-logs -n tekton-pipelines` shows those events.
+   - S3 storage does not require this PVC. Keep existing S3 installations configured as described in [S3 Storage Configuration](./configure/s3_storage_configuration.mdx).
 
 ### Installing using operator CRD \{#installing-using-operator-crd}
 
 The operator already created the `TektonConfig` named `config`. Merge the following `spec.result` fields into it; `disabled: false` installs Tekton Results. The merge keeps the other `TektonConfig` fields, including `spec.targetNamespace`, the namespace where Tekton Results is deployed.
+
+:::warning
+Replace the database placeholders with valid connection details, or omit those fields to preserve existing values. Applying placeholder values overwrites the current database configuration.
+
+Apply this File configuration when `tekton-logs` is `Bound`, or when it is `Pending` only because its StorageClass uses `volumeBindingMode: WaitForFirstConsumer` and the claim events do not report a provisioning failure. After applying it in the delayed-binding case, wait until the claim is `Bound` and Tekton Results is Ready. For an existing S3 installation, use [S3 Storage Configuration](./configure/s3_storage_configuration.mdx#configure-tektonconfig-resource) and retain `logs_type: S3`.
+:::
 
 ```sh
 cat <<EOF > tekton-results-patch.yaml
@@ -139,7 +157,7 @@ spec:
     logs_type: File
     logging_pvc_name: tekton-logs
     # logs_type: S3  # Recommended: S3-compatible storage for scalable log retention
-    # secret_name: tekton-results-s3-credentials  # Secret containing S3 credentials
+    # secret_name: <s3-secret-name>  # Existing Secret for the target S3 bucket
     logs_path: /logs
     logs_buffer_size: 92160
     # S3 storage does not require PVC, unlike legacy File storage
@@ -169,7 +187,7 @@ kubectl patch tektonconfig config --type merge --patch-file tekton-results-patch
   - `logs_type`: The type of the logs.
     - `File`: Store logs in a file (not recommended for production use).
     - `S3`: Store logs in S3-compatible object storage (e.g., AWS S3, Ceph, MinIO). **This is the recommended approach** for scalable and durable log retention. For detailed configuration, see the [S3 Storage Configuration Guide](./configure/s3_storage_configuration.mdx).
-  - `secret_name`: The name of the secret containing the S3 account information. For detailed configuration, see the [S3 Storage Configuration Guide](./configure/s3_storage_configuration.mdx).
+  - `secret_name`: The name of the Secret containing credentials for the target S3 bucket. See [Select or Create an S3 Credentials Secret](./configure/s3_storage_configuration.mdx#select-or-create-s3-secret).
   - `logs_path`: The path of the logs.
   - `logs_buffer_size`: The buffer size of the logs.
   - `logging_pvc_name`: The name of the PVC to store the logs (only required when using legacy File storage type).
@@ -194,6 +212,10 @@ tekton-results-watcher-6d7c68f576-p2gbl                 1/1     Running   0     
 ### Verify Functionality \{#verify-functionality}
 
 Functionality can be verified through a simple taskrun.
+
+:::note
+This sample verifies archiving with a `TaskRun`. To validate **Pipelines** > **Overview**, follow [Verify Archived Statistics](../pipelines/how_to/enable_pipeline_metrics.mdx#verify-archived-statistics), which uses a `PipelineRun` in the namespace selected in the console.
+:::
 
 #### 1. Create a `TaskRun` resource
 

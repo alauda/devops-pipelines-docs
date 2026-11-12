@@ -9,7 +9,7 @@ This document describes how to configure the database required for Tekton Result
 :::note
 Currently, the built-in PostgreSQL database is **not supported**. Tekton Results must be configured with an external PostgreSQL database (`is_external_db: true`).
 
-Our Data Services product already provides comprehensive PostgreSQL management capabilities.
+Configure `db_host` and `db_name` for your external PostgreSQL database. The database can be managed by Data Services or another provider.
 :::
 
 ## Prerequisites
@@ -92,6 +92,8 @@ data:
 ```
 
 ### 2. Configure TektonConfig Resource
+
+Use the host address and database name provided by your database administrator. Replace the example values before applying configuration changes. When updating an existing `TektonConfig`, omit database fields that should retain their current values and merge the required fields as described in [Quick Start](../quick_start.mdx#installing-using-operator-crd).
 
 ```yaml
 apiVersion: operator.tekton.dev/v1alpha1
@@ -305,6 +307,8 @@ kubectl get secret -n <ns-of-postgresql-instance> -l middleware.instance/type=Po
 ```
 
 :::info
+
+If the command returns no matching Secret, verify the namespace of the Data Services PostgreSQL instance. For a database managed outside Data Services, obtain the connection details from its administrator. Data Services discovery is optional when those details are already available.
 
 This Secret contains `host`, `port`, `username`, `password` information. You need to supplement `database` information based on this Secret, and create a new secret in the namespace where the Tekton Results instance is located.
 
